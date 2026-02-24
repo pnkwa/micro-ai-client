@@ -1,6 +1,8 @@
+// For more info, see https://github.com/storybookjs/eslint-plugin-storybook#configuration-flat-config-format
+import storybook from 'eslint-plugin-storybook'
+
+// @ts-check
 import withNuxt from './.nuxt/eslint.config.mjs'
-import prettier from 'eslint-plugin-prettier'
-import prettierConfig from 'eslint-config-prettier'
 
 export default withNuxt(
     {
@@ -15,20 +17,16 @@ export default withNuxt(
             '**/*.d.ts',
         ],
     },
-    prettierConfig,
     {
-        plugins: {
-            prettier,
-        },
         rules: {
-            'prettier/prettier': 'error',
-
+            // error rule
             'no-console': 'error',
             'vue/v-slot-style': 'error',
             'vue/v-on-style': 'error',
             'vue/prop-name-casing': 'error',
             'no-unused-vars': 'off',
 
+            // off rule
             'vue/multi-word-component-names': 'off',
             'vue/html-indent': 'off',
             'vue/html-self-closing': 'off',
@@ -36,7 +34,9 @@ export default withNuxt(
             '@typescript-eslint/no-dynamic-delete': 'off',
             'vue/require-default-prop': 'off',
             '@typescript-eslint/ban-ts-comment': 'off',
+
             'vue/valid-v-slot': 'off',
         },
     },
+    storybook.configs['flat/recommended'],
 )
