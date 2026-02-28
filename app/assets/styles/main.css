@@ -1,5 +1,4 @@
-@import 'tw-animate-css';
-
+@import "tailwindcss" prefix(tw);
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -47,11 +46,11 @@
     --font-family-kanit: 'Kanit', 'sans-serif';
     --default-font-family: 'Sarabun', 'sans-serif';
 
-    --color-primary: #2b3b8e;
-    --color-primary-hover: #5e6fc4;
-    --color-primary-clicked: #152575;
-    --color-primary-hover-cursor: #2b3b8e33;
-    --color-primary-disable-bg: #2b3b8e1a;
+    --color-primary: #249486;
+    --color-primary-hover: #249486cc;
+    --color-primary-clicked: #24948699;
+    --color-primary-hover-cursor: #24948633;
+    --color-primary-disable-bg: #2494861a;
 
     --color-secondary: #f7f7f8;
     --color-secondary-hover: #515a6c;
@@ -164,11 +163,11 @@
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
 
-    --color-primary: #2b3b8e;
-    --color-primary-hover: #5e6fc4;
-    --color-primary-clicked: #152575;
-    --color-primary-hover-cursor: #2b3b8e33;
-    --color-primary-disable-bg: #2b3b8e1a;
+    --color-primary: #249486;
+    --color-primary-hover: #2ab09f;
+    --color-primary-clicked: #1a7068;
+    --color-primary-hover-cursor: #24948633;
+    --color-primary-disable-bg: #2494861a;
 
     --color-secondary: #f7f7f8;
     --color-secondary-hover: #515a6c;

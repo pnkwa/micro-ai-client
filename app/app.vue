@@ -1,6 +1,12 @@
+<script lang="ts" setup>
+import 'vue-sonner/style.css'
+</script>
+
 <template>
     <div>
-        <NuxtRouteAnnouncer />
-        <NuxtWelcome />
+        <McSonner />
+        <NuxtLayout>
+            <NuxtPage />
+        </NuxtLayout>
     </div>
 </template>

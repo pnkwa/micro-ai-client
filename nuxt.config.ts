@@ -13,7 +13,10 @@ export default defineNuxtConfig({
     },
     ssr: false,
     modules: ['@pinia/nuxt', '@nuxt/eslint', '@vee-validate/nuxt', '@vueuse/nuxt', '@nuxt/fonts'],
-    components: [{ path: '~/core/components', prefix: 'Mc', extensions: ['.vue'] }],
+    components: [
+        { path: '~/core/components', prefix: 'Mc', extensions: ['.vue'] },
+        { path: '~/core/components/ui', prefix: 'Mc', extensions: ['.vue'] },
+    ],
     fonts: {
         defaults: {
             weights: [100, 200, 300, 400, 500, 600, 700, 800],
