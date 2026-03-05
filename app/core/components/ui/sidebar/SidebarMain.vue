@@ -20,7 +20,7 @@ const { open, isMobile } = useSidebar()
             <div class="tw:flex tw:items-center tw:flex-wrap tw:gap-0 tw:lg:gap-4">
                 <div class="tw:flex tw:items-center tw:gap-2">
                     <McSidebarTrigger />
-                    <span class="tw:font-bold tw:text-xl">Hello</span>
+                    <span class="tw:font-bold tw:text-xl">Class Name</span>
                 </div>
 
                 <McBreadcrumb v-if="breadcrumb.items.length > 0">
