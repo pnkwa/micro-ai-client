@@ -7,20 +7,27 @@ import {
     SidebarMenu,
     SidebarMenuItem,
     SidebarHeader,
+    SidebarFooter,
+    SidebarMenuButton,
 } from '@/core/components/ui/sidebar'
 import { menuItems } from '~/core/configs/navbar'
 import SidebarItem from './SidebarItem.vue'
-import { Microscope } from 'lucide-vue-next'
+import { Microscope, LogIn } from 'lucide-vue-next'
 
+const router = useRouter()
 const { open, isMobile } = useSidebar()
 
 const isCollapsed = computed(() => !open.value && !isMobile.value)
+
+const handleLogin = () => {
+    router.push('/login')
+}
 </script>
 
 <template>
     <Sidebar collapsible="icon">
         <SidebarHeader>
-            <div class="logo" :class="{ 'is-collapsed': isCollapsed }">
+            <div class="logo" :class="{ 'is-collapsed': isCollapsed }" @click="router.push('/')">
                 <div class="logo-icon-wrapper">
                     <Microscope class="logo-icon" />
                 </div>
@@ -38,6 +45,18 @@ const isCollapsed = computed(() => !open.value && !isMobile.value)
                 </SidebarGroupContent>
             </SidebarGroup>
         </SidebarContent>
+        <SidebarFooter>
+            <SidebarMenu>
+                <SidebarMenuItem>
+                    <SidebarMenuButton tooltip="Login" @click="handleLogin">
+                        <LogIn class="tw:w-3 tw:h-3 tw:shrink-0" />
+                        <span class="tw:group-data-[collapsible=icon]:hidden tw:text-base">
+                            Login
+                        </span>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
+            </SidebarMenu>
+        </SidebarFooter>
     </Sidebar>
 </template>
 
@@ -49,6 +68,11 @@ const isCollapsed = computed(() => !open.value && !isMobile.value)
     height: 56px;
     padding: 0.5rem;
     transition: all 0.2s ease;
+    cursor: pointer;
+
+    &:hover {
+        opacity: 0.85;
+    }
 
     .logo-icon-wrapper {
         display: flex;

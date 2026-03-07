@@ -1,0 +1,94 @@
+{
+    "classes": [
+        {
+            "id": "bio-301",
+            "name": "BIO-301 Cell Biology",
+            "semester": "Fall 2025"
+        },
+        {
+            "id": "bio-201",
+            "name": "BIO-201 Genetics",
+            "semester": "Fall 2025"
+        },
+        {
+            "id": "chem-101",
+            "name": "CHEM-101 General Chemistry",
+            "semester": "Fall 2025"
+        }
+    ],
+    "stats": {
+        "totalStudents": 127,
+        "submissions": 122,
+        "pendingReviews": 5,
+        "graded": 117
+    },
+    "submissionActivity": {
+        "weekly": [
+            { "day": "MON", "count": 18 },
+            { "day": "TUE", "count": 14 },
+            { "day": "WED", "count": 20 },
+            { "day": "THU", "count": 16 },
+            { "day": "FRI", "count": 24 },
+            { "day": "SAT", "count": 12 },
+            { "day": "SUN", "count": 8 }
+        ],
+        "monthly": [
+            { "day": "Week 1", "count": 45 },
+            { "day": "Week 2", "count": 62 },
+            { "day": "Week 3", "count": 58 },
+            { "day": "Week 4", "count": 71 }
+        ]
+    },
+    "classSummary": {
+        "activeAssignments": 4,
+        "avgSubmissionsPerDay": 12,
+        "completionRate": "78%",
+        "avgGrade": "74%"
+    },
+    "recentSubmissions": [
+        {
+            "id": 1,
+            "studentName": "Somchai Wongsa",
+            "studentId": "652000001",
+            "assignment": "Assignment 1",
+            "submittedAt": "2026-03-04T09:58:00.000Z",
+            "status": "pending"
+        },
+        {
+            "id": 2,
+            "studentName": "Nattaporn Suksai",
+            "studentId": "652000002",
+            "assignment": "Assignment 1",
+            "submittedAt": "2026-03-04T08:30:00.000Z",
+            "status": "graded"
+        },
+        {
+            "id": 3,
+            "studentName": "Prawit Chaiyaporn",
+            "studentId": "652000003",
+            "assignment": "Assignment 1",
+            "submittedAt": "2026-03-03T14:20:00.000Z",
+            "status": "submitted"
+        },
+        {
+            "id": 4,
+            "studentName": "Kannika Rattana",
+            "studentId": "652000004",
+            "assignment": "Assignment 1",
+            "submittedAt": "2026-03-02T10:15:00.000Z",
+            "status": "pending"
+        },
+        {
+            "id": 5,
+            "studentName": "Thitipong Prasert",
+            "studentId": "652000005",
+            "assignment": "Assignment 1",
+            "submittedAt": "2026-03-01T16:45:00.000Z",
+            "status": "graded"
+        }
+    ],
+    "user": {
+        "name": "Dr. Kwa",
+        "avatar": null
+    }
+}

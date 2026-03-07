@@ -12,7 +12,7 @@ const props = withDefaults(defineProps<SidebarButtonProps>(), {})
 
 <template>
     <SidebarMenuButton v-bind="{ ...props }" :tooltip="props.title">
-        <component :is="props.icon" class="tw:w-7! tw:h-7! tw:shrink-0" />
+        <component :is="props.icon" class="tw:w-5! tw:h-5! tw:shrink-0" />
         <span class="tw:group-data-[collapsible=icon]:hidden tw:text-base">
             {{ props.title }}
         </span>
