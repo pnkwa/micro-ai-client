@@ -12,14 +12,20 @@ import {
 } from '@/core/components/ui/sidebar'
 import { menuItems } from '~/core/configs/navbar'
 import SidebarItem from './SidebarItem.vue'
-import { Microscope, LogIn } from 'lucide-vue-next'
+import { Microscope, LogIn, LogOut } from 'lucide-vue-next'
 
 const router = useRouter()
+const authStore = useAuth()
 const { open, isMobile } = useSidebar()
 
 const isCollapsed = computed(() => !open.value && !isMobile.value)
 
 const handleLogin = () => {
+    router.push('/login')
+}
+
+const handleLogout = () => {
+    authStore.logout()
     router.push('/login')
 }
 </script>
@@ -47,7 +53,24 @@ const handleLogin = () => {
         </SidebarContent>
         <SidebarFooter>
             <SidebarMenu>
-                <SidebarMenuItem>
+                <SidebarMenuItem v-if="authStore.isAuthenticated">
+                    <div class="user-section" :class="{ 'is-collapsed': isCollapsed }">
+                        <div class="user-avatar">
+                            {{ authStore.getInitials }}
+                        </div>
+                        <div v-if="!isCollapsed" class="user-info">
+                            <span class="user-name">{{ authStore.user?.name }}</span>
+                            <span class="user-email">{{ authStore.user?.email }}</span>
+                        </div>
+                    </div>
+                    <SidebarMenuButton tooltip="Logout" @click="handleLogout">
+                        <LogOut class="tw:w-3 tw:h-3 tw:shrink-0" />
+                        <span class="tw:group-data-[collapsible=icon]:hidden tw:text-base">
+                            Logout
+                        </span>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem v-else>
                     <SidebarMenuButton tooltip="Login" @click="handleLogin">
                         <LogIn class="tw:w-3 tw:h-3 tw:shrink-0" />
                         <span class="tw:group-data-[collapsible=icon]:hidden tw:text-base">
@@ -106,5 +129,55 @@ const handleLogin = () => {
         justify-content: center;
         padding: 0.5rem 0;
     }
+}
+
+.user-section {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 0.5rem;
+    margin-bottom: 0.5rem;
+
+    &.is-collapsed {
+        justify-content: center;
+        padding: 0.5rem 0;
+    }
+}
+
+.user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.user-info {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.user-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-navy-100);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user-email {
+    font-size: 0.75rem;
+    color: var(--color-navy-60);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 </style>

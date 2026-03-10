@@ -58,6 +58,8 @@ const chartMax = computed(() => yAxisSteps.value[0] || 1)
 const getBarHeight = (value: number) => {
     return `${(value / chartMax.value) * 100}%`
 }
+
+const periodOptions = computed(() => props.periods.map((p) => ({ value: p, label: p })))
 </script>
 
 <template>
@@ -70,17 +72,12 @@ const getBarHeight = (value: number) => {
             <McSelect
                 v-if="showPeriodSelect"
                 :model-value="selectedPeriod"
+                :options="periodOptions"
+                option-value="value"
+                option-label="label"
+                :placeholder="selectedPeriod"
                 @update:model-value="onPeriodChange"
-            >
-                <McSelectTrigger size="sm">
-                    <McSelectValue :placeholder="selectedPeriod" />
-                </McSelectTrigger>
-                <McSelectContent>
-                    <McSelectItem v-for="period in periods" :key="period" :value="period">
-                        {{ period }}
-                    </McSelectItem>
-                </McSelectContent>
-            </McSelect>
+            />
         </div>
         <div class="bar-chart">
             <div class="y-axis">

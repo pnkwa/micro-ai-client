@@ -14,13 +14,15 @@ const { open, isMobile } = useSidebar()
             !isMobile && open && 'tw:max-w-[calc(100vw-var(--sidebar-width)-12px)]',
         ]"
     >
-        <header
-            class="tw:flex tw:items-center tw:justify-between tw:bg-white tw:px-4 tw:min-h-16 tw:shadow tw:border-b"
+        <div
+            class="tw:flex tw:items-center tw:justify-between tw:bg-white tw:px-4 tw:min-h-12 tw:border-b"
         >
             <div class="tw:flex tw:items-center tw:flex-wrap tw:gap-0 tw:lg:gap-4">
                 <div class="tw:flex tw:items-center tw:gap-2">
                     <McSidebarTrigger />
-                    <span class="tw:font-bold tw:text-xl">Class Name</span>
+                    <RouterLink v-if="!open && !isMobile" to="/" class="tw:ml-1">
+                        <span class="logo-text">MicroAI</span>
+                    </RouterLink>
                 </div>
 
                 <McBreadcrumb v-if="breadcrumb.items.length > 0">
@@ -40,7 +42,7 @@ const { open, isMobile } = useSidebar()
                     </McBreadcrumbList>
                 </McBreadcrumb>
             </div>
-        </header>
+        </div>
         <div class="tw:min-h-[calc(100vh-65px)] tw:bg-[#f9f9f9]">
             <div class="tw:container tw:mx-auto tw:p-4">
                 <slot />
@@ -48,3 +50,15 @@ const { open, isMobile } = useSidebar()
         </div>
     </main>
 </template>
+
+<style scoped lang="scss">
+.logo-text {
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    background: linear-gradient(90deg, var(--color-primary), var(--color-primary-hover));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+</style>

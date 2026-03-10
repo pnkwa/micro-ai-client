@@ -1,0 +1,46 @@
+{
+    "classes": [
+        {
+            "id": 1,
+            "name": "BIO-301 Cell Biology",
+            "semester": "Fall 2025",
+            "students": 127,
+            "status": "active"
+        },
+        {
+            "id": 2,
+            "name": "BIO-301 Cell Biology",
+            "semester": "Fall 2025",
+            "students": 127,
+            "status": "closed"
+        },
+        {
+            "id": 3,
+            "name": "BIO-301 Cell Biology",
+            "semester": "Fall 2025",
+            "students": 127,
+            "status": "closed"
+        },
+        {
+            "id": 4,
+            "name": "BIO-301 Cell Biology",
+            "semester": "Fall 2025",
+            "students": 127,
+            "status": "closed"
+        },
+        {
+            "id": 5,
+            "name": "BIO-301 Cell Biology",
+            "semester": "Fall 2025",
+            "students": 127,
+            "status": "closed"
+        },
+        {
+            "id": 6,
+            "name": "BIO-301 Cell Biology",
+            "semester": "Fall 2025",
+            "students": 127,
+            "status": "closed"
+        }
+    ]
+}

@@ -1,33 +1,127 @@
 <script setup lang="ts">
-import type { HTMLAttributes } from "vue"
-import { useVModel } from "@vueuse/core"
-import { cn } from '@/core/lib/utils'
+import type { McInputEmit, McInputProps } from '~/core/types/components/input'
+import { inputVariants } from '.'
+import { useVeeValidateModel } from '~/core/composables/useVeeValidateModel'
+import * as icons from 'lucide-vue-next'
 
-const props = defineProps<{
-  defaultValue?: string | number
-  modelValue?: string | number
-  class?: HTMLAttributes["class"]
-}>()
+const props = defineProps<McInputProps>()
 
-const emits = defineEmits<{
-  (e: "update:modelValue", payload: string | number): void
-}>()
+const emits = defineEmits<McInputEmit>()
 
-const modelValue = useVModel(props, "modelValue", emits, {
-  passive: true,
-  defaultValue: props.defaultValue,
+const { value: modelValue, errorMessage: fieldError } = useVeeValidateModel<
+    McInputProps['modelValue']
+>(props, emits)
+
+const handleChange = (value: string | number) => {
+    const digitPattern = /[^\d-]+/g
+    let tempVal = value || ''
+
+    if (props.type === 'number' && typeof tempVal === 'string') {
+        tempVal = tempVal.replace(digitPattern, '')
+    }
+
+    if (props.maxNumber) {
+        const match = +props.maxNumber > +tempVal
+        tempVal = match ? tempVal : props.maxNumber
+    }
+
+    nextTick(() => {
+        modelValue.value = tempVal
+    })
+    return tempVal
+}
+
+const handleInput = (event: Event) => {
+    const target = event.target as HTMLInputElement
+    const value = handleChange(target.value)
+    target.value = `${value}`
+}
+
+const isTypingNumber = (evt: KeyboardEvent) => {
+    const test = /^[0-9]/.test(evt.key)
+
+    if (!test) {
+        return evt.preventDefault()
+    }
+    return true
+}
+
+const IconPrependComponent = computed(() => {
+    if (!props.iconPrepend) {
+        return undefined
+    }
+
+    return h(icons[props.iconPrepend] as icons.LucideIcon, { class: 'tw:size-4' })
+})
+
+const IconAppendComponent = computed(() => {
+    if (!props.iconAppend) {
+        return undefined
+    }
+
+    return h(icons[props.iconAppend] as icons.LucideIcon, { class: 'tw:size-4' })
+})
+
+const errorMessage = computed(() => {
+    return fieldError.value || ''
 })
 </script>
 
 <template>
-  <input
-    v-model="modelValue"
-    data-slot="input"
-    :class="cn(
-      'tw:file:text-foreground tw:placeholder:text-muted-foreground tw:selection:bg-primary tw:selection:text-primary-foreground tw:dark:bg-input/30 tw:border-input tw:h-9 tw:w-full tw:min-w-0 tw:rounded-md tw:border tw:bg-transparent tw:px-3 tw:py-1 tw:text-base tw:shadow-xs tw:transition-[color,box-shadow] tw:outline-none tw:file:inline-flex tw:file:h-7 tw:file:border-0 tw:file:bg-transparent tw:file:text-sm tw:file:font-medium tw:disabled:pointer-events-none tw:disabled:cursor-not-allowed tw:disabled:opacity-50 tw:md:text-sm',
-      'tw:focus-visible:border-ring tw:focus-visible:ring-ring/50 tw:focus-visible:ring-[3px]',
-      'tw:aria-invalid:ring-destructive/20 tw:dark:aria-invalid:ring-destructive/40 tw:aria-invalid:border-destructive',
-      props.class,
-    )"
-  >
+    <div
+        class="tw:group/input tw:relative tw:w-full tw:items-center"
+        :data-error="Boolean(errorMessage)"
+        :class="[errorMessage && 'mc-input-container--error', props.class]"
+    >
+        <div
+            :class="
+                cn(
+                    'tw:relative tw:w-full tw:items-center ',
+                    inputVariants(),
+                    props.class,
+                    iconPrepend && 'tw:pl-8',
+                    iconAppend && 'tw:pr-8',
+                    props.disabled &&
+                        'tw:pointer-events-none tw:cursor-not-allowed tw:bg-basic-gray-20 tw:border-basic-gray-40 tw:text-basic-gray-50 ',
+                )
+            "
+        >
+            <input
+                class="tw:outline-none tw:w-full tw:text-base"
+                :value="modelValue"
+                data-slot="input"
+                v-bind="{ ...$attrs, disabled: props.disabled }"
+                @input="handleInput"
+                @keypress="props.type === 'number' && isTypingNumber($event)"
+            />
+            <span
+                v-if="props.iconPrepend"
+                class="tw:inset-s-0 tw:absolute tw:inset-y-0 tw:flex tw:items-center tw:justify-center tw:px-2"
+            >
+                <IconPrependComponent />
+            </span>
+
+            <span
+                v-if="props.iconAppend"
+                class="tw:inset-e-0 tw:absolute tw:inset-y-0 tw:flex tw:items-center tw:justify-center tw:px-2"
+            >
+                <IconAppendComponent />
+            </span>
+        </div>
+        <span
+            v-if="errorMessage"
+            :data-cy="`input-error-${props.name || 'default'}`"
+            class="tw:group-[.mc-input-container--error]/input:text-danger mc-input-error__message tw:text-sm"
+        >
+            {{ errorMessage }}
+        </span>
+    </div>
 </template>
+
+<style lang="scss" scoped>
+.mc-input {
+    &__container {
+        position: relative;
+    }
+}
+</style>

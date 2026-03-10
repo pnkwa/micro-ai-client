@@ -1,0 +1,84 @@
+{
+    "students": [
+        {
+            "id": 1,
+            "name": "Sarah Kim",
+            "initials": "SK",
+            "email": "skim@uni.edu",
+            "classId": 1,
+            "submissionsCompleted": 3,
+            "submissionsTotal": 3,
+            "avgScore": 91
+        },
+        {
+            "id": 2,
+            "name": "James Okafor",
+            "initials": "JO",
+            "email": "jokafor@uni.edu",
+            "classId": 1,
+            "submissionsCompleted": 3,
+            "submissionsTotal": 3,
+            "avgScore": 87
+        },
+        {
+            "id": 3,
+            "name": "Maria Gonzalez",
+            "initials": "MG",
+            "email": "mgonzalez@uni.edu",
+            "classId": 2,
+            "submissionsCompleted": 2,
+            "submissionsTotal": 3,
+            "avgScore": 72
+        },
+        {
+            "id": 4,
+            "name": "Alex Turner",
+            "initials": "AT",
+            "email": "aturner@uni.edu",
+            "classId": 2,
+            "submissionsCompleted": 3,
+            "submissionsTotal": 3,
+            "avgScore": 88
+        },
+        {
+            "id": 5,
+            "name": "Li Wei",
+            "initials": "LW",
+            "email": "lwei@uni.edu",
+            "classId": 3,
+            "submissionsCompleted": 3,
+            "submissionsTotal": 3,
+            "avgScore": 82
+        },
+        {
+            "id": 6,
+            "name": "Emma Davis",
+            "initials": "ED",
+            "email": "edavis@uni.edu",
+            "classId": 3,
+            "submissionsCompleted": 2,
+            "submissionsTotal": 3,
+            "avgScore": 76
+        },
+        {
+            "id": 7,
+            "name": "Omar Hassan",
+            "initials": "OH",
+            "email": "ohassan@uni.edu",
+            "classId": 1,
+            "submissionsCompleted": 1,
+            "submissionsTotal": 3,
+            "avgScore": 34
+        },
+        {
+            "id": 8,
+            "name": "Yuki Tanaka",
+            "initials": "YT",
+            "email": "ytanaka@uni.edu",
+            "classId": 2,
+            "submissionsCompleted": 3,
+            "submissionsTotal": 3,
+            "avgScore": 96
+        }
+    ]
+}
