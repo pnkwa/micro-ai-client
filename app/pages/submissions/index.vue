@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Search, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Search, ChevronLeft, ChevronRight, User } from 'lucide-vue-next'
 
 import submissionsData from '~/data/submissions.json'
 import classesData from '~/data/classes.json'
+import assignmentsData from '~/data/assignments.json'
 
 interface SubmissionItem {
     id: number
@@ -11,9 +12,8 @@ interface SubmissionItem {
     assignment: string
     classId: number
     submittedAt: string
-    similarity: number
     quality: number
-    status: 'pending' | 'submitted' | 'graded'
+    status: 'submitted' | 'graded'
 }
 
 interface ClassItem {
@@ -52,20 +52,16 @@ const assignmentSelectOptions = computed(() => [
 
 const filteredSubmissions = computed(() => {
     let result = submissions.value
-
     if (selectedClassId.value !== 'all') {
         result = result.filter((s) => s.classId === selectedClassId.value)
     }
-
     if (searchQuery.value) {
         const query = searchQuery.value.toLowerCase()
         result = result.filter((s) => s.studentName.toLowerCase().includes(query))
     }
-
     if (selectedAssignment.value !== 'all') {
         result = result.filter((s) => s.assignment === selectedAssignment.value)
     }
-
     return result
 })
 
@@ -73,8 +69,7 @@ const totalPages = computed(() => Math.ceil(filteredSubmissions.value.length / i
 
 const paginatedSubmissions = computed(() => {
     const start = (currentPage.value - 1) * itemsPerPage.value
-    const end = start + itemsPerPage.value
-    return filteredSubmissions.value.slice(start, end)
+    return filteredSubmissions.value.slice(start, start + itemsPerPage.value)
 })
 
 watch([selectedClassId, selectedAssignment, searchQuery], () => {
@@ -82,9 +77,7 @@ watch([selectedClassId, selectedAssignment, searchQuery], () => {
 })
 
 function goToPage(page: number) {
-    if (page >= 1 && page <= totalPages.value) {
-        currentPage.value = page
-    }
+    if (page >= 1 && page <= totalPages.value) currentPage.value = page
 }
 
 function formatDate(date: string) {
@@ -92,55 +85,57 @@ function formatDate(date: string) {
 }
 
 function getStatusVariant(status: string) {
-    switch (status) {
-        case 'graded':
-            return 'default'
-        case 'submitted':
-            return 'secondary'
-        case 'pending':
-            return 'warning'
-        default:
-            return 'outline'
-    }
+    return status === 'graded' ? 'default' : 'secondary'
 }
 
 function getStatusLabel(status: string) {
     return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
-function getSimilarityColor(similarity: number) {
-    if (similarity >= 50) return 'tw:text-red-500'
-    if (similarity >= 20) return 'tw:text-amber-500'
-    return 'tw:text-green-600'
+function getScoreColor(score: number) {
+    if (score >= 70) return { bar: 'tw:bg-emerald-500', text: 'tw:text-emerald-600' }
+    if (score >= 40) return { bar: 'tw:bg-amber-400', text: 'tw:text-amber-600' }
+    return { bar: 'tw:bg-red-400', text: 'tw:text-red-600' }
 }
 
-function getQualityColor(quality: number) {
-    if (quality >= 70) return 'bg-green-500'
-    if (quality >= 40) return 'bg-amber-500'
-    return 'bg-red-500'
+function getAssignmentId(assignmentName: string) {
+    const found = (assignmentsData.assignments || []).find((a) => a.name === assignmentName)
+    return found ? found.id : 'unknown'
 }
+
+const showingFrom = computed(() => (currentPage.value - 1) * itemsPerPage.value + 1)
+const showingTo = computed(() =>
+    Math.min(currentPage.value * itemsPerPage.value, filteredSubmissions.value.length),
+)
 </script>
 
 <template>
     <div>
-        <div class="submissions-header">
+        <!-- ── Header ── -->
+        <div class="tw:flex tw:items-center tw:justify-between">
             <div>
-                <h1 class="submissions-title">Submissions</h1>
-                <p class="submissions-subtitle">Review and grade student submissions</p>
+                <h1 class="tw:text-2xl tw:font-bold tw:text-primary">Submissions</h1>
+                <p class="tw:text-sm tw:text-navy-60">Review and grade student submissions</p>
             </div>
-            <div class="submissions-total">
-                <span class="total-count">{{ filteredSubmissions.length }}</span>
-                <span class="total-label">Total Submissions</span>
+            <div
+                class="tw:bg-white tw:border tw:border-slate-200 tw:rounded-md tw:px-4 tw:py-2.5 tw:text-center tw:min-w-[90px]"
+            >
+                <div class="tw:text-xl tw:font-bold tw:text-primary tw:leading-none">
+                    {{ filteredSubmissions.length }}
+                </div>
+                <div class="tw:text-[11px] tw:text-slate-400 tw:mt-1">Total</div>
             </div>
         </div>
 
-        <div class="tw:flex tw:items-center tw:gap-4 tw:mb-6">
+        <!-- ── Filters ── -->
+        <div class="tw:flex tw:flex-wrap tw:items-center tw:gap-3 tw:my-4">
             <McSelect
                 v-model="selectedClassId"
                 :options="classSelectOptions"
                 option-value="value"
                 option-label="label"
                 placeholder="All Classes"
+                class="tw:w-44"
             />
             <McSelect
                 v-model="selectedAssignment"
@@ -148,95 +143,175 @@ function getQualityColor(quality: number) {
                 option-value="value"
                 option-label="label"
                 placeholder="All Assignments"
+                class="tw:w-48"
             />
-            <div class="search-input">
-                <Search class="tw:w-4 tw:h-4 tw:text-gray-400" />
+            <div
+                class="tw:flex tw:items-center tw:gap-2 tw:bg-white tw:border tw:border-slate-200 tw:rounded-md tw:px-3 tw:py-2 tw:ml-auto tw:w-full tw:max-w-xs"
+            >
+                <Search class="tw:w-3.5 tw:h-3.5 tw:text-slate-400 tw:flex-shrink-0" />
                 <input
                     v-model="searchQuery"
                     type="text"
-                    placeholder="Search student ..."
-                    class="tw:outline-none tw:w-full"
+                    placeholder="Search student..."
+                    class="tw:outline-none tw:w-full tw:text-sm tw:text-slate-700 tw:placeholder-slate-400 tw:bg-transparent"
                 />
             </div>
         </div>
 
-        <div class="submissions-table">
+        <!-- ── Table Card ── -->
+        <div class="tw:bg-white tw:rounded-md tw:border tw:border-slate-200 tw:overflow-hidden">
             <McTable>
                 <McTableHeader>
-                    <McTableRow>
-                        <McTableHead>Student</McTableHead>
-                        <McTableHead>Assignment</McTableHead>
-                        <McTableHead>Submitted</McTableHead>
-                        <McTableHead>Similarity</McTableHead>
-                        <McTableHead>Quality</McTableHead>
-                        <McTableHead>Status</McTableHead>
-                        <McTableHead>Action</McTableHead>
+                    <McTableRow class="tw:bg-slate-50">
+                        <McTableHead
+                            class="tw:text-xs tw:font-semibold tw:text-slate-500 tw:uppercase tw:tracking-wide tw:py-3 tw:px-6"
+                        >
+                            Student
+                        </McTableHead>
+                        <McTableHead
+                            class="tw:text-xs tw:font-semibold tw:text-slate-500 tw:uppercase tw:tracking-wide tw:py-3"
+                        >
+                            Assignment
+                        </McTableHead>
+                        <McTableHead
+                            class="tw:text-xs tw:font-semibold tw:text-slate-500 tw:uppercase tw:tracking-wide tw:py-3"
+                        >
+                            Submitted
+                        </McTableHead>
+                        <McTableHead
+                            class="tw:text-xs tw:font-semibold tw:text-slate-500 tw:uppercase tw:tracking-wide tw:py-3"
+                        >
+                            AI Score
+                        </McTableHead>
+                        <McTableHead
+                            class="tw:text-xs tw:font-semibold tw:text-slate-500 tw:uppercase tw:tracking-wide tw:py-3"
+                        >
+                            Status
+                        </McTableHead>
+                        <McTableHead
+                            class="tw:text-xs tw:font-semibold tw:text-slate-500 tw:uppercase tw:tracking-wide tw:py-3"
+                        ></McTableHead>
                     </McTableRow>
                 </McTableHeader>
                 <McTableBody>
-                    <McTableRow v-for="submission in paginatedSubmissions" :key="submission.id">
-                        <McTableCell>
-                            <div class="student-cell">
-                                <div class="student-avatar">
-                                    {{ submission.studentInitials }}
+                    <McTableRow
+                        v-for="submission in paginatedSubmissions"
+                        :key="submission.id"
+                        class="tw:border-slate-100 tw:hover:bg-slate-50/60 tw:transition-colors"
+                    >
+                        <!-- Student -->
+                        <McTableCell class="tw:px-6 tw:py-2">
+                            <div class="tw:flex tw:items-center tw:gap-2.5">
+                                <div
+                                    class="tw:w-8 tw:h-8 tw:rounded-full tw:bg-primary/10 tw:flex tw:items-center tw:justify-center tw:flex-shrink-0"
+                                >
+                                    <User class="tw:w-4 tw:h-4 tw:text-primary" />
                                 </div>
-                                <span class="student-name">{{ submission.studentName }}</span>
+                                <span class="tw:text-sm tw:font-medium tw:text-slate-800">
+                                    {{ submission.studentName }}
+                                </span>
                             </div>
                         </McTableCell>
-                        <McTableCell class="tw:text-gray-600">
-                            {{ submission.assignment }}
-                        </McTableCell>
-                        <McTableCell class="tw:text-gray-600">
-                            {{ formatDate(submission.submittedAt) }}
-                        </McTableCell>
-                        <McTableCell>
-                            <span
-                                :class="getSimilarityColor(submission.similarity)"
-                                class="tw:font-medium"
-                            >
-                                {{ submission.similarity }}%
+
+                        <!-- Assignment -->
+                        <McTableCell class="tw:p-3">
+                            <span class="tw:text-sm tw:text-slate-600">
+                                {{ submission.assignment }}
                             </span>
                         </McTableCell>
-                        <McTableCell>
-                            <div class="quality-cell">
-                                <div class="quality-bar">
+
+                        <!-- Submitted -->
+                        <McTableCell class="tw:p-3">
+                            <span class="tw:text-sm tw:text-slate-500">
+                                {{ formatDate(submission.submittedAt) }}
+                            </span>
+                        </McTableCell>
+
+                        <!-- AI Score -->
+                        <McTableCell class="tw:p-3">
+                            <div class="tw:flex tw:items-center tw:gap-2.5">
+                                <div
+                                    class="tw:w-14 tw:h-1.5 tw:bg-slate-100 tw:rounded-md tw:overflow-hidden tw:flex-shrink-0"
+                                >
                                     <div
-                                        class="quality-fill"
-                                        :class="getQualityColor(submission.quality)"
+                                        class="tw:h-full tw:rounded-md tw:transition-all"
+                                        :class="getScoreColor(submission.quality).bar"
                                         :style="{ width: `${submission.quality}%` }"
                                     />
                                 </div>
-                                <span class="quality-value">{{ submission.quality }}</span>
+                                <span
+                                    class="tw:text-xs tw:font-semibold tw:tabular-nums"
+                                    :class="getScoreColor(submission.quality).text"
+                                >
+                                    {{ submission.quality }}
+                                </span>
                             </div>
                         </McTableCell>
-                        <McTableCell>
-                            <McBadge :variant="getStatusVariant(submission.status)">
+
+                        <!-- Status -->
+                        <McTableCell class="tw:p-3">
+                            <McBadge
+                                :variant="getStatusVariant(submission.status)"
+                                class="tw:capitalize tw:w-20 tw:text-center"
+                            >
                                 {{ getStatusLabel(submission.status) }}
                             </McBadge>
                         </McTableCell>
-                        <McTableCell>
-                            <McButton variant="link" size="sm" class="tw:text-primary">
-                                Review
-                            </McButton>
+
+                        <!-- Action -->
+                        <McTableCell class="tw:p-3">
+                            <NuxtLink
+                                :to="`/submissions/${getAssignmentId(submission.assignment)}/${submission.id}`"
+                            >
+                                <McButton
+                                    variant="outline"
+                                    size="sm"
+                                    class="tw:text-xs tw:h-7 tw:border-slate-200 tw:text-primary tw:hover:bg-primary/5 tw:hover:border-primary/30"
+                                >
+                                    Review
+                                </McButton>
+                            </NuxtLink>
+                        </McTableCell>
+                    </McTableRow>
+
+                    <!-- Empty state -->
+                    <McTableRow v-if="paginatedSubmissions.length === 0">
+                        <McTableCell colspan="6" class="tw:py-16 tw:text-center">
+                            <div class="tw:flex tw:flex-col tw:items-center tw:gap-2">
+                                <div
+                                    class="tw:w-10 tw:h-10 tw:rounded-full tw:bg-slate-100 tw:flex tw:items-center tw:justify-center"
+                                >
+                                    <Search class="tw:w-5 tw:h-5 tw:text-slate-400" />
+                                </div>
+                                <p class="tw:text-sm tw:font-medium tw:text-slate-500">
+                                    No submissions found
+                                </p>
+                                <p class="tw:text-xs tw:text-slate-400">
+                                    Try adjusting your filters
+                                </p>
+                            </div>
                         </McTableCell>
                     </McTableRow>
                 </McTableBody>
             </McTable>
 
-            <div class="pagination-container">
-                <div class="pagination-info">
-                    Showing {{ (currentPage - 1) * itemsPerPage + 1 }} to
-                    {{ Math.min(currentPage * itemsPerPage, filteredSubmissions.length) }} of
-                    {{ filteredSubmissions.length }} entries
-                </div>
-                <div class="pagination-controls">
+            <!-- ── Pagination ── -->
+            <div
+                class="tw:flex tw:items-center tw:justify-between tw:px-4 tw:py-3 tw:border-t tw:border-slate-100 tw:bg-slate-50/50"
+            >
+                <span class="tw:text-xs tw:text-slate-400">
+                    Showing {{ showingFrom }}–{{ showingTo }} of {{ filteredSubmissions.length }}
+                </span>
+
+                <div class="tw:flex tw:items-center tw:gap-1">
                     <button
-                        class="pagination-btn"
+                        class="tw:flex tw:items-center tw:justify-center tw:w-7 tw:h-7 tw:rounded-md tw:border tw:border-slate-200 tw:bg-white tw:text-slate-500 tw:transition-all tw:disabled:opacity-40 tw:disabled:cursor-not-allowed tw:hover:enabled:border-primary/40 tw:hover:enabled:text-primary"
                         :disabled="currentPage === 1"
                         @click="goToPage(currentPage - 1)"
                     >
-                        <ChevronLeft class="tw:w-4 tw:h-4" />
+                        <ChevronLeft class="tw:w-3.5 tw:h-3.5" />
                     </button>
+
                     <template v-for="page in totalPages" :key="page">
                         <button
                             v-if="
@@ -244,211 +319,33 @@ function getQualityColor(quality: number) {
                                 page === totalPages ||
                                 (page >= currentPage - 1 && page <= currentPage + 1)
                             "
-                            class="pagination-btn"
-                            :class="{ active: page === currentPage }"
+                            class="tw:flex tw:items-center tw:justify-center tw:w-7 tw:h-7 tw:rounded-md tw:border tw:text-xs tw:font-medium tw:transition-all"
+                            :class="
+                                page === currentPage
+                                    ? 'tw:bg-primary tw:border-primary tw:text-white'
+                                    : 'tw:bg-white tw:border-slate-200 tw:text-slate-600 tw:hover:border-primary/40 tw:hover:text-primary'
+                            "
                             @click="goToPage(page)"
                         >
                             {{ page }}
                         </button>
                         <span
                             v-else-if="page === currentPage - 2 || page === currentPage + 2"
-                            class="pagination-ellipsis"
+                            class="tw:w-7 tw:text-center tw:text-xs tw:text-slate-400"
                         >
-                            ...
+                            …
                         </span>
                     </template>
+
                     <button
-                        class="pagination-btn"
+                        class="tw:flex tw:items-center tw:justify-center tw:w-7 tw:h-7 tw:rounded-md tw:border tw:border-slate-200 tw:bg-white tw:text-slate-500 tw:transition-all tw:disabled:opacity-40 tw:disabled:cursor-not-allowed tw:hover:enabled:border-primary/40 tw:hover:enabled:text-primary"
                         :disabled="currentPage === totalPages"
                         @click="goToPage(currentPage + 1)"
                     >
-                        <ChevronRight class="tw:w-4 tw:h-4" />
+                        <ChevronRight class="tw:w-3.5 tw:h-3.5" />
                     </button>
                 </div>
             </div>
         </div>
     </div>
 </template>
-
-<style scoped lang="scss">
-.submissions-page {
-    padding: 1rem 0;
-}
-
-.submissions-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.5rem;
-}
-
-.submissions-title {
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: var(--color-primary);
-    margin-bottom: 0.25rem;
-}
-
-.submissions-subtitle {
-    font-size: 0.875rem;
-    color: var(--color-navy-60);
-}
-
-.submissions-total {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 0.75rem 1.5rem;
-    background: var(--color-gray-50, #f9fafb);
-    border-radius: 8px;
-    border: 1px solid var(--color-gray-200, #e5e7eb);
-}
-
-.total-count {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--color-primary);
-}
-
-.total-label {
-    font-size: 0.75rem;
-    color: var(--color-navy-60);
-}
-
-.submissions-filters {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-}
-
-.search-input {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--color-gray-200, #e5e7eb);
-    border-radius: 6px;
-    background: white;
-    width: 240px;
-
-    input {
-        font-size: 0.875rem;
-        &::placeholder {
-            color: var(--color-gray-400);
-        }
-    }
-}
-
-.submissions-table {
-    background: white;
-    border-radius: 8px;
-    border: 1px solid var(--color-gray-200, #e5e7eb);
-    overflow: hidden;
-    width: 100%;
-}
-
-.student-cell {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.student-avatar {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: var(--color-gray-200, #e5e7eb);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    color: var(--color-navy-80);
-}
-
-.student-name {
-    font-weight: 500;
-    color: var(--color-navy-100);
-}
-
-.quality-cell {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.quality-bar {
-    width: 60px;
-    height: 6px;
-    background: var(--color-gray-200, #e5e7eb);
-    border-radius: 3px;
-    overflow: hidden;
-}
-
-.quality-fill {
-    height: 100%;
-    border-radius: 3px;
-}
-
-.quality-value {
-    font-size: 0.8125rem;
-    color: var(--color-navy-60);
-}
-
-.pagination-container {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem;
-    border-top: 1px solid var(--color-gray-200, #e5e7eb);
-}
-
-.pagination-info {
-    font-size: 0.875rem;
-    color: var(--color-navy-60);
-}
-
-.pagination-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-}
-
-.pagination-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 32px;
-    height: 32px;
-    padding: 0 0.5rem;
-    border: 1px solid var(--color-gray-200, #e5e7eb);
-    border-radius: 6px;
-    background: white;
-    font-size: 0.875rem;
-    color: var(--color-navy-80);
-    cursor: pointer;
-    transition: all 0.15s ease;
-
-    &:hover:not(:disabled) {
-        background: var(--color-gray-50, #f9fafb);
-        border-color: var(--color-gray-300);
-    }
-
-    &:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    &.active {
-        background: var(--color-primary);
-        border-color: var(--color-primary);
-        color: white;
-    }
-}
-
-.pagination-ellipsis {
-    padding: 0 0.5rem;
-    color: var(--color-navy-60);
-}
-</style>

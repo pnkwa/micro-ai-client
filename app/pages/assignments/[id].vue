@@ -6,15 +6,12 @@ import {
     ClipboardList,
     Send,
     Paperclip,
-    X,
     Trophy,
 } from 'lucide-vue-next'
-import { useForm } from 'vee-validate'
-import { toTypedSchema } from '@vee-validate/zod'
 
 import assignmentsData from '~/data/assignments.json'
-import classesData from '~/data/classes.json'
-import { submissionFormSchema, type SubmissionFormData } from '~/features/types/forms/assignment'
+import SubmitAssignment from '~/features/components/forms/SubmitAssignment.vue'
+import type { SubmitAssignmentFormData } from '~/features/types/forms/submit-assignment'
 
 interface AssignmentItem {
     id: number
@@ -29,22 +26,9 @@ interface AssignmentItem {
     attachments?: string[]
 }
 
-interface ClassItem {
-    id: number
-    name: string
-    students: number
-    status: 'active' | 'inactive'
-}
-
 const route = useRoute()
 const router = useRouter()
 const { $dayjs } = useNuxtApp()
-
-const classes = ref<ClassItem[]>(classesData.classes as ClassItem[])
-const activeClasses = computed(() => classes.value.filter((c) => c.status === 'active'))
-const classOptions = computed(() =>
-    activeClasses.value.map((c) => ({ value: c.id, label: c.name })),
-)
 
 const assignmentId = computed(() => Number(route.params.id))
 const assignment = computed(() => {
@@ -58,50 +42,12 @@ interface SubmissionRecord {
     studentEmail: string
     studentIdNumber: string
     classId: number
-    detail?: string
-    fileName?: string
+    details?: string | null
+    assignmentFileName?: string
 }
 
 const isSubmitDialogOpen = ref(false)
 const submissions = ref<SubmissionRecord[]>([])
-const attachedFile = ref<File | null>(null)
-const fileInputRef = ref<HTMLInputElement | null>(null)
-
-const { handleSubmit, errors, defineField, resetForm } = useForm<SubmissionFormData>({
-    validationSchema: toTypedSchema(submissionFormSchema),
-    initialValues: {
-        studentName: '',
-        studentEmail: '',
-        studentIdNumber: '',
-        classId: 0,
-        assignmentId: assignmentId.value,
-        detail: '',
-        fileName: '',
-    },
-})
-
-const [studentName] = defineField('studentName')
-const [studentEmail] = defineField('studentEmail')
-const [studentIdNumber] = defineField('studentIdNumber')
-const [classId] = defineField('classId')
-
-const triggerFileInput = () => {
-    fileInputRef.value?.click()
-}
-
-const handleFileChange = (event: Event) => {
-    const target = event.target as HTMLInputElement
-    if (target.files && target.files[0]) {
-        attachedFile.value = target.files[0]
-    }
-}
-
-const removeFile = () => {
-    attachedFile.value = null
-    if (fileInputRef.value) {
-        fileInputRef.value.value = ''
-    }
-}
 
 const goBack = () => {
     router.push('/assignments')
@@ -111,24 +57,22 @@ const openSubmitDialog = () => {
     isSubmitDialogOpen.value = true
 }
 
-const handleSubmitAssignment = handleSubmit((values) => {
+const handleSubmitAssignment = (
+    values: SubmitAssignmentFormData & { assignmentFile?: File | null },
+) => {
     submissions.value.push({
         studentName: values.studentName,
         studentEmail: values.studentEmail,
         studentIdNumber: values.studentIdNumber,
         classId: values.classId,
-        detail: values.detail,
-        fileName: attachedFile.value?.name,
+        details: values.details,
+        assignmentFileName: values.assignmentFile?.name || undefined,
     })
     isSubmitDialogOpen.value = false
-    attachedFile.value = null
-    resetForm()
-})
+}
 
 const handleCancel = () => {
     isSubmitDialogOpen.value = false
-    attachedFile.value = null
-    resetForm()
 }
 
 const formatDate = (date: string) => {
@@ -251,114 +195,7 @@ const getStatusLabel = (status: string) => {
 
         <McDialog v-model:open="isSubmitDialogOpen">
             <McDialogContent class="tw:sm:max-w-xl">
-                <McDialogHeader>
-                    <McDialogTitle>Submit Assignment</McDialogTitle>
-                    <McDialogDescription>
-                        Enter your information to submit the assignment.
-                    </McDialogDescription>
-                </McDialogHeader>
-                <form
-                    class="tw:flex tw:flex-col tw:gap-4 tw:py-4"
-                    @submit.prevent="handleSubmitAssignment"
-                >
-                    <div class="tw:grid tw:grid-cols-2 tw:gap-4">
-                        <div class="tw:flex tw:flex-col tw:gap-2">
-                            <label class="tw:text-sm tw:font-medium">
-                                Full Name
-                                <span class="tw:text-red-500">*</span>
-                            </label>
-                            <McInput v-model="studentName" placeholder="Enter your full name" />
-                            <span v-if="errors.studentName" class="tw:text-xs tw:text-red-500">
-                                {{ errors.studentName }}
-                            </span>
-                        </div>
-
-                        <div class="tw:flex tw:flex-col tw:gap-2">
-                            <label class="tw:text-sm tw:font-medium">
-                                Email
-                                <span class="tw:text-red-500">*</span>
-                            </label>
-                            <McInput
-                                v-model="studentEmail"
-                                type="email"
-                                placeholder="Enter your email"
-                            />
-                            <span v-if="errors.studentEmail" class="tw:text-xs tw:text-red-500">
-                                {{ errors.studentEmail }}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="tw:grid tw:grid-cols-2 tw:gap-4">
-                        <div class="tw:flex tw:flex-col tw:gap-2">
-                            <label class="tw:text-sm tw:font-medium">
-                                Student ID
-                                <span class="tw:text-red-500">*</span>
-                            </label>
-                            <McInput
-                                v-model="studentIdNumber"
-                                placeholder="Enter your student ID"
-                            />
-                            <span v-if="errors.studentIdNumber" class="tw:text-xs tw:text-red-500">
-                                {{ errors.studentIdNumber }}
-                            </span>
-                        </div>
-
-                        <div class="tw:flex tw:flex-col tw:gap-2">
-                            <label class="tw:text-sm tw:font-medium">
-                                Class
-                                <span class="tw:text-red-500">*</span>
-                            </label>
-                            <McSelect
-                                v-model="classId"
-                                :options="classOptions"
-                                option-value="value"
-                                option-label="label"
-                                placeholder="Select a class"
-                            />
-                            <span v-if="errors.classId" class="tw:text-xs tw:text-red-500">
-                                {{ errors.classId }}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="tw:flex tw:flex-col tw:gap-2">
-                        <label class="tw:text-sm tw:font-medium">Details (optional)</label>
-                        <textarea
-                            name="detail"
-                            class="detail-textarea"
-                            placeholder="Write your submission details here..."
-                            rows="4"
-                        />
-                    </div>
-
-                    <div class="tw:flex tw:flex-col tw:gap-2">
-                        <label class="tw:text-sm tw:font-medium">Attach File (optional)</label>
-                        <input
-                            ref="fileInputRef"
-                            type="file"
-                            class="tw:hidden"
-                            @change="handleFileChange"
-                        />
-                        <div v-if="attachedFile" class="file-preview">
-                            <div class="file-info">
-                                <Paperclip class="tw:w-4 tw:h-4 tw:text-navy-60" />
-                                <span class="file-name">{{ attachedFile.name }}</span>
-                            </div>
-                            <button type="button" class="remove-file" @click="removeFile">
-                                <X class="tw:w-4 tw:h-4" />
-                            </button>
-                        </div>
-                        <McButton v-else type="button" variant="outline" @click="triggerFileInput">
-                            <Paperclip class="tw:w-4 tw:h-4 tw:mr-1" />
-                            Choose File
-                        </McButton>
-                    </div>
-                </form>
-                <McDialogFooter>
-                    <McButton variant="outline" @click="handleCancel">Cancel</McButton>
-                    <McButton @click="handleSubmitAssignment">Submit</McButton>
-                </McDialogFooter>
+                <SubmitAssignment @save="handleSubmitAssignment" @cancel="handleCancel" />
             </McDialogContent>
         </McDialog>
     </div>

@@ -3,14 +3,12 @@ import { ref, computed } from 'vue'
 import {
     Users,
     Mail,
-    Clock,
     CheckCircle,
     LayoutGrid,
     FileText,
     TrendingUp,
     Award,
     Timer,
-    Filter,
 } from 'lucide-vue-next'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -64,12 +62,6 @@ const stats = computed(() => [
         type: 'submissions',
     },
     {
-        label: 'Pending Reviews',
-        value: dashboardData.stats.pendingReviews,
-        icon: Clock,
-        type: 'pending',
-    },
-    {
         label: 'Graded',
         value: dashboardData.stats.graded,
         icon: CheckCircle,
@@ -114,7 +106,7 @@ const recentSubmissions = dashboardData.recentSubmissions
 
 <template>
     <div>
-        <div class="tw:flex tw:items-center tw:justify-between tw:mb-6">
+        <div class="tw:flex tw:justify-between tw:items-center tw:mb-6">
             <div>
                 <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:mb-1">Dashboard</h1>
                 <p class="tw:text-sm tw:text-navy-60">Overview of {{ selectedClassName }}</p>
@@ -125,10 +117,11 @@ const recentSubmissions = dashboardData.recentSubmissions
                 option-value="value"
                 option-label="label"
                 placeholder="All Classes"
+                class="tw:w-100"
             />
         </div>
 
-        <div class="tw:grid tw:grid-cols-1 tw:md:grid-cols-2 tw:lg:grid-cols-4 tw:gap-4 tw:mb-6">
+        <div class="tw:grid tw:grid-cols-1 tw:md:grid-cols-3 tw:gap-4 tw:mb-6">
             <div
                 v-for="stat in stats"
                 :key="stat.label"

@@ -17,16 +17,5 @@ export const assignmentFormSchema = baseAssignmentSchema.extend({
     submissions: z.number().min(0).int(),
 })
 
-export const submissionFormSchema = z.object({
-    studentName: z.string().min(1, 'Student name is required'),
-    studentEmail: z.string().email('Please enter a valid email'),
-    studentIdNumber: z.string().min(1, 'Student ID is required'),
-    classId: z.number().min(1, 'Please select a class'),
-    assignmentId: z.number(),
-    detail: z.string().optional(),
-    fileName: z.string().optional(),
-})
-
 export type CreateAssignmentFormData = z.infer<typeof createAssignmentFormSchema>
 export type AssignmentFormData = z.infer<typeof assignmentFormSchema>
-export type SubmissionFormData = z.infer<typeof submissionFormSchema>
