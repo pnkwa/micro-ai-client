@@ -7,6 +7,8 @@ import {
     Loader2,
     ScanSearch,
     FlipHorizontal,
+    MessageCircle,
+    Send,
 } from 'lucide-vue-next'
 
 type ViewerMode = 'empty' | 'camera' | 'preview'
@@ -31,6 +33,13 @@ interface DetectionResult {
     dot: string
 }
 
+interface ChatMessage {
+    id: number
+    from: 'user' | 'bot'
+    text: string
+    meta?: string
+}
+
 const camera = ref<InstanceType<typeof CameraType>>()
 const fileInput = ref<HTMLInputElement>()
 
@@ -38,6 +47,62 @@ const mode = ref<ViewerMode>('empty')
 const imageUrl = ref<string | null>(null)
 const isAnalyzing = ref(false)
 const hasResults = ref(false)
+
+const chatMessages = ref<ChatMessage[]>([
+    {
+        id: 1,
+        from: 'bot',
+        text: 'Hi! I am the MicroAI lab assistant. Ask me about what the model is seeing in your image or how to interpret the detection results.',
+        meta: 'Tip: upload an image or start the camera first.',
+    },
+])
+const chatInput = ref('')
+const isChatThinking = ref(false)
+const isChatOpen = ref(false)
+
+const pushChatMessage = (msg: Omit<ChatMessage, 'id'>) => {
+    chatMessages.value.push({
+        id: Date.now() + Math.random(),
+        ...msg,
+    })
+}
+
+const handleSendChat = async () => {
+    const content = chatInput.value.trim()
+    if (!content || isChatThinking.value) return
+
+    pushChatMessage({ from: 'user', text: content })
+    chatInput.value = ''
+
+    isChatThinking.value = true
+
+    // Simple canned response that reacts to current detection state
+    await new Promise((resolve) => setTimeout(resolve, 400))
+
+    if (!imageUrl.value) {
+        pushChatMessage({
+            from: 'bot',
+            text: 'I do not see any image loaded yet. Capture from the camera or upload a microscopy image, then run AI detection so I can comment on the findings.',
+        })
+    } else if (!hasResults.value) {
+        pushChatMessage({
+            from: 'bot',
+            text: 'You already have an image loaded. Click "Run AI Detection" on the right, then I can help you interpret the detected structures.',
+        })
+    } else {
+        const summary = detectionResults
+            .map((r) => `${r.count} × ${r.label.toLowerCase()} (${r.confidence}% conf.)`)
+            .join(', ')
+
+        pushChatMessage({
+            from: 'bot',
+            text: 'Here is a quick summary of the current detection results:',
+            meta: summary,
+        })
+    }
+
+    isChatThinking.value = false
+}
 
 const startCamera = () => {
     imageUrl.value = null
@@ -207,7 +272,7 @@ onUnmounted(() => {
                     </div>
 
                     <div
-                        class="tw:relative tw:w-full tw:rounded-md tw:overflow-hidden tw:bg-gradient-to-br tw:from-slate-100 tw:to-slate-50 tw:ring-1 tw:ring-slate-200/80 tw:flex-1"
+                        class="tw:relative tw:w-full tw:rounded-md tw:overflow-hidden tw:bg-linear-to-br tw:from-slate-100 tw:to-slate-50 tw:ring-1 tw:ring-slate-200/80 tw:flex-1"
                     >
                         <div
                             v-if="mode === 'empty'"
@@ -405,121 +470,130 @@ onUnmounted(() => {
             </div>
         </div>
 
-        <Transition
-            enter-active-class="tw:transition-all tw:duration-500 tw:ease-out"
-            enter-from-class="tw:opacity-0 tw:translate-y-4"
-            enter-to-class="tw:opacity-100 tw:translate-y-0"
-        >
-            <div v-if="hasResults" class="tw:space-y-4">
-                <div
-                    class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
-                >
-                    <div class="tw:flex tw:items-center tw:justify-between tw:mb-4">
-                        <h2 class="tw:text-sm tw:font-bold tw:text-slate-700">Detection Results</h2>
-                        <span
-                            class="tw:text-[10px] tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest tw:bg-slate-100 tw:px-2 tw:py-0.5 tw:rounded-full"
-                        >
-                            {{ detectionResults.length }} types found
-                        </span>
-                    </div>
-
+        <div class="tw:grid tw:grid-cols-1 tw:lg:grid-cols-3 tw:gap-4 tw:mt-4">
+            <!-- Detection summary -->
+            <Transition
+                enter-active-class="tw:transition-all tw:duration-500 tw:ease-out"
+                enter-from-class="tw:opacity-0 tw:translate-y-4"
+                enter-to-class="tw:opacity-100 tw:translate-y-0"
+            >
+                <div v-if="hasResults" class="tw:space-y-4 tw:lg:col-span-2">
                     <div
-                        class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:lg:grid-cols-3 tw:gap-3"
+                        class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
                     >
-                        <div
-                            v-for="result in detectionResults"
-                            :key="result.label"
-                            class="tw:group tw:relative tw:rounded-xl tw:p-4 tw:border tw:border-slate-100 tw:overflow-hidden tw:transition-shadow hover:tw:shadow-md"
-                            :class="result.bg"
-                        >
-                            <div class="tw:flex tw:items-start tw:justify-between tw:mb-4">
-                                <div class="tw:flex tw:items-center tw:gap-2">
-                                    <span
-                                        class="tw:w-2.5 tw:h-2.5 tw:rounded-full tw:flex-shrink-0 tw:shadow-sm"
-                                        :class="result.dot"
-                                    ></span>
-                                    <span class="tw:text-xs tw:font-semibold tw:text-slate-600">
-                                        {{ result.label }}
-                                    </span>
-                                </div>
-                                <span
-                                    class="tw:text-2xl tw:font-black tw:leading-none tw:tabular-nums"
-                                    :class="result.text"
-                                >
-                                    {{ result.count }}
-                                </span>
-                            </div>
+                        <div class="tw:flex tw:items-center tw:justify-between tw:mb-4">
+                            <h2 class="tw:text-sm tw:font-bold tw:text-slate-700">
+                                Detection Results
+                            </h2>
+                            <span
+                                class="tw:text-[10px] tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest tw:bg-slate-100 tw:px-2 tw:py-0.5 tw:rounded-full"
+                            >
+                                {{ detectionResults.length }} types found
+                            </span>
+                        </div>
 
-                            <!-- Confidence bar -->
-                            <div>
-                                <div
-                                    class="tw:flex tw:items-center tw:justify-between tw:text-[10px] tw:mb-1.5"
-                                >
-                                    <span class="tw:text-slate-400 tw:font-medium">Confidence</span>
-                                    <span class="tw:font-bold" :class="result.text">
-                                        {{ result.confidence }}%
+                        <div
+                            class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:lg:grid-cols-3 tw:gap-3"
+                        >
+                            <div
+                                v-for="result in detectionResults"
+                                :key="result.label"
+                                class="tw:group tw:relative tw:rounded-xl tw:p-4 tw:border tw:border-slate-100 tw:overflow-hidden tw:transition-shadow hover:tw:shadow-md"
+                                :class="result.bg"
+                            >
+                                <div class="tw:flex tw:items-start tw:justify-between tw:mb-4">
+                                    <div class="tw:flex tw:items-center tw:gap-2">
+                                        <span
+                                            class="tw:w-2.5 tw:h-2.5 tw:rounded-full tw:shrink-0 tw:shadow-sm"
+                                            :class="result.dot"
+                                        ></span>
+                                        <span class="tw:text-xs tw:font-semibold tw:text-slate-600">
+                                            {{ result.label }}
+                                        </span>
+                                    </div>
+                                    <span
+                                        class="tw:text-2xl tw:font-black tw:leading-none tw:tabular-nums"
+                                        :class="result.text"
+                                    >
+                                        {{ result.count }}
                                     </span>
                                 </div>
-                                <div
-                                    class="tw:w-full tw:bg-white/80 tw:rounded-full tw:h-1.5 tw:overflow-hidden"
-                                >
+
+                                <!-- Confidence bar -->
+                                <div>
                                     <div
-                                        class="tw:h-full tw:rounded-full tw:transition-all tw:duration-700 tw:delay-200"
-                                        :class="result.bar"
-                                        :style="`width:${result.confidence}%`"
-                                    ></div>
+                                        class="tw:flex tw:items-center tw:justify-between tw:text-[10px] tw:mb-1.5"
+                                    >
+                                        <span class="tw:text-slate-400 tw:font-medium">
+                                            Confidence
+                                        </span>
+                                        <span class="tw:font-bold" :class="result.text">
+                                            {{ result.confidence }}%
+                                        </span>
+                                    </div>
+                                    <div
+                                        class="tw:w-full tw:bg-white/80 tw:rounded-full tw:h-1.5 tw:overflow-hidden"
+                                    >
+                                        <div
+                                            class="tw:h-full tw:rounded-full tw:transition-all tw:duration-700 tw:delay-200"
+                                            :class="result.bar"
+                                            :style="`width:${result.confidence}%`"
+                                        ></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <div
-                    class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
-                >
-                    <h2 class="tw:text-sm tw:font-bold tw:text-slate-700 tw:mb-3">
-                        AI Analysis Summary
-                    </h2>
 
                     <div
-                        class="tw:relative tw:bg-gradient-to-br tw:from-primary/5 tw:to-primary/3 tw:border tw:border-primary/15 tw:rounded-xl tw:p-5 tw:overflow-hidden"
+                        class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
                     >
-                        <span
-                            class="tw:absolute tw:top-2 tw:right-4 tw:text-5xl tw:font-black tw:text-primary/8 tw:select-none tw:leading-none"
+                        <h2 class="tw:text-sm tw:font-bold tw:text-slate-700 tw:mb-3">
+                            AI Analysis Summary
+                        </h2>
+
+                        <div
+                            class="tw:relative tw:bg-linear-to-br tw:from-primary/5 tw:to-primary/3 tw:border tw:border-primary/15 tw:rounded-xl tw:p-5 tw:overflow-hidden"
                         >
-                            "
-                        </span>
-                        <p class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative">
-                            The AI detected
-                            <span class="tw:font-bold tw:text-primary">4 clue cells</span>
-                            and
-                            <span class="tw:font-bold tw:text-emerald-700">
-                                12 gram-positive rods
+                            <span
+                                class="tw:absolute tw:top-2 tw:right-4 tw:text-5xl tw:font-black tw:text-primary/8 tw:select-none tw:leading-none"
+                            >
+                                "
                             </span>
-                            with high confidence, along with
-                            <span class="tw:font-bold tw:text-amber-700">1 fungal element</span>
-                            . The presence of clue cells alongside gram-positive rods may indicate
-                            <span class="tw:font-bold tw:text-slate-800">
-                                bacterial vaginosis (BV)
-                            </span>
-                            . Please review the image and consult results carefully before grading.
-                        </p>
-                    </div>
+                            <p class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative">
+                                The AI detected
+                                <span class="tw:font-bold tw:text-primary">4 clue cells</span>
+                                and
+                                <span class="tw:font-bold tw:text-emerald-700">
+                                    12 gram-positive rods
+                                </span>
+                                with high confidence, along with
+                                <span class="tw:font-bold tw:text-amber-700">1 fungal element</span>
+                                . The presence of clue cells alongside gram-positive rods may
+                                indicate
+                                <span class="tw:font-bold tw:text-slate-800">
+                                    bacterial vaginosis (BV)
+                                </span>
+                                . Please review the image and consult results carefully before
+                                grading.
+                            </p>
+                        </div>
 
-                    <div
-                        class="tw:flex tw:items-start tw:gap-2 tw:mt-3 tw:p-3 tw:rounded-lg tw:bg-amber-50/60 tw:border tw:border-amber-100"
-                    >
-                        <span
-                            class="tw:w-3.5 tw:h-3.5 tw:rounded-full tw:bg-amber-300 tw:flex-shrink-0 tw:mt-0.5"
-                        ></span>
-                        <p class="tw:text-[11px] tw:text-amber-700 tw:leading-relaxed">
-                            AI analysis is for educational guidance only. Results should be verified
-                            by an instructor.
-                        </p>
+                        <div
+                            class="tw:flex tw:items-start tw:gap-2 tw:mt-3 tw:p-3 tw:rounded-lg tw:bg-amber-50/60 tw:border tw:border-amber-100"
+                        >
+                            <span
+                                class="tw:w-3.5 tw:h-3.5 tw:rounded-full tw:bg-amber-300 tw:shrink-0 tw:mt-0.5"
+                            ></span>
+                            <p class="tw:text-[11px] tw:text-amber-700 tw:leading-relaxed">
+                                AI analysis is for educational guidance only. Results should be
+                                verified by an instructor.
+                            </p>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </Transition>
+            </Transition>
+        </div>
 
         <input
             ref="fileInput"
@@ -528,5 +602,127 @@ onUnmounted(() => {
             class="tw:hidden"
             @change="onFileChange"
         />
+
+        <!-- Floating chat assistant (social-style) -->
+        <div
+            class="tw:fixed tw:bottom-6 tw:right-6 tw:z-40 tw:flex tw:flex-col tw:items-end tw:gap-3 tw:max-sm:right-4 tw:max-sm:bottom-4"
+        >
+            <Transition
+                enter-active-class="tw:transition-all tw:duration-300 tw:ease-out"
+                enter-from-class="tw:opacity-0 tw:translate-y-2 tw:scale-95"
+                enter-to-class="tw:opacity-100 tw:translate-y-0 tw:scale-100"
+                leave-active-class="tw:transition-all tw:duration-200 tw:ease-in"
+                leave-to-class="tw:opacity-0 tw:translate-y-2 tw:scale-95"
+            >
+                <div
+                    v-if="isChatOpen"
+                    class="tw:w-80 tw:max-w-[88vw] tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-xl tw:shadow-slate-900/10 tw:flex tw:flex-col tw:p-4 tw:max-sm:w-screen tw:max-sm:h-[70vh] tw:max-sm:rounded-2xl tw:max-sm:-mr-4"
+                >
+                    <div class="tw:flex tw:items-center tw:justify-between tw:mb-3">
+                        <div class="tw:flex tw:items-center tw:gap-2">
+                            <div
+                                class="tw:flex tw:items-center tw:justify-center tw:w-7 tw:h-7 tw:rounded-full tw:bg-primary/10"
+                            >
+                                <MessageCircle class="tw:w-4 tw:h-4 tw:text-primary" />
+                            </div>
+                            <div>
+                                <p class="tw:text-xs tw:font-semibold tw:text-slate-700">
+                                    MicroAI Lab Assistant
+                                </p>
+                                <p class="tw:text-[10px] tw:text-slate-400">
+                                    Ask about this image or results
+                                </p>
+                            </div>
+                        </div>
+                        <span
+                            class="tw:inline-flex tw:items-center tw:gap-1 tw:px-2 tw:py-0.5 tw:rounded-full tw:bg-emerald-50 tw:border tw:border-emerald-100 tw:text-[10px] tw:text-emerald-700"
+                        >
+                            <span
+                                class="tw:w-1.5 tw:h-1.5 tw:rounded-full tw:bg-emerald-500"
+                            ></span>
+                            Online
+                        </span>
+                    </div>
+
+                    <div
+                        class="tw:flex-1 tw:space-y-2 tw:overflow-y-auto tw:max-h-60 tw:pr-1 tw:mb-3 tw:text-xs tw:text-slate-600"
+                    >
+                        <div
+                            v-for="msg in chatMessages"
+                            :key="msg.id"
+                            class="tw:flex tw:flex-col tw:max-w-[90%]"
+                            :class="
+                                msg.from === 'user' ? 'tw:ml-auto tw:items-end' : 'tw:items-start'
+                            "
+                        >
+                            <div
+                                class="tw:px-3 tw:py-2 tw:rounded-2xl tw:shadow-sm tw:border"
+                                :class="
+                                    msg.from === 'user'
+                                        ? 'tw:bg-primary tw:text-white tw:border-primary/80'
+                                        : 'tw:bg-slate-50 tw:text-slate-700 tw:border-slate-200'
+                                "
+                            >
+                                <p>{{ msg.text }}</p>
+                                <p
+                                    v-if="msg.meta"
+                                    class="tw:text-[10px] tw:mt-1"
+                                    :class="
+                                        msg.from === 'user'
+                                            ? 'tw:text-primary-foreground/80'
+                                            : 'tw:text-slate-400'
+                                    "
+                                >
+                                    {{ msg.meta }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div
+                            v-if="isChatThinking"
+                            class="tw:flex tw:items-center tw:gap-1 tw:text-[10px] tw:text-slate-400"
+                        >
+                            <span class="tw:inline-flex tw:gap-0.5">
+                                <span
+                                    class="tw:w-1.5 tw:h-1.5 tw:rounded-full tw:bg-slate-300 tw:animate-bounce"
+                                ></span>
+                                <span
+                                    class="tw:w-1.5 tw:h-1.5 tw:rounded-full tw:bg-slate-300 tw:animate-bounce [animation-delay:80ms]"
+                                ></span>
+                                <span
+                                    class="tw:w-1.5 tw:h-1.5 tw:rounded-full tw:bg-slate-300 tw:animate-bounce [animation-delay:160ms]"
+                                ></span>
+                            </span>
+                            Typing…
+                        </div>
+                    </div>
+
+                    <form class="tw:flex tw:items-center tw:gap-2" @submit.prevent="handleSendChat">
+                        <input
+                            v-model="chatInput"
+                            type="text"
+                            class="tw:flex-1 tw:text-xs tw:px-3 tw:py-2 tw:border tw:border-slate-200 tw:rounded-xl focus:tw:outline-none focus:tw:ring-1 focus:tw:ring-primary focus:tw:border-primary tw:bg-slate-50"
+                            placeholder="Send a message…"
+                        />
+                        <McButton
+                            type="submit"
+                            size="icon"
+                            variant="outline"
+                            class="tw:w-8 tw:h-8 tw:shrink-0"
+                        >
+                            <Send class="tw:w-3 tw:h-3" />
+                        </McButton>
+                    </form>
+                </div>
+            </Transition>
+
+            <McButton
+                size="icon"
+                class="tw:w-12 tw:h-12 tw:rounded-full tw:shadow-lg tw:shadow-primary/30 tw:bg-primary tw:text-white hover:tw:bg-primary-hover"
+                @click="isChatOpen = !isChatOpen"
+            >
+                <MessageCircle class="tw:w-6 tw:h-6" />
+            </McButton>
+        </div>
     </div>
 </template>

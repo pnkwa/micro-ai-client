@@ -1,6 +1,6 @@
 import { ChartPie, GraduationCap, FileText, Inbox, View, Settings } from 'lucide-vue-next'
 
-type MenuRole = 'teacher' | 'all'
+type MenuRole = 'instructor' | 'all'
 
 interface MenuItem {
     title: string
@@ -21,13 +21,13 @@ export const menuItems: MenuItem[] = [
         title: 'Dashboard',
         url: '/dashboard',
         icon: ChartPie,
-        role: 'teacher',
+        role: 'instructor',
     },
     {
         title: 'Classes',
         url: '/classes',
         icon: GraduationCap,
-        role: 'teacher',
+        role: 'instructor',
     },
     {
         title: 'Assignments',
@@ -39,7 +39,7 @@ export const menuItems: MenuItem[] = [
         title: 'Submissions',
         url: '/submissions',
         icon: Inbox,
-        role: 'teacher',
+        role: 'instructor',
     },
     {
         title: 'Image Detection',
@@ -51,6 +51,6 @@ export const menuItems: MenuItem[] = [
         title: 'Settings',
         url: '/settings',
         icon: Settings,
-        role: 'teacher',
+        role: 'instructor',
     },
 ]

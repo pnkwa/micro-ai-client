@@ -1,20 +1,18 @@
-import type { HTMLAttributes } from 'vue'
+import type { InputHTMLAttributes } from 'vue'
+import type { CommonComponent } from '.'
 import type * as icons from 'lucide-vue-next'
 
-type IconName = keyof typeof icons
-
-export interface McInputProps {
-    defaultValue?: string | number
+type AllIcon = keyof typeof icons
+export type McInputProps = {
     modelValue?: string | number
-    class?: HTMLAttributes['class']
-    type?: 'text' | 'number' | 'email' | 'password' | 'tel' | 'url'
-    name?: string
-    disabled?: boolean
     maxNumber?: number | string
-    iconPrepend?: IconName
-    iconAppend?: IconName
-}
+    minNumber?: number | string
+    iconPrepend?: AllIcon
+    iconAppend?: AllIcon
+    disabled?: boolean
+} & CommonComponent &
+    /* @vue-ignore */ Partial<InputHTMLAttributes>
 
 export interface McInputEmit {
-    (e: 'update:modelValue', payload: string | number | undefined): void
+    (e: 'update:modelValue', payload: string | number): void
 }

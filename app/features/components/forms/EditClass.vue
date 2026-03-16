@@ -17,7 +17,7 @@ const emit = defineEmits<{
 
 const isDeleteModalOpen = ref(false)
 
-const { handleSubmit, errors, defineField } = useForm<EditClassFormData>({
+const { handleSubmit, defineField } = useForm<EditClassFormData>({
     validationSchema: toTypedSchema(classFormSchema),
     initialValues: props.initialValues,
 })
@@ -77,9 +77,6 @@ const statusOptions = [
                 option-label="label"
                 placeholder="Select status"
             />
-            <span v-if="errors.status" class="tw:text-xs tw:text-red-500">
-                {{ errors.status }}
-            </span>
         </div>
     </form>
     <McDialogFooter

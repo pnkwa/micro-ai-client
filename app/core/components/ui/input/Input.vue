@@ -8,9 +8,8 @@ const props = defineProps<McInputProps>()
 
 const emits = defineEmits<McInputEmit>()
 
-const { value: modelValue, errorMessage: fieldError } = useVeeValidateModel<
-    McInputProps['modelValue']
->(props, emits)
+//@ts-ignore
+const modelValue = useVeeValidateModel<McInputProps['modelValue']>(props, emits)
 
 const handleChange = (value: string | number) => {
     const digitPattern = /[^\d-]+/g
@@ -26,7 +25,7 @@ const handleChange = (value: string | number) => {
     }
 
     nextTick(() => {
-        modelValue.value = tempVal
+        modelValue.value.value = tempVal
     })
     return tempVal
 }
@@ -63,7 +62,7 @@ const IconAppendComponent = computed(() => {
 })
 
 const errorMessage = computed(() => {
-    return fieldError.value || ''
+    return modelValue.errorMessage.value || ''
 })
 </script>
 
@@ -88,7 +87,7 @@ const errorMessage = computed(() => {
         >
             <input
                 class="tw:outline-none tw:w-full tw:text-base"
-                :value="modelValue"
+                :value="modelValue.value.value"
                 data-slot="input"
                 v-bind="{ ...$attrs, disabled: props.disabled }"
                 @input="handleInput"
