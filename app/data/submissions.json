@@ -1,0 +1,92 @@
+{
+    "submissions": [
+        {
+            "id": 1,
+            "studentName": "Sarah Kim",
+            "studentInitials": "SK",
+            "assignment": "Mitosis Analysis",
+            "classId": 1,
+            "submittedAt": "2025-02-15T14:34:00",
+            "similarity": 12,
+            "quality": 94,
+            "status": "submitted"
+        },
+        {
+            "id": 2,
+            "studentName": "James Okafor",
+            "studentInitials": "JO",
+            "assignment": "Mitosis Analysis",
+            "classId": 1,
+            "submittedAt": "2025-02-15T13:20:00",
+            "similarity": 8,
+            "quality": 87,
+            "status": "submitted"
+        },
+        {
+            "id": 3,
+            "studentName": "Maria Gonzalez",
+            "studentInitials": "MG",
+            "assignment": "Cell Staining",
+            "classId": 2,
+            "submittedAt": "2025-02-14T11:05:00",
+            "similarity": 67,
+            "quality": 45,
+            "status": "submitted"
+        },
+        {
+            "id": 4,
+            "studentName": "Alex Turner",
+            "studentInitials": "AT",
+            "assignment": "Mitosis Analysis",
+            "classId": 2,
+            "submittedAt": "2025-02-14T09:00:00",
+            "similarity": 5,
+            "quality": 91,
+            "status": "graded"
+        },
+        {
+            "id": 5,
+            "studentName": "Li Wei",
+            "studentInitials": "LW",
+            "assignment": "Mitosis Analysis",
+            "classId": 3,
+            "submittedAt": "2025-02-13T16:50:00",
+            "similarity": 15,
+            "quality": 82,
+            "status": "submitted"
+        },
+        {
+            "id": 6,
+            "studentName": "Emma Davis",
+            "studentInitials": "ED",
+            "assignment": "Cell Staining",
+            "classId": 3,
+            "submittedAt": "2025-02-13T15:15:00",
+            "similarity": 22,
+            "quality": 76,
+            "status": "submitted"
+        },
+        {
+            "id": 7,
+            "studentName": "Omar Hassan",
+            "studentInitials": "OH",
+            "assignment": "Mitosis Analysis",
+            "classId": 1,
+            "submittedAt": "2025-02-13T13:30:00",
+            "similarity": 78,
+            "quality": 34,
+            "status": "submitted"
+        },
+        {
+            "id": 8,
+            "studentName": "Yuki Tanaka",
+            "studentInitials": "YT",
+            "assignment": "Microscopy Basics",
+            "classId": 2,
+            "submittedAt": "2025-02-12T10:45:00",
+            "similarity": 3,
+            "quality": 96,
+            "status": "graded"
+        }
+    ]
+}

@@ -1,5 +1,4 @@
 export type StatusType =
-    | 'pending'
     | 'graded'
     | 'submitted'
     | 'success'
@@ -18,7 +17,6 @@ export type VariantType =
     | 'secondary'
 
 const statusVariantMap: Record<string, VariantType> = {
-    pending: 'warning',
     graded: 'success',
     submitted: 'info',
     success: 'success',

@@ -3,7 +3,6 @@ import { ref, computed } from 'vue'
 import {
     Users,
     Mail,
-    Clock,
     CheckCircle,
     LayoutGrid,
     FileText,
@@ -17,11 +16,33 @@ import { BarChart } from '~/core/components/bar-chart'
 import { getStatusVariant } from '~/core/helpers/variants'
 
 import dashboardData from '~/data/dashboard.json'
+import classesData from '~/data/classes.json'
 
 dayjs.extend(relativeTime)
 
-const selectedClass = ref(dashboardData.classes[0] || { name: '', semester: '' })
+interface ClassItem {
+    id: number
+    name: string
+    students: number
+    status: 'active' | 'inactive'
+}
+
+const classes = ref<ClassItem[]>(classesData.classes as ClassItem[])
+const selectedClassId = ref<number | 'all'>('all')
 const selectedPeriod = ref('Weekly')
+
+const activeClasses = computed(() => classes.value.filter((c) => c.status === 'active'))
+
+const classSelectOptions = computed(() => [
+    { value: 'all', label: 'All Classes' },
+    ...activeClasses.value.map((c) => ({ value: c.id, label: c.name })),
+])
+
+const selectedClassName = computed(() => {
+    if (selectedClassId.value === 'all') return 'All Classes'
+    const cls = classes.value.find((c) => c.id === selectedClassId.value)
+    return cls?.name || 'All Classes'
+})
 
 const formatSubmittedAt = (dateString: string) => {
     return dayjs(dateString).fromNow()
@@ -39,12 +60,6 @@ const stats = computed(() => [
         value: dashboardData.stats.submissions,
         icon: Mail,
         type: 'submissions',
-    },
-    {
-        label: 'Pending Reviews',
-        value: dashboardData.stats.pendingReviews,
-        icon: Clock,
-        type: 'pending',
     },
     {
         label: 'Graded',
@@ -90,17 +105,23 @@ const recentSubmissions = dashboardData.recentSubmissions
 </script>
 
 <template>
-    <div class="tw:px-4">
-        <div class="tw:mb-6">
+    <div>
+        <div class="tw:flex tw:justify-between tw:items-center tw:mb-6">
             <div>
                 <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:mb-1">Dashboard</h1>
-                <p class="tw:text-sm tw:text-navy-60">
-                    Overview of {{ selectedClass.name }} — {{ selectedClass.semester }}
-                </p>
+                <p class="tw:text-sm tw:text-navy-60">Overview of {{ selectedClassName }}</p>
             </div>
+            <McSelect
+                v-model="selectedClassId"
+                :options="classSelectOptions"
+                option-value="value"
+                option-label="label"
+                placeholder="All Classes"
+                class="tw:w-100"
+            />
         </div>
 
-        <div class="tw:grid tw:grid-cols-1 tw:md:grid-cols-2 tw:lg:grid-cols-4 tw:gap-4 tw:mb-6">
+        <div class="tw:grid tw:grid-cols-1 tw:md:grid-cols-3 tw:gap-4 tw:mb-6">
             <div
                 v-for="stat in stats"
                 :key="stat.label"
@@ -258,5 +279,15 @@ const recentSubmissions = dashboardData.recentSubmissions
     width: 18px;
     height: 18px;
     color: var(--color-navy-50);
+}
+
+.filter-select {
+    min-width: 180px;
+    background: white;
+    border: 1px solid #e5e7eb;
+
+    &:hover {
+        background: #f9fafb;
+    }
 }
 </style>
