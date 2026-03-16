@@ -26,10 +26,12 @@ export const useAuth = defineStore('auth', () => {
     })
 
     const isLoggedIn = computed(() => {
-        return userToken.value.accessToken && userToken.value.accessToken.trim() !== ''
+        return (
+            userToken.value.accessToken &&
+            userToken.value.accessToken.trim() !== '' &&
+            user.value !== null
+        )
     })
-
-    const isAuthenticated = computed(() => !!user.value)
 
     const login = (credentials: { username: string; password: string }) => {
         const { username, password } = credentials
@@ -81,7 +83,7 @@ export const useAuth = defineStore('auth', () => {
 
     return {
         user,
-        isAuthenticated,
+
         login,
         logout,
         jwtUserInfo,

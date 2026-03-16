@@ -12,7 +12,7 @@ import {
 } from '@/core/components/ui/sidebar'
 import { menuItems } from '~/core/configs/navbar'
 import SidebarItem from './SidebarItem.vue'
-import { Microscope, LogIn, LogOut, User } from 'lucide-vue-next'
+import { Microscope, LogIn, LogOut, UserCog } from 'lucide-vue-next'
 
 const router = useRouter()
 const authStore = useAuth()
@@ -64,7 +64,7 @@ const handleLogout = () => {
                 <SidebarMenuItem v-if="authStore.isLoggedIn">
                     <div class="user-section" :class="{ 'is-collapsed': isCollapsed }">
                         <div class="user-avatar">
-                            <User />
+                            <UserCog :size="18" strokeWidth="2" />
                         </div>
                         <div v-if="!isCollapsed" class="user-info">
                             <span class="user-name">Instructor Mode</span>
