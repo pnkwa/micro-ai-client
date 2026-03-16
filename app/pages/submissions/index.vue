@@ -148,7 +148,7 @@ const showingTo = computed(() =>
             <div
                 class="tw:flex tw:items-center tw:gap-2 tw:bg-white tw:border tw:border-slate-200 tw:rounded-md tw:px-3 tw:py-2 tw:ml-auto tw:w-full tw:max-w-xs"
             >
-                <Search class="tw:w-3.5 tw:h-3.5 tw:text-slate-400 tw:flex-shrink-0" />
+                <Search class="tw:w-3.5 tw:h-3.5 tw:text-slate-400 tw:shrink-0" />
                 <input
                     v-model="searchQuery"
                     type="text"

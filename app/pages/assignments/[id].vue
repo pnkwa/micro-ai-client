@@ -30,6 +30,10 @@ const route = useRoute()
 const router = useRouter()
 const { $dayjs } = useNuxtApp()
 
+const authStore = useAuth()
+
+const isStudent = computed(() => authStore.user?.role === 'student' || !authStore.user)
+
 const assignmentId = computed(() => Number(route.params.id))
 const assignment = computed(() => {
     return (assignmentsData.assignments as AssignmentItem[]).find(
@@ -111,7 +115,10 @@ const getStatusLabel = (status: string) => {
                         </McBadge>
                     </div>
                 </div>
-                <McButton v-if="assignment.status === 'active'" @click="openSubmitDialog">
+                <McButton
+                    v-if="assignment.status === 'active' && isStudent"
+                    @click="openSubmitDialog"
+                >
                     <Send class="tw:w-4 tw:h-4 tw:mr-1" />
                     Submit Assignment
                 </McButton>

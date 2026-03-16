@@ -12,11 +12,19 @@ import {
 } from '@/core/components/ui/sidebar'
 import { menuItems } from '~/core/configs/navbar'
 import SidebarItem from './SidebarItem.vue'
-import { Microscope, LogIn, LogOut } from 'lucide-vue-next'
+import { Microscope, LogIn, LogOut, User } from 'lucide-vue-next'
 
 const router = useRouter()
 const authStore = useAuth()
 const { open, isMobile } = useSidebar()
+
+const filteredMenuItems = computed(() => {
+    const role = authStore.user?.role ?? 'student'
+    if (role === 'instructor') {
+        return menuItems
+    }
+    return menuItems.filter((item) => item.role === 'all')
+})
 
 const isCollapsed = computed(() => !open.value && !isMobile.value)
 
@@ -26,7 +34,7 @@ const handleLogin = () => {
 
 const handleLogout = () => {
     authStore.logout()
-    router.push('/login')
+    router.push('/')
 }
 </script>
 
@@ -44,7 +52,7 @@ const handleLogout = () => {
             <SidebarGroup>
                 <SidebarGroupContent>
                     <SidebarMenu>
-                        <SidebarMenuItem v-for="item in menuItems" :key="item.title">
+                        <SidebarMenuItem v-for="item in filteredMenuItems" :key="item.title">
                             <SidebarItem :item="item" />
                         </SidebarMenuItem>
                     </SidebarMenu>
@@ -53,14 +61,14 @@ const handleLogout = () => {
         </SidebarContent>
         <SidebarFooter>
             <SidebarMenu>
-                <SidebarMenuItem v-if="authStore.isAuthenticated">
+                <SidebarMenuItem v-if="authStore.isLoggedIn">
                     <div class="user-section" :class="{ 'is-collapsed': isCollapsed }">
                         <div class="user-avatar">
-                            {{ authStore.getInitials }}
+                            <User />
                         </div>
                         <div v-if="!isCollapsed" class="user-info">
-                            <span class="user-name">{{ authStore.user?.name }}</span>
-                            <span class="user-email">{{ authStore.user?.email }}</span>
+                            <span class="user-name">Instructor Mode</span>
+                            <span class="user-email">{{ authStore.user?.username }}</span>
                         </div>
                     </div>
                     <SidebarMenuButton tooltip="Logout" @click="handleLogout">
