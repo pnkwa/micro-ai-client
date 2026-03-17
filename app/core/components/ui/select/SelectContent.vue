@@ -36,7 +36,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
                 )
             "
         >
-            <HsSelectScrollUpButton />
+            <McSelectScrollUpButton />
             <SelectViewport
                 :class="
                     cn(
@@ -48,7 +48,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
             >
                 <slot />
             </SelectViewport>
-            <HsSelectScrollDownButton />
+            <McSelectScrollDownButton />
         </SelectContent>
     </SelectPortal>
 </template>

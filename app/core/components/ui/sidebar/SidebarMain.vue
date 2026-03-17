@@ -43,7 +43,7 @@ const { open, isMobile } = useSidebar()
                 </McBreadcrumb>
             </div>
         </div>
-        <div class="tw:min-h-[calc(100vh-65px)] tw:bg-[#f9f9f9]">
+        <div class="tw:min-h-[calc(100vh-50px)] tw:bg-[#f9f9f9]">
             <div class="tw:container tw:mx-auto tw:p-4">
                 <slot />
             </div>

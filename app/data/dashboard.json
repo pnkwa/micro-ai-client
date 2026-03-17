@@ -51,6 +51,7 @@
             "studentName": "Somchai Wongsa",
             "studentId": "652000001",
             "assignment": "Assignment 1",
+            "className": "BIO-301 Cell Biology",
             "submittedAt": "2026-03-04T09:58:00.000Z",
             "status": "submitted"
         },
@@ -59,6 +60,7 @@
             "studentName": "Nattaporn Suksai",
             "studentId": "652000002",
             "assignment": "Assignment 1",
+            "className": "BIO-201 Genetics",
             "submittedAt": "2026-03-04T08:30:00.000Z",
             "status": "graded"
         },
@@ -67,6 +69,7 @@
             "studentName": "Prawit Chaiyaporn",
             "studentId": "652000003",
             "assignment": "Assignment 1",
+            "className": "CHEM-101 General Chemistry",
             "submittedAt": "2026-03-03T14:20:00.000Z",
             "status": "submitted"
         },
@@ -75,6 +78,7 @@
             "studentName": "Kannika Rattana",
             "studentId": "652000004",
             "assignment": "Assignment 1",
+            "className": "BIO-301 Cell Biology",
             "submittedAt": "2026-03-02T10:15:00.000Z",
             "status": "submitted"
         },
@@ -83,6 +87,7 @@
             "studentName": "Thitipong Prasert",
             "studentId": "652000005",
             "assignment": "Assignment 1",
+            "className": "BIO-201 Genetics",
             "submittedAt": "2026-03-01T16:45:00.000Z",
             "status": "graded"
         }

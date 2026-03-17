@@ -16,33 +16,50 @@ import { BarChart } from '~/core/components/bar-chart'
 import { getStatusVariant } from '~/core/helpers/variants'
 
 import dashboardData from '~/data/dashboard.json'
-import classesData from '~/data/classes.json'
+import { useClassFilterStore } from '~/core/store/useClassFilterStore'
+import type { ColumnDef } from '@tanstack/vue-table'
 
 dayjs.extend(relativeTime)
 
-interface ClassItem {
+interface AssessmentData {
     id: number
-    name: string
-    students: number
-    status: 'active' | 'inactive'
+    studentName: string
+    studentId: string
+    className: string
+    assignment: string
+    submittedAt: string
+    status: 'graded' | 'submitted' | 'late'
 }
 
-const classes = ref<ClassItem[]>(classesData.classes as ClassItem[])
-const selectedClassId = ref<number | 'all'>('all')
+const columns: ColumnDef<AssessmentData>[] = [
+    {
+        accessorKey: 'studentName',
+        header: 'Student',
+    },
+    {
+        accessorKey: 'className',
+        header: () => h('div', { class: 'tw:text-center' }, 'Class'),
+    },
+    {
+        accessorKey: 'assignment',
+        header: 'Assignment',
+    },
+    {
+        accessorKey: 'submittedAt',
+        header: 'Submitted At',
+    },
+    {
+        accessorKey: 'status',
+        header: () => h('div', { class: 'tw:text-center' }, 'Status'),
+    },
+    {
+        accessorKey: 'actions',
+        header: () => h('div', { class: 'tw:text-center' }, 'Actions'),
+    },
+]
+
+const classFilterStore = useClassFilterStore()
 const selectedPeriod = ref('Weekly')
-
-const activeClasses = computed(() => classes.value.filter((c) => c.status === 'active'))
-
-const classSelectOptions = computed(() => [
-    { value: 'all', label: 'All Classes' },
-    ...activeClasses.value.map((c) => ({ value: c.id, label: c.name })),
-])
-
-const selectedClassName = computed(() => {
-    if (selectedClassId.value === 'all') return 'All Classes'
-    const cls = classes.value.find((c) => c.id === selectedClassId.value)
-    return cls?.name || 'All Classes'
-})
 
 const formatSubmittedAt = (dateString: string) => {
     return dayjs(dateString).fromNow()
@@ -101,7 +118,13 @@ const classSummaryItems = computed(() => [
         icon: Award,
     },
 ])
-const recentSubmissions = dashboardData.recentSubmissions
+const recentSubmissions = dashboardData.recentSubmissions as AssessmentData[]
+
+const filteredSubmissions = computed(() => {
+    if (classFilterStore.selectedClassId === 'all') return recentSubmissions
+    const className = classFilterStore.selectedClassName
+    return recentSubmissions.filter((item) => item.className === className)
+})
 </script>
 
 <template>
@@ -109,11 +132,13 @@ const recentSubmissions = dashboardData.recentSubmissions
         <div class="tw:flex tw:justify-between tw:items-center tw:mb-6">
             <div>
                 <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:mb-1">Dashboard</h1>
-                <p class="tw:text-sm tw:text-navy-60">Overview of {{ selectedClassName }}</p>
+                <p class="tw:text-sm tw:text-navy-60">
+                    Overview of {{ classFilterStore.selectedClassName }}
+                </p>
             </div>
             <McSelect
-                v-model="selectedClassId"
-                :options="classSelectOptions"
+                v-model="classFilterStore.selectedClassId"
+                :options="classFilterStore.classSelectOptions"
                 option-value="value"
                 option-label="label"
                 placeholder="All Classes"
@@ -184,51 +209,49 @@ const recentSubmissions = dashboardData.recentSubmissions
                 <Timer class="card-icon" />
                 <h3 class="tw:text-[1rem] tw:font-semibold">Recent Submissions</h3>
             </div>
-            <McTable>
-                <McTableHeader>
-                    <McTableRow>
-                        <McTableHead>Student</McTableHead>
-                        <McTableHead>Assignment</McTableHead>
-                        <McTableHead>Submitted</McTableHead>
-                        <McTableHead>Status</McTableHead>
-                    </McTableRow>
-                </McTableHeader>
-                <McTableBody>
-                    <McTableRow v-for="submission in recentSubmissions" :key="submission.id">
-                        <McTableCell>
-                            <div class="tw:flex tw:items-center tw:gap-6">
-                                <div
-                                    class="tw:w-9 tw:h-9 tw:rounded-full tw:bg-navy-10 tw:flex tw:items-center tw:justify-center"
-                                >
-                                    <Users class="avatar-icon" />
-                                </div>
-                                <div>
-                                    <p class="tw:text-sm tw:font-medium tw:text-navy-100">
-                                        {{ submission.studentName }}
-                                    </p>
-                                    <p class="tw:text-xs tw:text-navy-50">
-                                        {{ submission.studentId }}
-                                    </p>
-                                </div>
-                            </div>
-                        </McTableCell>
-                        <McTableCell class="tw:text-sm tw:text-navy-80">
-                            {{ submission.assignment }}
-                        </McTableCell>
-                        <McTableCell class="tw:text-xs tw:text-navy-50">
-                            {{ formatSubmittedAt(submission.submittedAt) }}
-                        </McTableCell>
-                        <McTableCell>
-                            <McBadge
-                                :variant="getStatusVariant(submission.status)"
-                                class="tw:capitalize"
-                            >
-                                {{ submission.status }}
-                            </McBadge>
-                        </McTableCell>
-                    </McTableRow>
-                </McTableBody>
-            </McTable>
+
+            <McDataTable :columns="columns" :data="filteredSubmissions" class="tw-mt-4">
+                <template #body-studentName="{ row }">
+                    <div class="tw:flex tw:items-center tw:gap-6">
+                        <div
+                            class="tw:w-9 tw:h-9 tw:rounded-full tw:bg-navy-10 tw:flex tw:items-center tw:justify-center"
+                        >
+                            <Users class="avatar-icon" />
+                        </div>
+                        <div class="tw:flex tw:flex-col tw:items-start">
+                            <p class="tw:text-sm tw:font-medium tw:text-navy-100">
+                                {{ row.original.studentName }}
+                            </p>
+                            <p class="tw:text-xs tw:text-navy-50">
+                                {{ row.original.studentId }}
+                            </p>
+                        </div>
+                    </div>
+                </template>
+                <template #body-className="{ row }">
+                    <span class="tw-text-sm tw:text-navy-80">
+                        {{ row.original.className }}
+                    </span>
+                </template>
+                <template #body-assignment="{ row }">
+                    <span class="tw-text-sm tw:text-navy-80">
+                        {{ row.original.assignment }}
+                    </span>
+                </template>
+                <template #body-submittedAt="{ row }">
+                    <span class="tw-text-xs tw:text-navy-50">
+                        {{ formatSubmittedAt(row.original.submittedAt) }}
+                    </span>
+                </template>
+                <template #body-status="{ row }">
+                    <McBadge :variant="getStatusVariant(row.original.status)" class="tw:capitalize">
+                        {{ row.original.status }}
+                    </McBadge>
+                </template>
+                <template #body-actions>
+                    <McButton variant="outline" size="sm">Review</McButton>
+                </template>
+            </McDataTable>
         </div>
     </div>
 </template>
