@@ -1,37 +1,36 @@
-export default defineNuxtRouteMiddleware((to) => {
-    const authStore = useAuth()
-    const role = authStore.user?.role
-    const accessToken = authStore.userToken?.accessToken
+export default defineNuxtRouteMiddleware(async (to, from) => {
+    const staffStore = useStaff()
+    const breadcrumb = useBreadcrumb()
+    const accessToken = staffStore.userToken?.accessToken
+
+    // Check if user has a valid token (not empty string)
     const hasValidToken = accessToken && accessToken.trim() !== ''
 
+    // If user has token and trying to access login, redirect to dashboard
     if (hasValidToken && to.path === '/login') {
-        if (role === 'instructor') {
-            return navigateTo('/dashboard', { replace: true })
-        }
-        return navigateTo('/assignments', { replace: true })
+        return navigateTo('/', { replace: true })
     }
 
-    if (!hasValidToken) {
-        const isAssignments = to.path.startsWith('/assignments')
-        const isImageDetection = to.path.startsWith('/image-detection')
-        const isRoot = to.path === '/' || to.path === '/login'
-
-        if (isAssignments || isImageDetection || isRoot) {
-            return
-        }
-
-        return navigateTo('/assignments', { replace: true })
+    // If user doesn't have token and trying to access protected route, redirect to login
+    if (!hasValidToken && to.path !== '/login') {
+        return navigateTo('/login', { replace: true })
     }
 
-    if (role === 'instructor') {
+    if (to.fullPath !== from.fullPath) {
+        breadcrumb.clearBreadcrumbs()
+    }
+
+    if (!staffStore.isLoggedIn) {
         return
     }
 
-    const isAssignments = to.path.startsWith('/assignments')
-    const isImageDetection = to.path.startsWith('/image-detection')
+    if (!staffStore.userConfig) {
+        await staffStore.handleFetchConfig()
+    }
+    const hasPermission = staffStore.hasPermissionPath(to.path)
 
-    if (!isAssignments && !isImageDetection) {
-        return navigateTo('/assignments', { replace: true })
+    if (!hasPermission) {
+        return navigateTo('/', { replace: true })
     }
 
     return

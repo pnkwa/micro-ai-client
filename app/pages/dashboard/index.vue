@@ -21,6 +21,9 @@ import type { ColumnDef } from '@tanstack/vue-table'
 
 dayjs.extend(relativeTime)
 
+const breadcrumb = useBreadcrumb()
+breadcrumb.setBreadcrumbs([{ label: 'Dashboard', to: '/dashboard' }])
+
 interface AssessmentData {
     id: number
     studentName: string
@@ -77,6 +80,12 @@ const stats = computed(() => [
         value: dashboardData.stats.submissions,
         icon: Mail,
         type: 'submissions',
+    },
+    {
+        label: 'Late Submissions',
+        value: dashboardData.stats.pendingReviews,
+        icon: Timer,
+        type: 'warning',
     },
     {
         label: 'Graded',
@@ -146,7 +155,7 @@ const filteredSubmissions = computed(() => {
             />
         </div>
 
-        <div class="tw:grid tw:grid-cols-1 tw:md:grid-cols-3 tw:gap-4 tw:mb-6">
+        <div class="tw:grid tw:grid-cols-1 tw:md:grid-cols-4 tw:gap-4 tw:mb-6">
             <div
                 v-for="stat in stats"
                 :key="stat.label"
@@ -248,8 +257,12 @@ const filteredSubmissions = computed(() => {
                         {{ row.original.status }}
                     </McBadge>
                 </template>
-                <template #body-actions>
-                    <McButton variant="outline" size="sm">Review</McButton>
+                <template #body-actions="{ row }">
+                    <NuxtLink
+                        :to="`/submissions/${encodeURIComponent(row.original.assignment)}/${row.original.studentId}`"
+                    >
+                        <McButton variant="outline" size="sm">Review</McButton>
+                    </NuxtLink>
                 </template>
             </McDataTable>
         </div>

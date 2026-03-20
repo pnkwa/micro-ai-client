@@ -483,12 +483,12 @@ defineExpose({
             </McTableBody>
         </McTable>
         <template v-if="props.loading">
-            <div class="tw:h-[220px] tw:w-full tw:flex tw:items-center tw:justify-center">
+            <div class="tw:h-55 tw:w-full tw:flex tw:items-center tw:justify-center">
                 <McLoading :width="125" :height="125" />
             </div>
         </template>
         <template v-else-if="table.getRowModel().rows?.length === 0">
-            <div class="tw:h-[220px] tw:w-full tw:flex tw:items-center tw:justify-center">
+            <div class="tw:h-55 tw:w-full tw:flex tw:items-center tw:justify-center">
                 <span>No results.</span>
             </div>
         </template>

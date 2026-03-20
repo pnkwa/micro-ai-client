@@ -40,6 +40,9 @@ interface ChatMessage {
     meta?: string
 }
 
+const breadcrumb = useBreadcrumb()
+breadcrumb.setBreadcrumbs([{ label: 'Image Detection', to: '/image-detection' }])
+
 const camera = ref<InstanceType<typeof CameraType>>()
 const fileInput = ref<HTMLInputElement>()
 
@@ -214,7 +217,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div class="tw:space-y-5 tw:flex tw:flex-col tw:h-[calc(100vh-80px)]">
+    <div class="tw:space-y-5 tw:flex tw:flex-col tw:min-h-[calc(100vh-80px)]">
         <div>
             <h1 class="tw:text-2xl tw:font-bold tw:text-primary">Image Detection</h1>
             <p class="tw:text-sm tw:text-slate-500 tw:mt-1">
@@ -224,7 +227,7 @@ onUnmounted(() => {
 
         <div class="tw:h-full">
             <div
-                class="tw:h-full tw:flex tw:flex-col tw:lg:flex-row tw:divide-y tw:lg:divide-y-0 tw:lg:divide-x tw:divide-slate-100 tw:flex-1"
+                class="tw:h-200 tw:flex tw:flex-col tw:lg:flex-row tw:divide-y tw:lg:divide-y-0 tw:lg:divide-x tw:divide-slate-100 tw:flex-1"
             >
                 <div class="tw:flex-1 tw:p-5 tw:md:p-6 tw:flex tw:flex-col tw:overflow-hidden">
                     <div class="tw:flex tw:items-center tw:justify-between tw:mb-3">
@@ -335,7 +338,7 @@ onUnmounted(() => {
                             <img
                                 :src="imageUrl!"
                                 alt="Microscope Image"
-                                class="tw:absolute tw:inset-0 tw:w-full tw:h-full tw:object-cover"
+                                class="tw:absolute tw:inset-0 tw:w-full tw:h-full tw:object-contain"
                             />
 
                             <template v-if="hasResults">
@@ -394,7 +397,7 @@ onUnmounted(() => {
 
                 <!-- ── Controls sidebar ── -->
                 <div
-                    class="tw:w-full tw:lg:w-[210px] tw:shrink-0 tw:p-5 tw:md:p-6 tw:flex tw:flex-col tw:gap-2 tw:bg-slate-50/60"
+                    class="tw:w-full tw:lg:w-[450px] tw:shrink-0 tw:p-5 tw:md:p-6 tw:flex tw:flex-col tw:gap-2 tw:bg-slate-50/60"
                     style="min-height: 0"
                 >
                     <span
@@ -468,131 +471,136 @@ onUnmounted(() => {
                     </div>
                 </div>
             </div>
-        </div>
-
-        <div class="tw:grid tw:grid-cols-1 tw:lg:grid-cols-3 tw:gap-4 tw:mt-4">
-            <!-- Detection summary -->
-            <Transition
-                enter-active-class="tw:transition-all tw:duration-500 tw:ease-out"
-                enter-from-class="tw:opacity-0 tw:translate-y-4"
-                enter-to-class="tw:opacity-100 tw:translate-y-0"
-            >
-                <div v-if="hasResults" class="tw:space-y-4 tw:lg:col-span-2">
-                    <div
-                        class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
-                    >
-                        <div class="tw:flex tw:items-center tw:justify-between tw:mb-4">
-                            <h2 class="tw:text-sm tw:font-bold tw:text-slate-700">
-                                Detection Results
-                            </h2>
-                            <span
-                                class="tw:text-[10px] tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest tw:bg-slate-100 tw:px-2 tw:py-0.5 tw:rounded-full"
-                            >
-                                {{ detectionResults.length }} types found
-                            </span>
-                        </div>
-
+            <div class="tw:grid tw:grid-cols-1 tw:lg:grid-cols-3 tw:gap-4 tw:mt-4">
+                <!-- Detection summary -->
+                <Transition
+                    enter-active-class="tw:transition-all tw:duration-500 tw:ease-out"
+                    enter-from-class="tw:opacity-0 tw:translate-y-4"
+                    enter-to-class="tw:opacity-100 tw:translate-y-0"
+                >
+                    <div v-if="hasResults" class="tw:space-y-4 tw:lg:col-span-2">
                         <div
-                            class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:lg:grid-cols-3 tw:gap-3"
+                            class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
                         >
-                            <div
-                                v-for="result in detectionResults"
-                                :key="result.label"
-                                class="tw:group tw:relative tw:rounded-xl tw:p-4 tw:border tw:border-slate-100 tw:overflow-hidden tw:transition-shadow hover:tw:shadow-md"
-                                :class="result.bg"
-                            >
-                                <div class="tw:flex tw:items-start tw:justify-between tw:mb-4">
-                                    <div class="tw:flex tw:items-center tw:gap-2">
-                                        <span
-                                            class="tw:w-2.5 tw:h-2.5 tw:rounded-full tw:shrink-0 tw:shadow-sm"
-                                            :class="result.dot"
-                                        ></span>
-                                        <span class="tw:text-xs tw:font-semibold tw:text-slate-600">
-                                            {{ result.label }}
-                                        </span>
-                                    </div>
-                                    <span
-                                        class="tw:text-2xl tw:font-black tw:leading-none tw:tabular-nums"
-                                        :class="result.text"
-                                    >
-                                        {{ result.count }}
-                                    </span>
-                                </div>
+                            <div class="tw:flex tw:items-center tw:justify-between tw:mb-4">
+                                <h2 class="tw:text-sm tw:font-bold tw:text-slate-700">
+                                    Detection Results
+                                </h2>
+                                <span
+                                    class="tw:text-[10px] tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest tw:bg-slate-100 tw:px-2 tw:py-0.5 tw:rounded-full"
+                                >
+                                    {{ detectionResults.length }} types found
+                                </span>
+                            </div>
 
-                                <!-- Confidence bar -->
-                                <div>
-                                    <div
-                                        class="tw:flex tw:items-center tw:justify-between tw:text-[10px] tw:mb-1.5"
-                                    >
-                                        <span class="tw:text-slate-400 tw:font-medium">
-                                            Confidence
-                                        </span>
-                                        <span class="tw:font-bold" :class="result.text">
-                                            {{ result.confidence }}%
+                            <div
+                                class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:lg:grid-cols-3 tw:gap-3"
+                            >
+                                <div
+                                    v-for="result in detectionResults"
+                                    :key="result.label"
+                                    class="tw:group tw:relative tw:rounded-xl tw:p-4 tw:border tw:border-slate-100 tw:overflow-hidden tw:transition-shadow hover:tw:shadow-md"
+                                    :class="result.bg"
+                                >
+                                    <div class="tw:flex tw:items-start tw:justify-between tw:mb-4">
+                                        <div class="tw:flex tw:items-center tw:gap-2">
+                                            <span
+                                                class="tw:w-2.5 tw:h-2.5 tw:rounded-full tw:shrink-0 tw:shadow-sm"
+                                                :class="result.dot"
+                                            ></span>
+                                            <span
+                                                class="tw:text-xs tw:font-semibold tw:text-slate-600"
+                                            >
+                                                {{ result.label }}
+                                            </span>
+                                        </div>
+                                        <span
+                                            class="tw:text-2xl tw:font-black tw:leading-none tw:tabular-nums"
+                                            :class="result.text"
+                                        >
+                                            {{ result.count }}
                                         </span>
                                     </div>
-                                    <div
-                                        class="tw:w-full tw:bg-white/80 tw:rounded-full tw:h-1.5 tw:overflow-hidden"
-                                    >
+
+                                    <!-- Confidence bar -->
+                                    <div>
                                         <div
-                                            class="tw:h-full tw:rounded-full tw:transition-all tw:duration-700 tw:delay-200"
-                                            :class="result.bar"
-                                            :style="`width:${result.confidence}%`"
-                                        ></div>
+                                            class="tw:flex tw:items-center tw:justify-between tw:text-[10px] tw:mb-1.5"
+                                        >
+                                            <span class="tw:text-slate-400 tw:font-medium">
+                                                Confidence
+                                            </span>
+                                            <span class="tw:font-bold" :class="result.text">
+                                                {{ result.confidence }}%
+                                            </span>
+                                        </div>
+                                        <div
+                                            class="tw:w-full tw:bg-white/80 tw:rounded-full tw:h-1.5 tw:overflow-hidden"
+                                        >
+                                            <div
+                                                class="tw:h-full tw:rounded-full tw:transition-all tw:duration-700 tw:delay-200"
+                                                :class="result.bar"
+                                                :style="`width:${result.confidence}%`"
+                                            ></div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    <div
-                        class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
-                    >
-                        <h2 class="tw:text-sm tw:font-bold tw:text-slate-700 tw:mb-3">
-                            AI Analysis Summary
-                        </h2>
 
                         <div
-                            class="tw:relative tw:bg-linear-to-br tw:from-primary/5 tw:to-primary/3 tw:border tw:border-primary/15 tw:rounded-xl tw:p-5 tw:overflow-hidden"
+                            class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
                         >
-                            <span
-                                class="tw:absolute tw:top-2 tw:right-4 tw:text-5xl tw:font-black tw:text-primary/8 tw:select-none tw:leading-none"
+                            <h2 class="tw:text-sm tw:font-bold tw:text-slate-700 tw:mb-3">
+                                AI Analysis Summary
+                            </h2>
+
+                            <div
+                                class="tw:relative tw:bg-linear-to-br tw:from-primary/5 tw:to-primary/3 tw:border tw:border-primary/15 tw:rounded-xl tw:p-5 tw:overflow-hidden"
                             >
-                                "
-                            </span>
-                            <p class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative">
-                                The AI detected
-                                <span class="tw:font-bold tw:text-primary">4 clue cells</span>
-                                and
-                                <span class="tw:font-bold tw:text-emerald-700">
-                                    12 gram-positive rods
+                                <span
+                                    class="tw:absolute tw:top-2 tw:right-4 tw:text-5xl tw:font-black tw:text-primary/8 tw:select-none tw:leading-none"
+                                >
+                                    "
                                 </span>
-                                with high confidence, along with
-                                <span class="tw:font-bold tw:text-amber-700">1 fungal element</span>
-                                . The presence of clue cells alongside gram-positive rods may
-                                indicate
-                                <span class="tw:font-bold tw:text-slate-800">
-                                    bacterial vaginosis (BV)
-                                </span>
-                                . Please review the image and consult results carefully before
-                                grading.
-                            </p>
-                        </div>
+                                <p
+                                    class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative"
+                                >
+                                    The AI detected
+                                    <span class="tw:font-bold tw:text-primary">4 clue cells</span>
+                                    and
+                                    <span class="tw:font-bold tw:text-emerald-700">
+                                        12 gram-positive rods
+                                    </span>
+                                    with high confidence, along with
+                                    <span class="tw:font-bold tw:text-amber-700">
+                                        1 fungal element
+                                    </span>
+                                    . The presence of clue cells alongside gram-positive rods may
+                                    indicate
+                                    <span class="tw:font-bold tw:text-slate-800">
+                                        bacterial vaginosis (BV)
+                                    </span>
+                                    . Please review the image and consult results carefully before
+                                    grading.
+                                </p>
+                            </div>
 
-                        <div
-                            class="tw:flex tw:items-start tw:gap-2 tw:mt-3 tw:p-3 tw:rounded-lg tw:bg-amber-50/60 tw:border tw:border-amber-100"
-                        >
-                            <span
-                                class="tw:w-3.5 tw:h-3.5 tw:rounded-full tw:bg-amber-300 tw:shrink-0 tw:mt-0.5"
-                            ></span>
-                            <p class="tw:text-[11px] tw:text-amber-700 tw:leading-relaxed">
-                                AI analysis is for educational guidance only. Results should be
-                                verified by an instructor.
-                            </p>
+                            <div
+                                class="tw:flex tw:items-start tw:gap-2 tw:mt-3 tw:p-3 tw:rounded-lg tw:bg-amber-50/60 tw:border tw:border-amber-100"
+                            >
+                                <span
+                                    class="tw:w-3.5 tw:h-3.5 tw:rounded-full tw:bg-amber-300 tw:shrink-0 tw:mt-0.5"
+                                ></span>
+                                <p class="tw:text-[11px] tw:text-amber-700 tw:leading-relaxed">
+                                    AI analysis is for educational guidance only. Results should be
+                                    verified by an instructor.
+                                </p>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </Transition>
+                </Transition>
+            </div>
         </div>
 
         <input
