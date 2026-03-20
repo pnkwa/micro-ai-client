@@ -4,7 +4,8 @@ import { useJwt } from '@vueuse/integrations/useJwt'
 type UserRole = 'instructor' | 'student'
 
 interface User {
-    id: number
+    classId?: number[]
+    userId: number
     name: string
     username: string
     role: UserRole
@@ -15,7 +16,7 @@ export const useAuth = defineStore('auth', () => {
         accessToken: '',
         refreshToken: '',
     })
-    const user = ref<User | null>(null)
+    const user = useStorage<User | null>('authUser', null)
 
     const jwtUserInfo = computed(() => {
         if (!userToken.value.accessToken) return null
@@ -28,8 +29,6 @@ export const useAuth = defineStore('auth', () => {
     const isLoggedIn = computed(() => {
         return userToken.value.accessToken && userToken.value.accessToken.trim() !== ''
     })
-
-    const isAuthenticated = computed(() => !!user.value)
 
     const login = (credentials: { username: string; password: string }) => {
         const { username, password } = credentials
@@ -55,14 +54,14 @@ export const useAuth = defineStore('auth', () => {
 
         if (isInstructor) {
             user.value = {
-                id: 1,
+                userId: 1,
                 name: 'Instructor',
                 username: 'admin@microai.com',
                 role: 'instructor',
             }
         } else {
             user.value = {
-                id: 2,
+                userId: 2,
                 name: 'Student',
                 username: 'student@microai.com',
                 role: 'student',
@@ -81,7 +80,6 @@ export const useAuth = defineStore('auth', () => {
 
     return {
         user,
-        isAuthenticated,
         login,
         logout,
         jwtUserInfo,

@@ -2,45 +2,51 @@
     "classes": [
         {
             "id": 1,
-            "name": "BIO-301 Cell Biology",
+            "name": "Principles of Medical Laboratory Investigations II: Vaginal Leukorrhea and STDs",
             "semester": "Fall 2025",
             "students": 127,
-            "status": "active"
+            "status": "active",
+            "code": "MICRO01"
         },
         {
             "id": 2,
-            "name": "BIO-301 Cell Biology",
+            "name": "Principles of Medical Laboratory Investigations II: Vaginal Leukorrhea and STDs",
             "semester": "Fall 2025",
             "students": 127,
-            "status": "closed"
+            "status": "closed",
+            "code": "MICRO02"
         },
         {
             "id": 3,
-            "name": "BIO-301 Cell Biology",
+            "name": "Principles of Medical Laboratory Investigations II: Vaginal Leukorrhea and STDs",
             "semester": "Fall 2025",
             "students": 127,
-            "status": "closed"
+            "status": "closed",
+            "code": "MICRO03"
         },
         {
             "id": 4,
-            "name": "BIO-301 Cell Biology",
+            "name": "Principles of Medical Laboratory Investigations II: Vaginal Leukorrhea and STDs",
             "semester": "Fall 2025",
             "students": 127,
-            "status": "closed"
+            "status": "closed",
+            "code": "MICRO04"
         },
         {
             "id": 5,
-            "name": "BIO-301 Cell Biology",
+            "name": "Principles of Medical Laboratory Investigations II: Vaginal Leukorrhea and STDs",
             "semester": "Fall 2025",
             "students": 127,
-            "status": "closed"
+            "status": "closed",
+            "code": "MICRO05"
         },
         {
             "id": 6,
-            "name": "BIO-301 Cell Biology",
+            "name": "Principles of Medical Laboratory Investigations II: Vaginal Leukorrhea and STDs",
             "semester": "Fall 2025",
             "students": 127,
-            "status": "closed"
+            "status": "closed",
+            "code": "MICRO06"
         }
     ]
 }

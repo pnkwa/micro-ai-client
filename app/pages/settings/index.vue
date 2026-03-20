@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { User, Mail, Cpu, BookOpen, FileUp, Award } from 'lucide-vue-next'
 
+const breadcrumb = useBreadcrumb()
+breadcrumb.setBreadcrumbs([{ label: 'Settings', to: '/settings' }])
+
 const activeTab = ref('profile')
 
 const tabs = [

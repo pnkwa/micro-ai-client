@@ -6,9 +6,9 @@ import {
     SidebarGroupContent,
     SidebarMenu,
     SidebarMenuItem,
+    SidebarMenuButton,
     SidebarHeader,
     SidebarFooter,
-    SidebarMenuButton,
 } from '@/core/components/ui/sidebar'
 import { menuItems } from '~/core/configs/navbar'
 import SidebarItem from './SidebarItem.vue'
@@ -19,22 +19,22 @@ const authStore = useAuth()
 const { open, isMobile } = useSidebar()
 
 const filteredMenuItems = computed(() => {
-    const role = authStore.user?.role ?? 'student'
+    const role = authStore.user?.role
     if (role === 'instructor') {
-        return menuItems
+        return menuItems.filter((item) => item.role === 'instructor' || item.role === 'all')
     }
-    return menuItems.filter((item) => item.role === 'all')
+    if (role === 'student') {
+        return menuItems.filter((item) => item.role === 'student' || item.role === 'all')
+    }
 })
 
 const isCollapsed = computed(() => !open.value && !isMobile.value)
 
-const handleLogin = () => {
-    router.push('/login')
-}
+const handleLogin = () => router.push('/login')
 
 const handleLogout = () => {
     authStore.logout()
-    router.push('/')
+    router.push('/login')
 }
 </script>
 
@@ -48,6 +48,7 @@ const handleLogout = () => {
                 <span v-if="!isCollapsed" class="logo-text">MicroAI</span>
             </div>
         </SidebarHeader>
+
         <SidebarContent>
             <SidebarGroup>
                 <SidebarGroupContent>
@@ -59,31 +60,42 @@ const handleLogout = () => {
                 </SidebarGroupContent>
             </SidebarGroup>
         </SidebarContent>
+
         <SidebarFooter>
             <SidebarMenu>
-                <SidebarMenuItem v-if="authStore.isLoggedIn">
-                    <div class="user-section" :class="{ 'is-collapsed': isCollapsed }">
+                <!-- Logged in: user card + logout -->
+                <SidebarMenuItem
+                    v-if="authStore.isLoggedIn"
+                    class="tw:flex tw:flex-col tw:gap-1 tw:items-center"
+                >
+                    <div class="user-card" :class="{ 'is-collapsed': isCollapsed }">
                         <div class="user-avatar">
-                            <User />
+                            <User :size="16" :stroke-width="2" />
                         </div>
                         <div v-if="!isCollapsed" class="user-info">
-                            <span class="user-name">Instructor Mode</span>
-                            <span class="user-email">{{ authStore.user?.username }}</span>
+                            <span class="user-name">{{ authStore.user?.username }}</span>
+                            <span class="user-role">
+                                {{
+                                    authStore.user?.role === 'instructor' ? 'Instructor' : 'Student'
+                                }}
+                            </span>
                         </div>
                     </div>
-                    <SidebarMenuButton tooltip="Logout" @click="handleLogout">
-                        <LogOut class="tw:w-3 tw:h-3 tw:shrink-0" />
-                        <span class="tw:group-data-[collapsible=icon]:hidden tw:text-base">
-                            Logout
-                        </span>
+                    <SidebarMenuButton
+                        tooltip="Logout"
+                        class="tw:text-navy-60 tw:hover:text-red-500 tw:hover:bg-red-50"
+                        @click="handleLogout"
+                    >
+                        <LogOut class="tw:w-4 tw:h-4 tw:shrink-0" />
+                        <span class="tw:group-data-[collapsible=icon]:hidden">Logout</span>
                     </SidebarMenuButton>
                 </SidebarMenuItem>
+
+                <!-- Not logged in: login button -->
                 <SidebarMenuItem v-else>
                     <SidebarMenuButton tooltip="Login" @click="handleLogin">
-                        <LogIn class="tw:w-3 tw:h-3 tw:shrink-0" />
-                        <span class="tw:group-data-[collapsible=icon]:hidden tw:text-base">
-                            Login
-                        </span>
+                        <LogIn class="tw:w-4 tw:h-4 tw:shrink-0" />
+                        <span class="tw:group-data-[collapsible=icon]:hidden">Login</span>
                     </SidebarMenuButton>
                 </SidebarMenuItem>
             </SidebarMenu>
@@ -103,6 +115,11 @@ const handleLogout = () => {
 
     &:hover {
         opacity: 0.85;
+    }
+
+    &.is-collapsed {
+        justify-content: center;
+        padding: 0.5rem 0;
     }
 
     .logo-icon-wrapper {
@@ -132,37 +149,34 @@ const handleLogout = () => {
         -webkit-text-fill-color: transparent;
         background-clip: text;
     }
-
-    &.is-collapsed {
-        justify-content: center;
-        padding: 0.5rem 0;
-    }
 }
 
-.user-section {
+.user-card {
+    width: 100%;
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 0.5rem;
-    margin-bottom: 0.5rem;
+    gap: 0.625rem;
+    padding: 0.625rem 0.5rem;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 15%, transparent);
+    transition: background 0.15s ease;
 
     &.is-collapsed {
         justify-content: center;
-        padding: 0.5rem 0;
+        padding: 0.5rem;
     }
 }
 
 .user-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
     background: var(--color-primary);
     color: white;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.75rem;
-    font-weight: 600;
     flex-shrink: 0;
 }
 
@@ -170,22 +184,26 @@ const handleLogout = () => {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-width: 0;
 }
 
 .user-name {
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: var(--color-navy-100);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1.3;
 }
 
-.user-email {
-    font-size: 0.75rem;
-    color: var(--color-navy-60);
+.user-role {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--color-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1.3;
 }
 </style>

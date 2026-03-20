@@ -74,7 +74,7 @@ const isPathStartWith = (url: string) => {
                 <SidebarMenuItem>
                     <CollapsibleTrigger as-child>
                         <SidebarMenuButton>
-                            <component :is="item.icon" class="tw:w-7! tw:h-7! tw:shrink-0" />
+                            <component :is="item.icon" class="tw:w-5! tw:h-5! tw:shrink-0" />
                             <span class="tw:group-data-[collapsible=icon]:hidden tw:text-base">
                                 {{ item.title }}
                             </span>
@@ -109,7 +109,7 @@ const isPathStartWith = (url: string) => {
                         <SidebarMenuButton
                             :is-active="item.url ? isPathStartWith(item.url) : false"
                         >
-                            <component :is="item.icon" class="tw:w-7! tw:h-7! tw:shrink-0" />
+                            <component :is="item.icon" class="tw:w-5! tw:h-5! tw:shrink-0" />
                             <span class="tw:group-data-[collapsible=icon]:hidden">
                                 {{ item.title }}
                             </span>

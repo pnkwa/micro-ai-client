@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { FileText, Plus } from 'lucide-vue-next'
-import CreateAssignment from '~/features/components/forms/CreateAssignment.vue'
-import type { CreateAssignmentFormData } from '~/features/types/forms/assignment'
-
+import { FileText, CheckCircle, Clock, AlertCircle } from 'lucide-vue-next'
+import { getStatusVariant } from '~/core/helpers/variants'
 import assignmentsData from '~/data/assignments.json'
-import classesData from '~/data/classes.json'
+import submissionsData from '~/data/submissions.json'
 
 interface AssignmentItem {
     id: number
@@ -12,73 +10,52 @@ interface AssignmentItem {
     dueDate: string
     classId: number
     submissions: number
-    status: 'active' | 'closed'
     description?: string
     instructions?: string
     points?: number
     attachments?: string[]
 }
 
-interface ClassItem {
+interface SubmissionItem {
     id: number
-    name: string
-    students: number
-    status: 'active' | 'inactive'
+    studentId: number
+    studentName: string
+    assignment: string
+    classId: number
+    submittedAt: string
+    quality: number
+    status: 'submitted' | 'graded'
+    score?: number
 }
 
 const router = useRouter()
 const { $dayjs } = useNuxtApp()
+const authStore = useAuth()
+
+const breadcrumb = useBreadcrumb()
+breadcrumb.setBreadcrumbs([{ label: 'Assignments', to: '/assignments' }])
 
 const assignments = ref<AssignmentItem[]>(assignmentsData.assignments as AssignmentItem[])
-const classes = ref<ClassItem[]>(classesData.classes as ClassItem[])
-const isCreateDialogOpen = ref(false)
-const selectedClassId = ref<number | 'all'>('all')
+const submissions = ref<SubmissionItem[]>(submissionsData.submissions as SubmissionItem[])
 
-const activeClasses = computed(() => classes.value.filter((c) => c.status === 'active'))
-
-const classSelectOptions = computed(() => [
-    { value: 'all', label: 'All Classes' },
-    ...activeClasses.value.map((c) => ({ value: c.id, label: c.name })),
-])
-
-const filteredAssignments = computed(() => {
-    if (selectedClassId.value === 'all') {
-        return assignments.value
-    }
-    return assignments.value.filter((a) => a.classId === selectedClassId.value)
+const mySubmissions = computed(() => {
+    const studentId = authStore.user?.userId
+    return submissions.value.filter((s) => s.studentId === studentId)
 })
 
-const openCreateDialog = () => {
-    isCreateDialogOpen.value = true
+const getMySubmission = (assignmentName: string) => {
+    return mySubmissions.value.find((s) => s.assignment === assignmentName)
 }
 
 const goToDetail = (assignment: AssignmentItem) => {
     router.push(`/assignments/${assignment.id}`)
 }
 
-const handleCreate = (values: CreateAssignmentFormData & { attachmentFiles?: string[] }) => {
-    const newId = Math.max(...assignments.value.map((a) => a.id)) + 1
-    const { attachmentFiles, ...rest } = values
-    assignments.value.push({
-        id: newId,
-        submissions: 0,
-        attachments: attachmentFiles || [],
-        ...rest,
-    })
-    isCreateDialogOpen.value = false
+const isLate = (assignment: AssignmentItem) => {
+    return !getMySubmission(assignment.name) && $dayjs().isAfter($dayjs(assignment.dueDate))
 }
 
-const handleCreateCancel = () => {
-    isCreateDialogOpen.value = false
-}
-
-const formatDate = (date: string) => {
-    return $dayjs(date).format('MMM D, YYYY')
-}
-
-const getStatusLabel = (status: string) => {
-    return status === 'active' ? 'Active' : 'Closed'
-}
+const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 </script>
 
 <template>
@@ -86,28 +63,15 @@ const getStatusLabel = (status: string) => {
         <div class="tw:flex tw:justify-between tw:items-center tw:mb-6">
             <div>
                 <h1 class="tw:text-2xl tw:font-semibold tw:text-primary">Assignments</h1>
-                <p class="tw:text-sm tw:text-navy-60">Create and manage course assignments</p>
-            </div>
-            <div class="tw:flex tw:items-center tw:gap-3">
-                <McSelect
-                    v-model="selectedClassId"
-                    :options="classSelectOptions"
-                    option-value="value"
-                    option-label="label"
-                    placeholder="All Classes"
-                />
-                <McButton @click="openCreateDialog">
-                    <Plus class="tw:w-4 tw:h-4 tw:mr-1" />
-                    New Assignment
-                </McButton>
+                <p class="tw:text-sm tw:text-navy-60">Submit your assignment</p>
             </div>
         </div>
 
         <div class="tw:flex tw:flex-col tw:gap-3">
             <div
-                v-for="assignment in filteredAssignments"
+                v-for="assignment in assignments"
                 :key="assignment.id"
-                class="tw:flex tw:justify-between tw:items-center tw:p-4 tw:bg-white tw:rounded-lg tw:border tw:border-gray-200 tw:cursor-pointer tw:transition-all tw:duration-200 hover:tw:shadow-md"
+                class="tw:flex tw:justify-between tw:items-center tw:p-4 tw:bg-white tw:rounded-lg tw:border tw:border-gray-200 tw:cursor-pointer tw:transition-all tw:duration-200 tw:hover:shadow-md"
                 @click="goToDetail(assignment)"
             >
                 <div class="tw:flex tw:items-center tw:gap-3">
@@ -121,18 +85,37 @@ const getStatusLabel = (status: string) => {
                         </p>
                     </div>
                 </div>
-                <div class="tw:flex tw:items-center tw:gap-0.75">
-                    <McBadge :variant="assignment.status === 'active' ? 'default' : 'outline'">
-                        {{ getStatusLabel(assignment.status) }}
-                    </McBadge>
+
+                <div class="tw:flex tw:items-center tw:gap-3">
+                    <span v-if="assignment.points" class="tw:text-xs tw:text-navy-50">
+                        <template v-if="getMySubmission(assignment.name)?.status === 'graded'">
+                            <span class="tw:text-sm tw:font-semibold tw:text-primary">
+                                {{ getMySubmission(assignment.name)?.score }} /
+                            </span>
+                        </template>
+                        {{ assignment.points }} pts
+                    </span>
+                    <template v-if="getMySubmission(assignment.name)">
+                        <McBadge
+                            :variant="getStatusVariant(getMySubmission(assignment.name)!.status)"
+                            class="tw:gap-1 tw:capitalize"
+                        >
+                            <CheckCircle
+                                v-if="getMySubmission(assignment.name)?.status === 'graded'"
+                                class="tw:w-3 tw:h-3"
+                            />
+                            <Clock v-else class="tw:w-3 tw:h-3" />
+                            {{ getMySubmission(assignment.name)!.status }}
+                        </McBadge>
+                    </template>
+                    <template v-else-if="isLate(assignment)">
+                        <McBadge variant="warning" class="tw:gap-1">
+                            <AlertCircle class="tw:w-3 tw:h-3" />
+                            Late
+                        </McBadge>
+                    </template>
                 </div>
             </div>
         </div>
-
-        <McDialog v-model:open="isCreateDialogOpen">
-            <McDialogContent class="tw:sm:max-w-lg">
-                <CreateAssignment @save="handleCreate" @cancel="handleCreateCancel" />
-            </McDialogContent>
-        </McDialog>
     </div>
 </template>

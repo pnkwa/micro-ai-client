@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Users, Plus } from 'lucide-vue-next'
+import { Users, Plus, Pencil } from 'lucide-vue-next'
 import CreateClass from '~/features/components/forms/CreateClass.vue'
 import EditClass from '~/features/components/forms/EditClass.vue'
 import type {
@@ -9,6 +9,11 @@ import type {
 } from '~/features/types/forms/class'
 
 import classesData from '~/data/classes.json'
+
+const router = useRouter()
+
+const breadcrumb = useBreadcrumb()
+breadcrumb.setBreadcrumbs([{ label: 'Classes', to: '/classes' }])
 
 const classes = ref<ClassFormData[]>(classesData.classes as ClassFormData[])
 const isCreateDialogOpen = ref(false)
@@ -89,8 +94,8 @@ const getStatusLabel = (status: string) => {
             <div
                 v-for="classItem in classes"
                 :key="classItem.id"
-                class="tw:bg-white tw:p-4 tw:rounded-lg tw:border tw:border-gray-200 tw:cursor-pointer hover:tw:shadow-md"
-                @click="openEditDialog(classItem)"
+                class="tw:bg-white tw:p-4 tw:rounded-lg tw:border tw:border-gray-200 tw:cursor-pointer tw:hover:shadow-md tw:transition-shadow"
+                @click="router.push(`/classes/${classItem.id}`)"
             >
                 <div class="tw:flex tw:justify-between tw:items-start tw:gap-2 tw:mb-1">
                     <h3 class="tw:text-sm tw:font-semibold tw:text-navy-100">
@@ -106,6 +111,12 @@ const getStatusLabel = (status: string) => {
                         <Users class="tw:w-4 tw:h-4" />
                         {{ classItem.students }} students
                     </span>
+                    <button
+                        class="tw:p-1.5 tw:rounded tw:text-navy-50 tw:hover:bg-navy-10 tw:hover:text-primary tw:transition-colors"
+                        @click.stop="openEditDialog(classItem)"
+                    >
+                        <Pencil class="tw:w-3.5 tw:h-3.5" />
+                    </button>
                 </div>
             </div>
         </div>

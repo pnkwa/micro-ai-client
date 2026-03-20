@@ -17,7 +17,7 @@ const handleLogin = async (values: LoginFormData) => {
 
     try {
         await login(values)
-        router.push('/dashboard')
+        router.push('/')
     } catch (err) {
         ToastAction.show({
             title: 'Login failed',

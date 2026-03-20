@@ -10,6 +10,7 @@ import {
 } from 'lucide-vue-next'
 
 import assignmentsData from '~/data/assignments.json'
+import submissionsData from '~/data/submissions.json'
 import SubmitAssignment from '~/features/components/forms/SubmitAssignment.vue'
 import type { SubmitAssignmentFormData } from '~/features/types/forms/submit-assignment'
 
@@ -19,11 +20,17 @@ interface AssignmentItem {
     dueDate: string
     classId: number
     submissions: number
-    status: 'active' | 'closed'
     description?: string
     instructions?: string
     points?: number
     attachments?: string[]
+}
+
+interface SubmissionItem {
+    id: number
+    studentId: number
+    assignment: string
+    status: 'submitted' | 'graded'
 }
 
 const route = useRoute()
@@ -34,6 +41,14 @@ const authStore = useAuth()
 
 const isStudent = computed(() => authStore.user?.role === 'student' || !authStore.user)
 
+const allSubmissions = ref<SubmissionItem[]>(submissionsData.submissions as SubmissionItem[])
+const mySubmission = computed(() =>
+    allSubmissions.value.find(
+        (s) => s.studentId === authStore.user?.userId && s.assignment === assignment.value?.name,
+    ),
+)
+const alreadySubmitted = computed(() => !!mySubmission.value)
+
 const assignmentId = computed(() => Number(route.params.id))
 const assignment = computed(() => {
     return (assignmentsData.assignments as AssignmentItem[]).find(
@@ -41,17 +56,15 @@ const assignment = computed(() => {
     )
 })
 
-interface SubmissionRecord {
-    studentName: string
-    studentEmail: string
-    studentIdNumber: string
-    classId: number
-    details?: string | null
-    assignmentFileName?: string
-}
+const breadcrumb = useBreadcrumb()
+watchEffect(() => {
+    breadcrumb.setBreadcrumbs([
+        { label: 'Assignments', to: '/assignments' },
+        { label: assignment.value?.name ?? 'Assignment' },
+    ])
+})
 
 const isSubmitDialogOpen = ref(false)
-const submissions = ref<SubmissionRecord[]>([])
 
 const goBack = () => {
     router.push('/assignments')
@@ -62,15 +75,13 @@ const openSubmitDialog = () => {
 }
 
 const handleSubmitAssignment = (
-    values: SubmitAssignmentFormData & { assignmentFile?: File | null },
+    _values: SubmitAssignmentFormData & { assignmentFile?: File | null },
 ) => {
-    submissions.value.push({
-        studentName: values.studentName,
-        studentEmail: values.studentEmail,
-        studentIdNumber: values.studentIdNumber,
-        classId: values.classId,
-        details: values.details,
-        assignmentFileName: values.assignmentFile?.name || undefined,
+    allSubmissions.value.push({
+        id: allSubmissions.value.length + 1,
+        studentId: authStore.user?.userId ?? 0,
+        assignment: assignment.value?.name ?? '',
+        status: 'submitted',
     })
     isSubmitDialogOpen.value = false
 }
@@ -79,13 +90,7 @@ const handleCancel = () => {
     isSubmitDialogOpen.value = false
 }
 
-const formatDate = (date: string) => {
-    return $dayjs(date).format('MMMM D, YYYY')
-}
-
-const getStatusLabel = (status: string) => {
-    return status === 'active' ? 'Active' : 'Closed'
-}
+const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY')
 </script>
 
 <template>
@@ -110,17 +115,11 @@ const getStatusLabel = (status: string) => {
                         <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:mb-0.5">
                             {{ assignment.name }}
                         </h1>
-                        <McBadge :variant="assignment.status === 'active' ? 'default' : 'outline'">
-                            {{ getStatusLabel(assignment.status) }}
-                        </McBadge>
                     </div>
                 </div>
-                <McButton
-                    v-if="assignment.status === 'active' && isStudent"
-                    @click="openSubmitDialog"
-                >
+                <McButton v-if="isStudent" :disabled="alreadySubmitted" @click="openSubmitDialog">
                     <Send class="tw:w-4 tw:h-4 tw:mr-1" />
-                    Submit Assignment
+                    {{ alreadySubmitted ? 'Already Submitted' : 'Submit Assignment' }}
                 </McButton>
             </div>
 
