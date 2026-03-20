@@ -30,11 +30,11 @@ const filteredMenuItems = computed(() => {
 
 const isCollapsed = computed(() => !open.value && !isMobile.value)
 
-const handleLogin = () => router.push('/login')
+const handleSignIn = () => router.push('/sign-in')
 
-const handleLogout = () => {
-    authStore.logout()
-    router.push('/login')
+const handleSignOut = () => {
+    authStore.signOut()
+    router.push('/sign-in')
 }
 </script>
 
@@ -65,7 +65,7 @@ const handleLogout = () => {
             <SidebarMenu>
                 <!-- Logged in: user card + logout -->
                 <SidebarMenuItem
-                    v-if="authStore.isLoggedIn"
+                    v-if="authStore.isSignedIn"
                     class="tw:flex tw:flex-col tw:gap-1 tw:items-center"
                 >
                     <div class="user-card" :class="{ 'is-collapsed': isCollapsed }">
@@ -82,20 +82,20 @@ const handleLogout = () => {
                         </div>
                     </div>
                     <SidebarMenuButton
-                        tooltip="Logout"
+                        tooltip="Sign out"
                         class="tw:text-navy-60 tw:hover:text-red-500 tw:hover:bg-red-50"
-                        @click="handleLogout"
+                        @click="handleSignOut"
                     >
                         <LogOut class="tw:w-4 tw:h-4 tw:shrink-0" />
-                        <span class="tw:group-data-[collapsible=icon]:hidden">Logout</span>
+                        <span class="tw:group-data-[collapsible=icon]:hidden">Sign out</span>
                     </SidebarMenuButton>
                 </SidebarMenuItem>
 
-                <!-- Not logged in: login button -->
+                <!-- Not logged in: sign in button -->
                 <SidebarMenuItem v-else>
-                    <SidebarMenuButton tooltip="Login" @click="handleLogin">
+                    <SidebarMenuButton tooltip="Sign in" @click="handleSignIn">
                         <LogIn class="tw:w-4 tw:h-4 tw:shrink-0" />
-                        <span class="tw:group-data-[collapsible=icon]:hidden">Login</span>
+                        <span class="tw:group-data-[collapsible=icon]:hidden">Sign in</span>
                     </SidebarMenuButton>
                 </SidebarMenuItem>
             </SidebarMenu>

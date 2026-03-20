@@ -1,22 +1,28 @@
 <script setup lang="ts">
-import { loginSchema, type LoginFormData } from '~/features/types/forms/login'
+import { signInSchema, type SignInFormData } from '~/features/types/forms/sign-in'
 import { Microscope } from 'lucide-vue-next'
+import CmuLogo from '~/assets/images/CMU-logo.png'
 
 const emit = defineEmits<{
-    login: [values: LoginFormData]
+    signIn: [values: SignInFormData]
+    signInWithCmu: []
 }>()
 
-const { handleSubmit } = useForm<LoginFormData>({
-    validationSchema: toTypedSchema(loginSchema),
+const { handleSubmit } = useForm<SignInFormData>({
+    validationSchema: toTypedSchema(signInSchema),
     initialValues: {
         username: '',
         password: '',
     },
 })
 
-const onLogin = handleSubmit((values) => {
-    emit('login', values)
+const onSignIn = handleSubmit((values) => {
+    emit('signIn', values)
 })
+
+const onSignInWithCmu = () => {
+    emit('signInWithCmu')
+}
 </script>
 
 <template>
@@ -32,7 +38,7 @@ const onLogin = handleSubmit((values) => {
 
         <div class="tw:bg-primary tw:rounded-xl tw:p-2 tw:pt-6 tw:shadow-xl">
             <div class="tw:bg-white tw:rounded-lg tw:p-7 tw:shadow-inner">
-                <div class="tw:flex tw:items-center tw:gap-3 tw:mb-6">
+                <div class="tw:flex tw:items-center tw:gap-3 tw:mb-5">
                     <div
                         class="tw:w-10 tw:h-10 tw:bg-primary/10 tw:rounded-xl tw:flex tw:items-center tw:justify-center tw:shrink-0 tw:border tw:border-primary/20"
                     >
@@ -45,17 +51,39 @@ const onLogin = handleSubmit((values) => {
                         <p
                             class="tw:text-[11px] tw:uppercase tw:tracking-widest tw:text-slate-400 tw:font-medium tw:mt-0.5"
                         >
-                            Instructor Portal
+                            For instructors and students
                         </p>
                     </div>
                 </div>
 
-                <div class="tw:space-y-2 tw:mb-6">
-                    <div class="tw:h-px tw:bg-blue-200/70" />
-                    <div class="tw:h-px tw:bg-blue-200/70" />
+                <div class="tw:flex tw:gap-1 tw:mb-5">
+                    <div class="tw:h-px tw:flex-1 tw:bg-blue-200/70 tw:self-center" />
+                    <div class="tw:h-px tw:flex-1 tw:bg-blue-200/70 tw:self-center" />
                 </div>
 
-                <form class="tw:space-y-4" @submit.prevent="onLogin">
+                <McButton
+                    class="tw:w-full tw:flex tw:items-center tw:justify-center tw:gap-3 tw:border tw:border-[#6868AC] tw:p-6 tw:bg-white tw:hover:bg-slate-50 tw:cursor-pointer tw:group"
+                    @click="onSignInWithCmu"
+                >
+                    <img :src="CmuLogo" alt="CMU" class="tw:h-6 tw:w-auto tw:object-contain" />
+                    <span
+                        class="tw:text-sm tw:font-semibold tw:text-slate-600 tw:group-hover:text-slate-800 tw:transition-colors"
+                    >
+                        Sign in with CMU
+                    </span>
+                </McButton>
+
+                <div class="tw:flex tw:items-center tw:gap-3 tw:my-5">
+                    <div class="tw:flex-1 tw:h-px tw:bg-slate-200" />
+                    <span
+                        class="tw:text-[11px] tw:font-semibold tw:uppercase tw:tracking-widest tw:text-slate-400"
+                    >
+                        or
+                    </span>
+                    <div class="tw:flex-1 tw:h-px tw:bg-slate-200" />
+                </div>
+
+                <form class="tw:space-y-4" @submit.prevent="onSignIn">
                     <div>
                         <label
                             class="tw:block tw:text-[11px] tw:font-semibold tw:uppercase tw:tracking-wider tw:text-slate-400 tw:mb-1.5"
@@ -73,15 +101,15 @@ const onLogin = handleSubmit((values) => {
                         <McInput name="password" type="password" placeholder="••••••" />
                     </div>
 
-                    <McButton type="submit" class="tw:w-full tw:mt-2" @click="onLogin">
-                        Log in
+                    <McButton type="submit" class="tw:w-full tw:mt-2" @click="onSignIn">
+                        Sign in
                     </McButton>
                 </form>
 
-                <div class="tw:space-y-2 tw:mt-6">
-                    <div class="tw:h-px tw:bg-blue-200/70" />
-                    <div class="tw:h-px tw:bg-blue-200/70" />
-                    <div class="tw:h-px tw:bg-blue-200/70" />
+                <div class="tw:flex tw:gap-1 tw:mt-6">
+                    <div class="tw:h-px tw:flex-1 tw:bg-blue-200/70" />
+                    <div class="tw:h-px tw:flex-1 tw:bg-blue-200/70" />
+                    <div class="tw:h-px tw:flex-1 tw:bg-blue-200/70" />
                 </div>
 
                 <p class="tw:text-center tw:text-[11px] tw:text-slate-300 tw:mt-4 tw:tracking-wide">

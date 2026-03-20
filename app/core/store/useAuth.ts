@@ -26,11 +26,11 @@ export const useAuth = defineStore('auth', () => {
         return payload
     })
 
-    const isLoggedIn = computed(() => {
+    const isSignedIn = computed(() => {
         return userToken.value.accessToken && userToken.value.accessToken.trim() !== ''
     })
 
-    const login = (credentials: { username: string; password: string }) => {
+    const signIn = (credentials: { username: string; password: string }) => {
         const { username, password } = credentials
 
         // Mock credentials:
@@ -70,7 +70,24 @@ export const useAuth = defineStore('auth', () => {
 
         return true
     }
-    const logout = () => {
+    const signInWithCMU = () => {
+        const mockAccessToken = 'mock_cmu_access_token_' + Date.now()
+        const mockRefreshToken = 'mock_cmu_refresh_token_' + Date.now()
+
+        userToken.value = {
+            accessToken: mockAccessToken,
+            refreshToken: mockRefreshToken,
+        }
+
+        user.value = {
+            userId: 3,
+            name: 'CMU User',
+            username: 'cmu@cmu.ac.th',
+            role: 'instructor',
+        }
+    }
+
+    const signOut = () => {
         user.value = null
         userToken.value = {
             accessToken: '',
@@ -80,9 +97,10 @@ export const useAuth = defineStore('auth', () => {
 
     return {
         user,
-        login,
-        logout,
+        signIn,
+        signInWithCMU,
+        signOut,
         jwtUserInfo,
-        isLoggedIn,
+        isSignedIn,
     }
 })

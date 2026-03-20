@@ -12,7 +12,14 @@ export default defineNuxtConfig({
         ],
     },
     ssr: false,
-    modules: ['@pinia/nuxt', '@nuxt/eslint', '@vee-validate/nuxt', '@vueuse/nuxt', '@nuxt/fonts'],
+    modules: [
+        '@pinia/nuxt',
+        '@nuxt/eslint',
+        '@vee-validate/nuxt',
+        '@vueuse/nuxt',
+        '@nuxt/fonts',
+        'nuxt-svgo',
+    ],
     components: [
         { path: '~/core/components', prefix: 'Mc', extensions: ['.vue'] },
         { path: '~/core/components/ui', prefix: 'Mc', extensions: ['.vue'] },
