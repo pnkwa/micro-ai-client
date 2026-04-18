@@ -64,10 +64,7 @@ const statusOptions = [
             <label class="tw:text-sm tw:font-medium">Semester</label>
             <McInput name="semester" placeholder="e.g., Fall 2025" />
         </div>
-        <div class="tw:flex tw:flex-col tw:gap-2">
-            <label class="tw:text-sm tw:font-medium">Number of Students</label>
-            <McInput name="students" type="number" placeholder="e.g., 127" />
-        </div>
+
         <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">Status</label>
             <McSelect

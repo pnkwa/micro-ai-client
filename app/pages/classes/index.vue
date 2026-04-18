@@ -94,19 +94,22 @@ const getStatusLabel = (status: string) => {
             <div
                 v-for="classItem in classes"
                 :key="classItem.id"
-                class="tw:bg-white tw:p-4 tw:rounded-lg tw:border tw:border-gray-200 tw:cursor-pointer tw:hover:shadow-md tw:transition-shadow"
+                class="tw:bg-white tw:rounded-lg tw:border tw:border-gray-200 tw:cursor-pointer tw:hover:shadow-md tw:transition-shadow tw:flex tw:flex-col tw:overflow-hidden"
                 @click="router.push(`/classes/${classItem.id}`)"
             >
-                <div class="tw:flex tw:justify-between tw:items-start tw:gap-2 tw:mb-1">
-                    <h3 class="tw:text-sm tw:font-semibold tw:text-navy-100">
-                        {{ classItem.name }}
-                    </h3>
-                    <McBadge :variant="classItem.status === 'active' ? 'default' : 'outline'">
-                        {{ getStatusLabel(classItem.status) }}
-                    </McBadge>
+                <div class="tw:p-4 tw:flex-1">
+                    <div class="tw:flex tw:justify-between tw:items-start tw:gap-2 tw:mb-1">
+                        <h3 class="tw:text-sm tw:font-semibold tw:text-navy-100">
+                            {{ classItem.name }}
+                        </h3>
+                        <McBadge :variant="classItem.status === 'active' ? 'default' : 'outline'">
+                            {{ getStatusLabel(classItem.status) }}
+                        </McBadge>
+                    </div>
+                    <p class="tw:text-xs tw:text-navy-60">{{ classItem.semester }}</p>
                 </div>
-                <p class="tw:text-xs tw:text-navy-60">{{ classItem.semester }}</p>
-                <div class="tw:flex tw:justify-between tw:items-center tw:mt-4">
+
+                <div class="tw:flex tw:justify-between tw:items-center tw:px-4 tw:py-3 tw:border-t">
                     <span class="tw:flex tw:items-center tw:gap-1 tw:text-xs tw:text-navy-60">
                         <Users class="tw:w-4 tw:h-4" />
                         {{ classItem.students }} students

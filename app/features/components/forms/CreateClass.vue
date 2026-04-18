@@ -9,7 +9,7 @@ const emit = defineEmits<{
     cancel: []
 }>()
 
-const { handleSubmit, errors } = useForm<CreateClassFormData>({
+const { handleSubmit } = useForm<CreateClassFormData>({
     validationSchema: toTypedSchema(createClassFormSchema),
     initialValues: {
         name: '',
@@ -59,9 +59,6 @@ const statusOptions = [
                 option-label="label"
                 placeholder="Select status"
             />
-            <span v-if="errors.status" class="tw:text-xs tw:text-red-500">
-                {{ errors.status }}
-            </span>
         </div>
     </form>
     <McDialogFooter>
