@@ -59,13 +59,13 @@ const classItem = computed(() =>
 )
 
 const breadcrumb = useBreadcrumb()
-watchEffect(() => {
+
     breadcrumb.setBreadcrumbs([
         { label: 'Classes', to: '/classes' },
         { label: classItem.value?.name ?? 'Class', to: `/classes/${classId.value}` },
         { label: assignment.value?.name ?? 'Assignment' },
     ])
-})
+
 
 const isStudent = computed(() => authStore.user?.role === 'student' || !authStore.user)
 

@@ -1,4 +1,3 @@
-// constants/file.ts
 export const FILE_SIZE = {
     MIN: 1_000,
     MAX: 10_000_000,

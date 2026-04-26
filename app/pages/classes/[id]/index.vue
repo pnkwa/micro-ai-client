@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, FileText, Users, Plus } from 'lucide-vue-next'
+import { FileText, Users, Plus, ChevronLeft } from 'lucide-vue-next'
 import CreateAssignment from '~/features/components/forms/CreateAssignment.vue'
 import EditClass from '~/features/components/forms/EditClass.vue'
 import type { CreateAssignmentFormData } from '~/features/types/forms/assignment'
@@ -52,12 +52,12 @@ const classStudents = computed(() =>
 const activeTab = ref<'assignments' | 'students'>('assignments')
 const isCreateDialogOpen = ref(false)
 const breadcrumb = useBreadcrumb()
-watchEffect(() => {
+
     breadcrumb.setBreadcrumbs([
         { label: 'Classes', to: '/classes' },
         { label: classItem.value?.name ?? 'Class' },
     ])
-})
+
 
 const isEditDialogOpen = ref(false)
 
@@ -104,14 +104,14 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 <template>
     <div>
         <template v-if="classItem">
-            <!-- Header -->
-            <div class="tw:flex tw:items-center tw:justify-between tw:mb-6">
-                <div class="tw:flex tw:items-center tw:gap-3">
+
+            <div class="tw:flex tw:items-start tw:justify-between tw:mb-6">
+                <div class="tw:flex tw:items-start tw:gap-3">
                     <button
-                        class="tw:flex tw:items-center tw:gap-1.5 tw:text-navy-60 tw:hover:text-primary tw:transition-colors"
+                        class="tw:flex tw:items-center tw:gap-1.5 tw:p-1 tw:text-navy-60 tw:hover:text-primary tw:hover:bg-primary/20 tw:transition-colors tw:bg-navy-10 tw:rounded-md"
                         @click="router.push('/classes')"
                     >
-                        <ArrowLeft class="tw:w-4 tw:h-4" />
+                        <ChevronLeft class="tw:w-6 tw:h-6" />
                     </button>
                     <div class="tw:min-w-0">
                         <h1
@@ -132,7 +132,7 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                 </div>
             </div>
 
-            <!-- Tabs -->
+
             <div class="tw:flex tw:border-b tw:border-navy-10 tw:mb-6">
                 <button
                     v-for="tab in [
@@ -152,9 +152,10 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                 </button>
             </div>
 
-            <!-- Assignments Tab -->
+
             <template v-if="activeTab === 'assignments'">
-                <div class="tw:flex tw:justify-end tw:mb-4">
+                <div class="tw:flex tw:justify-between tw:mb-4">
+                    <span>total</span>
                     <McButton @click="isCreateDialogOpen = true">
                         <Plus class="tw:w-4 tw:h-4 tw:mr-1" />
                         New Assignment
