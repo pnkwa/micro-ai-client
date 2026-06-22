@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import type { HTMLAttributes } from "vue"
+import type { HTMLAttributes } from 'vue'
 import { cn } from '@/core/lib/utils'
 
 const props = defineProps<{
-  class?: HTMLAttributes["class"]
+    class?: HTMLAttributes['class']
 }>()
 </script>
 
 <template>
-  <th
-    data-slot="table-head"
-    :class="cn('tw:text-foreground tw:h-10 tw:px-2 tw:text-left tw:align-middle tw:font-medium tw:whitespace-nowrap tw:[&:has([role=checkbox])]:pr-0 tw:[&>[role=checkbox]]:translate-y-[2px]', props.class)"
-  >
-    <slot />
-  </th>
+    <th
+        data-slot="table-head"
+        :class="
+            cn(
+                'tw:text-foreground tw:h-10 tw:px-2 tw:text-left tw:align-middle tw:font-medium tw:whitespace-nowrap tw:[&:has([role=checkbox])]:pr-0 tw:[&>[role=checkbox]]:translate-y-[2px]',
+                props.class,
+            )
+        "
+    >
+        <slot />
+    </th>
 </template>

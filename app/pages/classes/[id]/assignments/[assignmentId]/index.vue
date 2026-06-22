@@ -60,12 +60,11 @@ const classItem = computed(() =>
 
 const breadcrumb = useBreadcrumb()
 
-    breadcrumb.setBreadcrumbs([
-        { label: 'Classes', to: '/classes' },
-        { label: classItem.value?.name ?? 'Class', to: `/classes/${classId.value}` },
-        { label: assignment.value?.name ?? 'Assignment' },
-    ])
-
+breadcrumb.setBreadcrumbs([
+    { label: 'Classes', to: '/classes' },
+    { label: classItem.value?.name ?? 'Class', to: `/classes/${classId.value}` },
+    { label: assignment.value?.name ?? 'Assignment' },
+])
 
 const isStudent = computed(() => authStore.user?.role === 'student' || !authStore.user)
 
@@ -351,7 +350,9 @@ function getScoreColor(score: number) {
                         </template>
 
                         <template #body-actions="{ row }">
-                            <NuxtLink :to="`/classes/${classId}/assignments/${assignmentId}/submissions/${row.original.id}`">
+                            <NuxtLink
+                                :to="`/classes/${classId}/assignments/${assignmentId}/submissions/${row.original.id}`"
+                            >
                                 <McButton
                                     variant="outline"
                                     size="sm"

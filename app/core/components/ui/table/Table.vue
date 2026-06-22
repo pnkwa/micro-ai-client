@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import type { HTMLAttributes } from "vue"
+import type { HTMLAttributes } from 'vue'
 import { cn } from '@/core/lib/utils'
 
 const props = defineProps<{
-  class?: HTMLAttributes["class"]
+    class?: HTMLAttributes['class']
 }>()
 </script>
 
 <template>
-  <div data-slot="table-container" class="tw:relative tw:w-full tw:overflow-auto">
-    <table data-slot="table" :class="cn('tw:w-full tw:caption-bottom tw:text-sm', props.class)">
-      <slot />
-    </table>
-  </div>
+    <div data-slot="table-container" class="tw:relative tw:w-full tw:overflow-auto">
+        <table data-slot="table" :class="cn('tw:w-full tw:caption-bottom tw:text-sm', props.class)">
+            <slot />
+        </table>
+    </div>
 </template>

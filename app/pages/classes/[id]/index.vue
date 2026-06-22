@@ -53,11 +53,10 @@ const activeTab = ref<'assignments' | 'students'>('assignments')
 const isCreateDialogOpen = ref(false)
 const breadcrumb = useBreadcrumb()
 
-    breadcrumb.setBreadcrumbs([
-        { label: 'Classes', to: '/classes' },
-        { label: classItem.value?.name ?? 'Class' },
-    ])
-
+breadcrumb.setBreadcrumbs([
+    { label: 'Classes', to: '/classes' },
+    { label: classItem.value?.name ?? 'Class' },
+])
 
 const isEditDialogOpen = ref(false)
 
@@ -104,7 +103,6 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 <template>
     <div>
         <template v-if="classItem">
-
             <div class="tw:flex tw:items-start tw:justify-between tw:mb-6">
                 <div class="tw:flex tw:items-start tw:gap-3">
                     <button
@@ -132,7 +130,6 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                 </div>
             </div>
 
-
             <div class="tw:flex tw:border-b tw:border-navy-10 tw:mb-6">
                 <button
                     v-for="tab in [
@@ -151,7 +148,6 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                     {{ tab.label }}
                 </button>
             </div>
-
 
             <template v-if="activeTab === 'assignments'">
                 <div class="tw:flex tw:justify-between tw:mb-4">
