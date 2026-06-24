@@ -11,15 +11,21 @@ export const useAuth = defineStore('auth', () => {
 
     const jwtUserInfo = computed(() => {
         if (!userToken.value.accessToken) return null
-        const { payload } = useJwt<{ sub: number; email: string; user_type: string; role?: string }>(
-            userToken.value.accessToken,
-        )
+        const { payload } = useJwt<{
+            sub: number
+            email: string
+            user_type: string
+            role?: string
+        }>(userToken.value.accessToken)
         return payload
     })
 
     const isSignedIn = computed(() => !!userToken.value.accessToken.trim())
 
-    const signIn = async (credentials: { username: string; password: string }): Promise<boolean> => {
+    const signIn = async (credentials: {
+        username: string
+        password: string
+    }): Promise<boolean> => {
         try {
             const token = await authService.login(credentials)
             userToken.value = { accessToken: token, refreshToken: '' }

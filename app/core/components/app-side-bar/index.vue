@@ -19,13 +19,11 @@ const authStore = useAuth()
 const { open, isMobile } = useSidebar()
 
 const filteredMenuItems = computed(() => {
-    const role = authStore.user?.role
-    if (role === 'instructor') {
+    const userType = authStore.user?.user_type
+    if (userType === 'staff') {
         return menuItems.filter((item) => item.role === 'instructor' || item.role === 'all')
     }
-    if (role === 'student') {
-        return menuItems.filter((item) => item.role === 'student' || item.role === 'all')
-    }
+    return menuItems.filter((item) => item.role === 'student' || item.role === 'all')
 })
 
 const isCollapsed = computed(() => !open.value && !isMobile.value)
@@ -73,10 +71,10 @@ const handleSignOut = () => {
                             <User :size="16" :stroke-width="2" />
                         </div>
                         <div v-if="!isCollapsed" class="user-info">
-                            <span class="user-name">{{ authStore.user?.username }}</span>
+                            <span class="user-name">{{ authStore.user?.email }}</span>
                             <span class="user-role">
                                 {{
-                                    authStore.user?.role === 'instructor' ? 'Instructor' : 'Student'
+                                    authStore.user?.user_type === 'staff' ? 'Instructor' : 'Student'
                                 }}
                             </span>
                         </div>

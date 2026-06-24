@@ -66,7 +66,7 @@ breadcrumb.setBreadcrumbs([
     { label: assignment.value?.name ?? 'Assignment' },
 ])
 
-const isStudent = computed(() => authStore.user?.role === 'student' || !authStore.user)
+const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
 
 const activeTab = ref<'detail' | 'submissions'>('detail')
 const isSubmitDialogOpen = ref(false)

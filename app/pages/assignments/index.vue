@@ -39,7 +39,7 @@ const assignments = ref<AssignmentItem[]>(assignmentsData.assignments as Assignm
 const submissions = ref<SubmissionItem[]>(submissionsData.submissions as SubmissionItem[])
 
 const mySubmissions = computed(() => {
-    const studentId = authStore.user?.userId
+    const studentId = authStore.user?.id
     return submissions.value.filter((s) => s.studentId === studentId)
 })
 

@@ -3,7 +3,6 @@ import { ChartPie, GraduationCap, FileText, View, LogIn } from 'lucide-vue-next'
 import LandingPageSvg from '~/assets/svg/landing-page.svg?component'
 import { useBreadcrumb } from '#imports'
 import classesData from '~/data/classes.json'
-import studentsData from '~/data/students.json'
 
 const router = useRouter()
 const breadcrumb = useBreadcrumb()
@@ -11,15 +10,11 @@ const auth = useAuth()
 
 breadcrumb.setBreadcrumbs([{ label: 'Welcome' }])
 
-const isInstructor = computed(() => auth.user?.role === 'instructor')
-const userName = computed(() => auth.user?.name ?? 'User')
-
-const studentRecord = computed(() =>
-    (studentsData.students as { id: number; classId?: number }[]).find(
-        (s) => s.id === auth.user?.userId,
-    ),
+const isInstructor = computed(() => auth.user?.user_type === 'staff')
+const userName = computed(() =>
+    auth.user ? `${auth.user.firstname} ${auth.user.lastname}` : 'User',
 )
-const hasClass = computed(() => isInstructor.value || !!studentRecord.value?.classId)
+const hasClass = computed(() => !!auth.user)
 
 const joinCode = ref('')
 const joinError = ref('')

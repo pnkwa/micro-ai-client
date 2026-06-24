@@ -39,12 +39,12 @@ const { $dayjs } = useNuxtApp()
 
 const authStore = useAuth()
 
-const isStudent = computed(() => authStore.user?.role === 'student' || !authStore.user)
+const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
 
 const allSubmissions = ref<SubmissionItem[]>(submissionsData.submissions as SubmissionItem[])
 const mySubmission = computed(() =>
     allSubmissions.value.find(
-        (s) => s.studentId === authStore.user?.userId && s.assignment === assignment.value?.name,
+        (s) => s.studentId === authStore.user?.id && s.assignment === assignment.value?.name,
     ),
 )
 const alreadySubmitted = computed(() => !!mySubmission.value)
@@ -79,7 +79,7 @@ const handleSubmitAssignment = (
 ) => {
     allSubmissions.value.push({
         id: allSubmissions.value.length + 1,
-        studentId: authStore.user?.userId ?? 0,
+        studentId: authStore.user?.id ?? 0,
         assignment: assignment.value?.name ?? '',
         status: 'submitted',
     })

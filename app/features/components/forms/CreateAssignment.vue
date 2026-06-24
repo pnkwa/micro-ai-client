@@ -50,10 +50,17 @@ const { handleSubmit, errors } = useForm<CreateAssignmentFormData>({
     },
 })
 
-const { fields: attachmentFields, push: addAttachment, remove: removeAttachment } = useFieldArray<{
+const {
+    fields: attachmentFields,
+    push: addAttachment,
+    remove: removeAttachment,
+} = useFieldArray<{
     filename: string
     path: string
 }>('attachments')
+
+const attachmentError = (index: number, field: 'filename' | 'path') =>
+    (errors.value as Record<string, string>)[`attachments[${index}].${field}`]
 
 const handleSave = handleSubmit((values) => {
     emit('save', values)
@@ -139,10 +146,10 @@ const handleCancel = () => {
                             placeholder="Filename (e.g., Lab Guide.pdf)"
                         />
                         <span
-                            v-if="(errors as Record<string, string>)[`attachments[${index}].filename`]"
+                            v-if="attachmentError(index, 'filename')"
                             class="tw:text-xs tw:text-red-500"
                         >
-                            {{ (errors as Record<string, string>)[`attachments[${index}].filename`] }}
+                            {{ attachmentError(index, 'filename') }}
                         </span>
                     </div>
                     <div class="tw:flex tw:flex-col tw:gap-1 tw:flex-1">
@@ -151,10 +158,10 @@ const handleCancel = () => {
                             placeholder="URL (e.g., https://...)"
                         />
                         <span
-                            v-if="(errors as Record<string, string>)[`attachments[${index}].path`]"
+                            v-if="attachmentError(index, 'path')"
                             class="tw:text-xs tw:text-red-500"
                         >
-                            {{ (errors as Record<string, string>)[`attachments[${index}].path`] }}
+                            {{ attachmentError(index, 'path') }}
                         </span>
                     </div>
                     <button
