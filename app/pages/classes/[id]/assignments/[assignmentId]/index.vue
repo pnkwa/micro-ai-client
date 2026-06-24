@@ -263,10 +263,7 @@ function getScoreColor(score: number) {
 
 <template>
     <div>
-        <div
-            v-if="isLoadingAssignment"
-            class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
-        >
+        <div v-if="isLoadingAssignment" class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60">
             Loading…
         </div>
 
@@ -491,14 +488,14 @@ function getScoreColor(score: number) {
                         </template>
 
                         <!-- Questions list -->
-                        <div class="tw:flex tw:flex-col tw:gap-2 tw:pl-3 tw:border-l tw:border-gray-100">
-                            <div
-                                v-for="q in ex.questions"
-                                :key="q.id"
-                                class="tw:text-sm"
-                            >
+                        <div
+                            class="tw:flex tw:flex-col tw:gap-2 tw:pl-3 tw:border-l tw:border-gray-100"
+                        >
+                            <div v-for="q in ex.questions" :key="q.id" class="tw:text-sm">
                                 <template v-if="editingQuestionId === q.id">
-                                    <div class="tw:flex tw:flex-col tw:gap-2 tw:p-2 tw:bg-gray-50 tw:rounded">
+                                    <div
+                                        class="tw:flex tw:flex-col tw:gap-2 tw:p-2 tw:bg-gray-50 tw:rounded"
+                                    >
                                         <textarea
                                             v-model="editQuestionForm.prompt"
                                             placeholder="Question prompt"
@@ -557,7 +554,10 @@ function getScoreColor(score: number) {
                                                 · {{ q.points }}pt
                                             </span>
                                         </div>
-                                        <div v-if="!isStudent" class="tw:flex tw:gap-2 tw:shrink-0 tw:ml-4">
+                                        <div
+                                            v-if="!isStudent"
+                                            class="tw:flex tw:gap-2 tw:shrink-0 tw:ml-4"
+                                        >
                                             <button
                                                 class="tw:text-xs tw:text-navy-60 tw:hover:text-primary"
                                                 @click="startEditQuestion(q)"
@@ -577,7 +577,9 @@ function getScoreColor(score: number) {
 
                             <!-- Add question form -->
                             <template v-if="addingQuestionExerciseId === ex.id">
-                                <div class="tw:flex tw:flex-col tw:gap-2 tw:mt-2 tw:p-2 tw:bg-gray-50 tw:rounded">
+                                <div
+                                    class="tw:flex tw:flex-col tw:gap-2 tw:mt-2 tw:p-2 tw:bg-gray-50 tw:rounded"
+                                >
                                     <select
                                         v-model="addQuestionForm.type"
                                         class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm"
@@ -642,7 +644,9 @@ function getScoreColor(score: number) {
                     <!-- Add exercise -->
                     <template v-if="!isStudent">
                         <template v-if="showAddExercise">
-                            <div class="tw:bg-white tw:border tw:border-gray-200 tw:rounded-md tw:p-4 tw:flex tw:flex-col tw:gap-2">
+                            <div
+                                class="tw:bg-white tw:border tw:border-gray-200 tw:rounded-md tw:p-4 tw:flex tw:flex-col tw:gap-2"
+                            >
                                 <input
                                     v-model="addExerciseForm.title"
                                     placeholder="Exercise title"
@@ -765,9 +769,7 @@ function getScoreColor(score: number) {
                                     </div>
                                     <span
                                         class="tw:text-xs tw:font-semibold tw:tabular-nums"
-                                        :class="
-                                            getScoreColor(submissionScore(row.original)!).text
-                                        "
+                                        :class="getScoreColor(submissionScore(row.original)!).text"
                                     >
                                         {{ submissionScore(row.original) }}%
                                     </span>

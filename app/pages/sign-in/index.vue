@@ -16,7 +16,7 @@ const handleSignIn = async (values: SignInFormData) => {
     error.value = ''
     const ok = await signIn(values)
     if (ok) {
-        router.push('/')
+        router.push('/dashboard')
     } else {
         toast.error('Invalid username or password. Please try again.')
     }
