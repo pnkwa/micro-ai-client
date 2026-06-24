@@ -1,79 +1,89 @@
 <script setup lang="ts">
-import { Users, Plus, Pencil } from 'lucide-vue-next'
+import { Plus, Pencil } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import CreateClass from '~/features/components/forms/CreateClass.vue'
 import EditClass from '~/features/components/forms/EditClass.vue'
-import type {
-    CreateClassFormData,
-    EditClassFormData,
-    ClassFormData,
-} from '~/features/types/forms/class'
-
-import classesData from '~/data/classes.json'
+import type { CreateClassFormData, EditClassFormData } from '~/features/types/forms/class'
+import { classService, type ClassItem } from '~/services/classService'
 
 const router = useRouter()
-
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([{ label: 'Classes', to: '/classes' }])
 
-const classes = ref<ClassFormData[]>(classesData.classes as ClassFormData[])
+const classes = ref<ClassItem[]>([])
+const isLoading = ref(false)
 const isCreateDialogOpen = ref(false)
 const isEditDialogOpen = ref(false)
-const selectedClass = ref<EditClassFormData | null>(null)
+const selectedClass = ref<ClassItem | null>(null)
 
-const editFormValues = computed(() => {
+const loadClasses = async () => {
+    isLoading.value = true
+    try {
+        classes.value = await classService.list()
+    } catch {
+        toast.error('Failed to load classes')
+    } finally {
+        isLoading.value = false
+    }
+}
+
+await loadClasses()
+
+const editFormValues = computed<EditClassFormData>(() => {
     if (selectedClass.value) {
         return {
             id: selectedClass.value.id,
             name: selectedClass.value.name,
             semester: selectedClass.value.semester,
-            students: selectedClass.value.students,
+            code: selectedClass.value.code,
             status: selectedClass.value.status,
         }
     }
-    return { id: 0, name: '', semester: '', students: 0, status: 'active' as const }
+    return { id: 0, name: '', semester: '', code: '', status: 'active' as const }
 })
 
-const openCreateDialog = () => {
-    isCreateDialogOpen.value = true
-}
-
-const openEditDialog = (classItem: EditClassFormData) => {
+const openEditDialog = (classItem: ClassItem) => {
     selectedClass.value = classItem
     isEditDialogOpen.value = true
 }
 
-const handleCreate = (values: CreateClassFormData) => {
-    const newId = Math.max(...classes.value.map((c) => c.id)) + 1
-    classes.value.push({ id: newId, ...values })
-    isCreateDialogOpen.value = false
-}
-
-const handleEdit = (values: EditClassFormData) => {
-    const index = classes.value.findIndex((c) => c.id === values.id)
-    if (index !== -1) {
-        classes.value[index] = values
+const handleCreate = async (values: CreateClassFormData) => {
+    try {
+        const created = await classService.create(values)
+        classes.value.push(created)
+        isCreateDialogOpen.value = false
+        toast.success('Class created')
+    } catch {
+        toast.error('Failed to create class')
     }
-    isEditDialogOpen.value = false
 }
 
-const handleCreateCancel = () => {
-    isCreateDialogOpen.value = false
-}
-
-const handleEditCancel = () => {
-    isEditDialogOpen.value = false
-}
-
-const handleDelete = (id: number) => {
-    const index = classes.value.findIndex((c) => c.id === id)
-    if (index !== -1) {
-        classes.value.splice(index, 1)
+const handleEdit = async (values: EditClassFormData) => {
+    try {
+        const updated = await classService.update(values.id, {
+            name: values.name,
+            semester: values.semester,
+            code: values.code,
+            status: values.status,
+        })
+        const idx = classes.value.findIndex((c) => c.id === updated.id)
+        if (idx !== -1) classes.value[idx] = updated
+        isEditDialogOpen.value = false
+        toast.success('Class updated')
+    } catch {
+        toast.error('Failed to update class')
     }
-    isEditDialogOpen.value = false
 }
 
-const getStatusLabel = (status: string) => {
-    return status === 'active' ? 'Active' : 'Closed'
+const handleDelete = async (id: number) => {
+    try {
+        await classService.remove(id)
+        classes.value = classes.value.filter((c) => c.id !== id)
+        isEditDialogOpen.value = false
+        toast.success('Class deleted')
+    } catch (e) {
+        toast.error((e as { data?: { message?: string } })?.data?.message ?? 'Failed to delete class')
+    }
 }
 </script>
 
@@ -84,13 +94,15 @@ const getStatusLabel = (status: string) => {
                 <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:mb-1">Classes</h1>
                 <p class="tw:text-sm tw:text-navy-60">Manage your courses and sections</p>
             </div>
-            <McButton @click="openCreateDialog">
+            <McButton @click="isCreateDialogOpen = true">
                 <Plus class="tw:w-4 tw:h-4 tw:mr-1" />
                 New Class
             </McButton>
         </div>
 
-        <div class="tw:grid tw:grid-cols-1 tw:md:grid-cols-2 tw:lg:grid-cols-4 tw:gap-4">
+        <div v-if="isLoading" class="tw:text-center tw:py-16 tw:text-navy-60">Loading…</div>
+
+        <div v-else class="tw:grid tw:grid-cols-1 tw:md:grid-cols-2 tw:lg:grid-cols-4 tw:gap-4">
             <div
                 v-for="classItem in classes"
                 :key="classItem.id"
@@ -103,17 +115,14 @@ const getStatusLabel = (status: string) => {
                             {{ classItem.name }}
                         </h3>
                         <McBadge :variant="classItem.status === 'active' ? 'default' : 'outline'">
-                            {{ getStatusLabel(classItem.status) }}
+                            {{ classItem.status === 'active' ? 'Active' : 'Closed' }}
                         </McBadge>
                     </div>
                     <p class="tw:text-xs tw:text-navy-60">{{ classItem.semester }}</p>
+                    <p class="tw:text-xs tw:text-navy-40 tw:mt-0.5">{{ classItem.code }}</p>
                 </div>
 
-                <div class="tw:flex tw:justify-between tw:items-center tw:px-4 tw:py-3 tw:border-t">
-                    <span class="tw:flex tw:items-center tw:gap-1 tw:text-xs tw:text-navy-60">
-                        <Users class="tw:w-4 tw:h-4" />
-                        {{ classItem.students }} students
-                    </span>
+                <div class="tw:flex tw:justify-end tw:items-center tw:px-4 tw:py-3 tw:border-t">
                     <button
                         class="tw:p-1.5 tw:rounded tw:text-navy-50 tw:hover:bg-navy-10 tw:hover:text-primary tw:transition-colors"
                         @click.stop="openEditDialog(classItem)"
@@ -126,7 +135,7 @@ const getStatusLabel = (status: string) => {
 
         <McDialog v-model:open="isCreateDialogOpen">
             <McDialogContent class="tw:sm:max-w-md">
-                <CreateClass @save="handleCreate" @cancel="handleCreateCancel" />
+                <CreateClass @save="handleCreate" @cancel="isCreateDialogOpen = false" />
             </McDialogContent>
         </McDialog>
 
@@ -135,7 +144,7 @@ const getStatusLabel = (status: string) => {
                 <EditClass
                     :initial-values="editFormValues"
                     @save="handleEdit"
-                    @cancel="handleEditCancel"
+                    @cancel="isEditDialogOpen = false"
                     @delete="handleDelete"
                 />
             </McDialogContent>

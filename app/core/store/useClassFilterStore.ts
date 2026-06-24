@@ -1,51 +1,43 @@
-import { ref, computed } from 'vue'
-import classesData from '~/data/classes.json'
+import { classService, type ClassItem } from '~/services/classService'
 
-export interface ClassItem {
-    id: number | string
-    name: string
-    semester?: string
-    students?: number
-    status?: 'active' | 'inactive' | 'closed'
-}
+export type { ClassItem }
 
 export const useClassFilterStore = defineStore('classFilter', () => {
-    // ─── State ────────────────────────────────────────────────────────────────
-    const classes = ref<ClassItem[]>(classesData.classes as ClassItem[])
-    const selectedClassId = ref<number | string>('all')
-    const isLoading = ref(false) // ready for real API later
+    const classes = ref<ClassItem[]>([])
+    const selectedClassId = ref<number | 'all'>('all')
+    const isLoading = ref(false)
+    const error = ref<string | null>(null)
 
-    // ─── Getters ──────────────────────────────────────────────────────────────
+    const activeClasses = computed(() => classes.value.filter((c) => c.status === 'active'))
 
-    const activeClasses = computed(() =>
-        classes.value.filter((classItem) => classItem.status === 'active'),
-    )
     const selectedClass = computed<ClassItem | null>(() =>
         selectedClassId.value === 'all'
             ? null
-            : (classes.value.find((classItem) => classItem.id === selectedClassId.value) ?? null),
+            : (classes.value.find((c) => c.id === selectedClassId.value) ?? null),
     )
+
     const selectedClassName = computed(() => selectedClass.value?.name ?? 'All Classes')
+
     const classSelectOptions = computed(() => [
-        { value: 'all', label: 'All Classes' },
-        ...activeClasses.value.map((classItem) => ({ value: classItem.id, label: classItem.name })),
+        { value: 'all' as const, label: 'All Classes' },
+        ...activeClasses.value.map((c) => ({ value: c.id, label: c.name })),
     ])
+
     const isAllSelected = computed(() => selectedClassId.value === 'all')
 
-    // Actions as arrow functions
     const fetchClasses = async () => {
         isLoading.value = true
+        error.value = null
         try {
-            // TODO: replace with real API call
-            // const data = await $fetch('/api/classes')
-            // classes.value = data
-            classes.value = classesData.classes as ClassItem[]
+            classes.value = await classService.list()
+        } catch (e) {
+            error.value = (e as { data?: { message?: string } })?.data?.message ?? 'Failed to load classes'
         } finally {
             isLoading.value = false
         }
     }
 
-    const selectClass = (id: number | string) => {
+    const selectClass = (id: number | 'all') => {
         selectedClassId.value = id
     }
 
@@ -53,24 +45,21 @@ export const useClassFilterStore = defineStore('classFilter', () => {
         selectedClassId.value = 'all'
     }
 
-    // Helper as arrow function
-    const getClassNameById = (id: number | string): string => {
+    const getClassNameById = (id: number | 'all'): string => {
         if (id === 'all') return 'All Classes'
-        return classes.value.find((classItem) => classItem.id === id)?.name ?? 'All Classes'
+        return classes.value.find((c) => c.id === id)?.name ?? 'All Classes'
     }
 
     return {
-        // State
         classes,
         selectedClassId,
         isLoading,
-        // Getters
+        error,
         activeClasses,
         selectedClass,
         selectedClassName,
         classSelectOptions,
         isAllSelected,
-        // Actions
         fetchClasses,
         selectClass,
         resetSelection,

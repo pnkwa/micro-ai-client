@@ -3,7 +3,7 @@ import z from 'zod'
 const baseClassSchema = z.object({
     name: z.string().min(1, 'Class name is required').max(100, 'Class name is too long'),
     semester: z.string().min(1, 'Semester is required'),
-    students: z.number().min(0, 'Students must be 0 or more').int('Must be a whole number'),
+    code: z.string().min(1, 'Class code is required').max(20, 'Code is too long'),
     status: z.enum(['active', 'closed']),
 })
 

@@ -14,7 +14,7 @@ const { handleSubmit } = useForm<CreateClassFormData>({
     initialValues: {
         name: '',
         semester: '',
-        students: 0,
+        code: '',
         status: 'active',
     },
 })
@@ -47,8 +47,8 @@ const statusOptions = [
             <McInput name="semester" placeholder="e.g., Fall 2025" />
         </div>
         <div class="tw:flex tw:flex-col tw:gap-2">
-            <label class="tw:text-sm tw:font-medium">Number of Students</label>
-            <McInput name="students" type="number" placeholder="e.g., 127" />
+            <label class="tw:text-sm tw:font-medium">Class Code</label>
+            <McInput name="code" placeholder="e.g., MICRO01" />
         </div>
         <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">Status</label>

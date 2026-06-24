@@ -1,24 +1,13 @@
 <script setup lang="ts">
 import { FileText, Users, Plus, ChevronLeft } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import CreateAssignment from '~/features/components/forms/CreateAssignment.vue'
 import EditClass from '~/features/components/forms/EditClass.vue'
 import type { CreateAssignmentFormData } from '~/features/types/forms/assignment'
-import type { EditClassFormData, ClassFormData } from '~/features/types/forms/class'
+import type { EditClassFormData } from '~/features/types/forms/class'
+import { classService, type ClassItem, type StudentRosterItem } from '~/services/classService'
 
-import classesData from '~/data/classes.json'
 import assignmentsData from '~/data/assignments.json'
-import studentsData from '~/data/students.json'
-
-interface StudentItem {
-    id: number
-    name: string
-    initials: string
-    email: string
-    classId: number
-    submissionsCompleted: number
-    submissionsTotal: number
-    avgScore: number
-}
 
 interface AssignmentItem {
     id: number
@@ -29,7 +18,6 @@ interface AssignmentItem {
     description?: string
     instructions?: string
     points?: number
-    attachments?: string[]
 }
 
 const route = useRoute()
@@ -37,72 +25,110 @@ const router = useRouter()
 const { $dayjs } = useNuxtApp()
 
 const classId = computed(() => Number(route.params.id))
-const classes = ref<ClassFormData[]>(classesData.classes as ClassFormData[])
-const classItem = computed(() => classes.value.find((c) => c.id === classId.value))
 
-const assignments = ref<AssignmentItem[]>(assignmentsData.assignments as AssignmentItem[])
-const classAssignments = computed(() =>
-    assignments.value.filter((a) => a.classId === classId.value),
-)
+const classItem = ref<ClassItem | null>(null)
+const students = ref<StudentRosterItem[]>([])
+const isLoadingClass = ref(false)
+const isLoadingStudents = ref(false)
 
-const classStudents = computed(() =>
-    (studentsData.students as StudentItem[]).filter((s) => s.classId === classId.value),
-)
+const loadClass = async () => {
+    isLoadingClass.value = true
+    try {
+        classItem.value = await classService.getById(classId.value)
+    } catch {
+        toast.error('Failed to load class')
+    } finally {
+        isLoadingClass.value = false
+    }
+}
 
-const activeTab = ref<'assignments' | 'students'>('assignments')
-const isCreateDialogOpen = ref(false)
+const loadStudents = async () => {
+    isLoadingStudents.value = true
+    try {
+        students.value = await classService.getStudents(classId.value)
+    } catch {
+        toast.error('Failed to load students')
+    } finally {
+        isLoadingStudents.value = false
+    }
+}
+
+await loadClass()
+
 const breadcrumb = useBreadcrumb()
-
 breadcrumb.setBreadcrumbs([
     { label: 'Classes', to: '/classes' },
     { label: classItem.value?.name ?? 'Class' },
 ])
 
+// Assignments still on mock data — wired in Section 2
+const assignments = ref<AssignmentItem[]>(assignmentsData.assignments as AssignmentItem[])
+const classAssignments = computed(() => assignments.value.filter((a) => a.classId === classId.value))
+
+const activeTab = ref<'assignments' | 'students'>('assignments')
+
+const onTabChange = async (tab: 'assignments' | 'students') => {
+    activeTab.value = tab
+    if (tab === 'students' && students.value.length === 0) {
+        await loadStudents()
+    }
+}
+
+const isCreateDialogOpen = ref(false)
 const isEditDialogOpen = ref(false)
 
-const editFormValues = computed(() => {
-    if (classItem.value) {
-        return {
-            id: classItem.value.id,
-            name: classItem.value.name,
-            semester: classItem.value.semester,
-            students: classItem.value.students,
-            status: classItem.value.status,
-        }
-    }
-    return { id: 0, name: '', semester: '', students: 0, status: 'active' as const }
-})
+const editFormValues = computed<EditClassFormData>(() => ({
+    id: classItem.value?.id ?? 0,
+    name: classItem.value?.name ?? '',
+    semester: classItem.value?.semester ?? '',
+    code: classItem.value?.code ?? '',
+    status: classItem.value?.status ?? 'active',
+}))
 
-const handleCreate = (values: CreateAssignmentFormData & { attachmentFiles?: string[] }) => {
-    const newId = Math.max(...assignments.value.map((a) => a.id)) + 1
-    const { attachmentFiles, ...rest } = values
-    assignments.value.push({
-        id: newId,
-        submissions: 0,
-        attachments: attachmentFiles || [],
-        ...rest,
-    })
+const handleCreate = (values: CreateAssignmentFormData) => {
+    // TODO: wire to POST /assignments in Section 2
+    const newId = Math.max(0, ...assignments.value.map((a) => a.id)) + 1
+    assignments.value.push({ id: newId, submissions: 0, classId: classId.value, ...values })
     isCreateDialogOpen.value = false
 }
 
-const handleEdit = (values: EditClassFormData) => {
-    const index = classes.value.findIndex((c) => c.id === values.id)
-    if (index !== -1) classes.value[index] = values as ClassFormData
-    isEditDialogOpen.value = false
+const handleEdit = async (values: EditClassFormData) => {
+    try {
+        const updated = await classService.update(values.id, {
+            name: values.name,
+            semester: values.semester,
+            code: values.code,
+            status: values.status,
+        })
+        classItem.value = updated
+        isEditDialogOpen.value = false
+        toast.success('Class updated')
+    } catch {
+        toast.error('Failed to update class')
+    }
 }
 
-const handleDelete = (id: number) => {
-    const index = classes.value.findIndex((c) => c.id === id)
-    if (index !== -1) classes.value.splice(index, 1)
-    router.push('/classes')
+const handleDelete = async (id: number) => {
+    try {
+        await classService.remove(id)
+        toast.success('Class deleted')
+        router.push('/classes')
+    } catch (e) {
+        toast.error((e as { data?: { message?: string } })?.data?.message ?? 'Failed to delete class')
+    }
 }
 
 const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
+
+const studentInitials = (s: StudentRosterItem) =>
+    `${s.firstname[0] ?? ''}${s.lastname[0] ?? ''}`.toUpperCase()
 </script>
 
 <template>
     <div>
-        <template v-if="classItem">
+        <div v-if="isLoadingClass" class="tw:text-center tw:py-16 tw:text-navy-60">Loading…</div>
+
+        <template v-else-if="classItem">
             <div class="tw:flex tw:items-start tw:justify-between tw:mb-6">
                 <div class="tw:flex tw:items-start tw:gap-3">
                     <button
@@ -112,12 +138,10 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                         <ChevronLeft class="tw:w-6 tw:h-6" />
                     </button>
                     <div class="tw:min-w-0">
-                        <h1
-                            class="tw:text-2xl tw:font-bold tw:text-primary tw:leading-tight tw:max-w-2xl"
-                        >
+                        <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:leading-tight tw:max-w-2xl">
                             {{ classItem.name }}
                         </h1>
-                        <p class="tw:text-sm tw:text-navy-60">{{ classItem.semester }}</p>
+                        <p class="tw:text-sm tw:text-navy-60">{{ classItem.semester }} · {{ classItem.code }}</p>
                     </div>
                 </div>
                 <div class="tw:flex tw:items-center tw:gap-2">
@@ -132,26 +156,20 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 
             <div class="tw:flex tw:border-b tw:border-navy-10 tw:mb-6">
                 <button
-                    v-for="tab in [
-                        { value: 'assignments', label: 'Assignments' },
-                        { value: 'students', label: 'Students' },
-                    ]"
+                    v-for="tab in [{ value: 'assignments', label: 'Assignments' }, { value: 'students', label: 'Students' }]"
                     :key="tab.value"
                     class="tw:px-4 tw:py-2.5 tw:text-sm tw:font-medium tw:border-b-2 tw:-mb-px tw:transition-colors"
-                    :class="
-                        activeTab === tab.value
-                            ? 'tw:border-primary tw:text-primary'
-                            : 'tw:border-transparent tw:text-navy-60 tw:hover:text-navy-100'
-                    "
-                    @click="activeTab = tab.value as 'assignments' | 'students'"
+                    :class="activeTab === tab.value ? 'tw:border-primary tw:text-primary' : 'tw:border-transparent tw:text-navy-60 tw:hover:text-navy-100'"
+                    @click="onTabChange(tab.value as 'assignments' | 'students')"
                 >
                     {{ tab.label }}
                 </button>
             </div>
 
+            <!-- Assignments tab (still mock data) -->
             <template v-if="activeTab === 'assignments'">
                 <div class="tw:flex tw:justify-between tw:mb-4">
-                    <span>total</span>
+                    <span class="tw:text-sm tw:text-navy-60">{{ classAssignments.length }} assignments</span>
                     <McButton @click="isCreateDialogOpen = true">
                         <Plus class="tw:w-4 tw:h-4 tw:mr-1" />
                         New Assignment
@@ -168,91 +186,55 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                         <div class="tw:flex tw:items-center tw:gap-3">
                             <FileText class="tw:w-5 tw:h-5 tw:text-gray-400" />
                             <div class="tw:flex tw:flex-col tw:gap-0.5">
-                                <h3 class="tw:text-sm tw:font-medium tw:text-navy-100">
-                                    {{ assignment.name }}
-                                </h3>
-                                <p class="tw:text-xs tw:text-navy-60">
-                                    Due {{ formatDate(assignment.dueDate) }}
-                                </p>
+                                <h3 class="tw:text-sm tw:font-medium tw:text-navy-100">{{ assignment.name }}</h3>
+                                <p class="tw:text-xs tw:text-navy-60">Due {{ formatDate(assignment.dueDate) }}</p>
                             </div>
                         </div>
-                        <div class="tw:flex tw:items-center tw:gap-3">
-                            <span class="tw:text-xs tw:text-navy-50">
-                                {{ assignment.submissions }} submissions
-                            </span>
-                        </div>
+                        <span class="tw:text-xs tw:text-navy-50">{{ assignment.submissions }} submissions</span>
                     </div>
                 </div>
 
-                <div
-                    v-else
-                    class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center"
-                >
+                <div v-else class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center">
                     <FileText class="tw:w-8 tw:h-8 tw:text-navy-30 tw:mx-auto tw:mb-2" />
                     <p class="tw:text-sm tw:text-navy-60">No assignments yet</p>
-                    <p class="tw:text-xs tw:text-navy-40 tw:mt-1">
-                        Create the first assignment for this class
-                    </p>
                 </div>
             </template>
 
-            <!-- Students Tab -->
+            <!-- Students tab (real API) -->
             <template v-else>
-                <div
-                    class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:overflow-hidden"
-                >
-                    <div
-                        class="tw:flex tw:items-center tw:justify-between tw:px-6 tw:py-4 tw:border-b tw:border-navy-10"
-                    >
+                <div class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:overflow-hidden">
+                    <div class="tw:flex tw:items-center tw:justify-between tw:px-6 tw:py-4 tw:border-b tw:border-navy-10">
                         <div class="tw:flex tw:items-center tw:gap-2">
                             <Users class="tw:w-4 tw:h-4 tw:text-navy-60" />
                             <span class="tw:text-sm tw:font-semibold tw:text-navy-100">
-                                {{ classStudents.length }} Enrolled Students
+                                {{ students.length }} Enrolled Students
                             </span>
                         </div>
                         <span class="tw:text-xs tw:text-navy-40">{{ classItem.semester }}</span>
                     </div>
 
-                    <div class="tw:divide-y tw:divide-navy-10">
+                    <div v-if="isLoadingStudents" class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60">
+                        Loading students…
+                    </div>
+
+                    <div v-else class="tw:divide-y tw:divide-navy-10">
                         <div
-                            v-for="student in classStudents"
+                            v-for="student in students"
                             :key="student.id"
-                            class="tw:flex tw:items-center tw:justify-between tw:px-6 tw:py-3"
+                            class="tw:flex tw:items-center tw:gap-3 tw:px-6 tw:py-3"
                         >
-                            <div class="tw:flex tw:items-center tw:gap-3">
-                                <div
-                                    class="tw:w-8 tw:h-8 tw:rounded-full tw:bg-primary/10 tw:flex tw:items-center tw:justify-center tw:text-primary tw:text-xs tw:font-bold tw:shrink-0"
-                                >
-                                    {{ student.initials }}
-                                </div>
-                                <div>
-                                    <p class="tw:text-sm tw:font-medium tw:text-navy-100">
-                                        {{ student.name }}
-                                    </p>
-                                    <p class="tw:text-xs tw:text-navy-50">{{ student.email }}</p>
-                                </div>
+                            <div class="tw:w-8 tw:h-8 tw:rounded-full tw:bg-primary/10 tw:flex tw:items-center tw:justify-center tw:text-primary tw:text-xs tw:font-bold tw:shrink-0">
+                                {{ studentInitials(student) }}
                             </div>
-                            <div
-                                class="tw:flex tw:items-center tw:gap-6 tw:text-xs tw:text-navy-60"
-                            >
-                                <span>
-                                    {{ student.submissionsCompleted }}/{{
-                                        student.submissionsTotal
-                                    }}
-                                    submitted
-                                </span>
-                                <span
-                                    class="tw:font-semibold tw:text-navy-100 tw:w-16 tw:text-right"
-                                >
-                                    Avg {{ student.avgScore }}%
-                                </span>
+                            <div>
+                                <p class="tw:text-sm tw:font-medium tw:text-navy-100">
+                                    {{ student.firstname }} {{ student.lastname }}
+                                </p>
+                                <p class="tw:text-xs tw:text-navy-50">{{ student.email }} · {{ student.student_id }}</p>
                             </div>
                         </div>
 
-                        <div
-                            v-if="classStudents.length === 0"
-                            class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-50"
-                        >
+                        <div v-if="students.length === 0" class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-50">
                             No students enrolled
                         </div>
                     </div>
