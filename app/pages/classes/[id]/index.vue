@@ -63,7 +63,9 @@ breadcrumb.setBreadcrumbs([
 
 // Assignments still on mock data — wired in Section 2
 const assignments = ref<AssignmentItem[]>(assignmentsData.assignments as AssignmentItem[])
-const classAssignments = computed(() => assignments.value.filter((a) => a.classId === classId.value))
+const classAssignments = computed(() =>
+    assignments.value.filter((a) => a.classId === classId.value),
+)
 
 const activeTab = ref<'assignments' | 'students'>('assignments')
 
@@ -114,7 +116,9 @@ const handleDelete = async (id: number) => {
         toast.success('Class deleted')
         router.push('/classes')
     } catch (e) {
-        toast.error((e as { data?: { message?: string } })?.data?.message ?? 'Failed to delete class')
+        toast.error(
+            (e as { data?: { message?: string } })?.data?.message ?? 'Failed to delete class',
+        )
     }
 }
 
@@ -138,10 +142,14 @@ const studentInitials = (s: StudentRosterItem) =>
                         <ChevronLeft class="tw:w-6 tw:h-6" />
                     </button>
                     <div class="tw:min-w-0">
-                        <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:leading-tight tw:max-w-2xl">
+                        <h1
+                            class="tw:text-2xl tw:font-bold tw:text-primary tw:leading-tight tw:max-w-2xl"
+                        >
                             {{ classItem.name }}
                         </h1>
-                        <p class="tw:text-sm tw:text-navy-60">{{ classItem.semester }} · {{ classItem.code }}</p>
+                        <p class="tw:text-sm tw:text-navy-60">
+                            {{ classItem.semester }} · {{ classItem.code }}
+                        </p>
                     </div>
                 </div>
                 <div class="tw:flex tw:items-center tw:gap-2">
@@ -156,10 +164,17 @@ const studentInitials = (s: StudentRosterItem) =>
 
             <div class="tw:flex tw:border-b tw:border-navy-10 tw:mb-6">
                 <button
-                    v-for="tab in [{ value: 'assignments', label: 'Assignments' }, { value: 'students', label: 'Students' }]"
+                    v-for="tab in [
+                        { value: 'assignments', label: 'Assignments' },
+                        { value: 'students', label: 'Students' },
+                    ]"
                     :key="tab.value"
                     class="tw:px-4 tw:py-2.5 tw:text-sm tw:font-medium tw:border-b-2 tw:-mb-px tw:transition-colors"
-                    :class="activeTab === tab.value ? 'tw:border-primary tw:text-primary' : 'tw:border-transparent tw:text-navy-60 tw:hover:text-navy-100'"
+                    :class="
+                        activeTab === tab.value
+                            ? 'tw:border-primary tw:text-primary'
+                            : 'tw:border-transparent tw:text-navy-60 tw:hover:text-navy-100'
+                    "
                     @click="onTabChange(tab.value as 'assignments' | 'students')"
                 >
                     {{ tab.label }}
@@ -169,7 +184,9 @@ const studentInitials = (s: StudentRosterItem) =>
             <!-- Assignments tab (still mock data) -->
             <template v-if="activeTab === 'assignments'">
                 <div class="tw:flex tw:justify-between tw:mb-4">
-                    <span class="tw:text-sm tw:text-navy-60">{{ classAssignments.length }} assignments</span>
+                    <span class="tw:text-sm tw:text-navy-60">
+                        {{ classAssignments.length }} assignments
+                    </span>
                     <McButton @click="isCreateDialogOpen = true">
                         <Plus class="tw:w-4 tw:h-4 tw:mr-1" />
                         New Assignment
@@ -186,15 +203,24 @@ const studentInitials = (s: StudentRosterItem) =>
                         <div class="tw:flex tw:items-center tw:gap-3">
                             <FileText class="tw:w-5 tw:h-5 tw:text-gray-400" />
                             <div class="tw:flex tw:flex-col tw:gap-0.5">
-                                <h3 class="tw:text-sm tw:font-medium tw:text-navy-100">{{ assignment.name }}</h3>
-                                <p class="tw:text-xs tw:text-navy-60">Due {{ formatDate(assignment.dueDate) }}</p>
+                                <h3 class="tw:text-sm tw:font-medium tw:text-navy-100">
+                                    {{ assignment.name }}
+                                </h3>
+                                <p class="tw:text-xs tw:text-navy-60">
+                                    Due {{ formatDate(assignment.dueDate) }}
+                                </p>
                             </div>
                         </div>
-                        <span class="tw:text-xs tw:text-navy-50">{{ assignment.submissions }} submissions</span>
+                        <span class="tw:text-xs tw:text-navy-50">
+                            {{ assignment.submissions }} submissions
+                        </span>
                     </div>
                 </div>
 
-                <div v-else class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center">
+                <div
+                    v-else
+                    class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center"
+                >
                     <FileText class="tw:w-8 tw:h-8 tw:text-navy-30 tw:mx-auto tw:mb-2" />
                     <p class="tw:text-sm tw:text-navy-60">No assignments yet</p>
                 </div>
@@ -202,8 +228,12 @@ const studentInitials = (s: StudentRosterItem) =>
 
             <!-- Students tab (real API) -->
             <template v-else>
-                <div class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:overflow-hidden">
-                    <div class="tw:flex tw:items-center tw:justify-between tw:px-6 tw:py-4 tw:border-b tw:border-navy-10">
+                <div
+                    class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:overflow-hidden"
+                >
+                    <div
+                        class="tw:flex tw:items-center tw:justify-between tw:px-6 tw:py-4 tw:border-b tw:border-navy-10"
+                    >
                         <div class="tw:flex tw:items-center tw:gap-2">
                             <Users class="tw:w-4 tw:h-4 tw:text-navy-60" />
                             <span class="tw:text-sm tw:font-semibold tw:text-navy-100">
@@ -213,7 +243,10 @@ const studentInitials = (s: StudentRosterItem) =>
                         <span class="tw:text-xs tw:text-navy-40">{{ classItem.semester }}</span>
                     </div>
 
-                    <div v-if="isLoadingStudents" class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60">
+                    <div
+                        v-if="isLoadingStudents"
+                        class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
+                    >
                         Loading students…
                     </div>
 
@@ -223,18 +256,25 @@ const studentInitials = (s: StudentRosterItem) =>
                             :key="student.id"
                             class="tw:flex tw:items-center tw:gap-3 tw:px-6 tw:py-3"
                         >
-                            <div class="tw:w-8 tw:h-8 tw:rounded-full tw:bg-primary/10 tw:flex tw:items-center tw:justify-center tw:text-primary tw:text-xs tw:font-bold tw:shrink-0">
+                            <div
+                                class="tw:w-8 tw:h-8 tw:rounded-full tw:bg-primary/10 tw:flex tw:items-center tw:justify-center tw:text-primary tw:text-xs tw:font-bold tw:shrink-0"
+                            >
                                 {{ studentInitials(student) }}
                             </div>
                             <div>
                                 <p class="tw:text-sm tw:font-medium tw:text-navy-100">
                                     {{ student.firstname }} {{ student.lastname }}
                                 </p>
-                                <p class="tw:text-xs tw:text-navy-50">{{ student.email }} · {{ student.student_id }}</p>
+                                <p class="tw:text-xs tw:text-navy-50">
+                                    {{ student.email }} · {{ student.student_id }}
+                                </p>
                             </div>
                         </div>
 
-                        <div v-if="students.length === 0" class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-50">
+                        <div
+                            v-if="students.length === 0"
+                            class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-50"
+                        >
                             No students enrolled
                         </div>
                     </div>

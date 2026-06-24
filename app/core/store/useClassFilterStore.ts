@@ -31,7 +31,8 @@ export const useClassFilterStore = defineStore('classFilter', () => {
         try {
             classes.value = await classService.list()
         } catch (e) {
-            error.value = (e as { data?: { message?: string } })?.data?.message ?? 'Failed to load classes'
+            error.value =
+                (e as { data?: { message?: string } })?.data?.message ?? 'Failed to load classes'
         } finally {
             isLoading.value = false
         }
