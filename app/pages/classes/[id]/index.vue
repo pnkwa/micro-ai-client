@@ -90,7 +90,7 @@ const editFormValues = computed<EditClassFormData>(() => ({
 const handleCreate = (values: CreateAssignmentFormData) => {
     // TODO: wire to POST /assignments in Section 2
     const newId = Math.max(0, ...assignments.value.map((a) => a.id)) + 1
-    assignments.value.push({ id: newId, submissions: 0, classId: classId.value, ...values })
+    assignments.value.push({ id: newId, submissions: 0, ...values })
     isCreateDialogOpen.value = false
 }
 
