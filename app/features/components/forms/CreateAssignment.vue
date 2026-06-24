@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Paperclip, X } from 'lucide-vue-next'
-import { useForm } from 'vee-validate'
+import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 
 import {
@@ -32,7 +32,7 @@ const statusOptions = [
 ]
 
 const emit = defineEmits<{
-    save: [values: CreateAssignmentFormData & { attachmentFiles?: string[] }]
+    save: [values: CreateAssignmentFormData]
     cancel: []
 }>()
 
@@ -46,33 +46,17 @@ const { handleSubmit, errors } = useForm<CreateAssignmentFormData>({
         description: '',
         instructions: '',
         points: 100,
+        attachments: [],
     },
 })
 
-const attachedFiles = ref<File[]>([])
-const fileInputRef = ref<HTMLInputElement | null>(null)
-
-const triggerFileInput = () => {
-    fileInputRef.value?.click()
-}
-
-const handleFileChange = (event: Event) => {
-    const target = event.target as HTMLInputElement
-    if (target.files) {
-        attachedFiles.value.push(...Array.from(target.files))
-        target.value = ''
-    }
-}
-
-const removeFile = (index: number) => {
-    attachedFiles.value.splice(index, 1)
-}
+const { fields: attachmentFields, push: addAttachment, remove: removeAttachment } = useFieldArray<{
+    filename: string
+    path: string
+}>('attachments')
 
 const handleSave = handleSubmit((values) => {
-    emit('save', {
-        ...values,
-        attachmentFiles: attachedFiles.value.map((f) => f.name),
-    })
+    emit('save', values)
 })
 
 const handleCancel = () => {
@@ -143,33 +127,50 @@ const handleCancel = () => {
         </div>
         <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">Attachments</label>
-            <input
-                ref="fileInputRef"
-                type="file"
-                multiple
-                class="tw:hidden"
-                @change="handleFileChange"
-            />
-            <div v-if="attachedFiles.length > 0" class="tw:flex tw:flex-col tw:gap-2">
+            <div v-if="attachmentFields.length > 0" class="tw:flex tw:flex-col tw:gap-2">
                 <div
-                    v-for="(file, index) in attachedFiles"
-                    :key="index"
-                    class="tw:flex tw:items-center tw:justify-between tw:p-2 tw:bg-gray-50 tw:border tw:border-gray-200 tw:rounded-md"
+                    v-for="(field, index) in attachmentFields"
+                    :key="field.key"
+                    class="tw:flex tw:items-start tw:gap-2"
                 >
-                    <div class="tw:flex tw:items-center tw:gap-2">
-                        <Paperclip class="tw:w-4 tw:h-4 tw:text-gray-500" />
-                        <span class="tw:text-sm tw:truncate tw:max-w-48">{{ file.name }}</span>
+                    <div class="tw:flex tw:flex-col tw:gap-1 tw:flex-1">
+                        <McInput
+                            :name="`attachments[${index}].filename`"
+                            placeholder="Filename (e.g., Lab Guide.pdf)"
+                        />
+                        <span
+                            v-if="(errors as Record<string, string>)[`attachments[${index}].filename`]"
+                            class="tw:text-xs tw:text-red-500"
+                        >
+                            {{ (errors as Record<string, string>)[`attachments[${index}].filename`] }}
+                        </span>
+                    </div>
+                    <div class="tw:flex tw:flex-col tw:gap-1 tw:flex-1">
+                        <McInput
+                            :name="`attachments[${index}].path`"
+                            placeholder="URL (e.g., https://...)"
+                        />
+                        <span
+                            v-if="(errors as Record<string, string>)[`attachments[${index}].path`]"
+                            class="tw:text-xs tw:text-red-500"
+                        >
+                            {{ (errors as Record<string, string>)[`attachments[${index}].path`] }}
+                        </span>
                     </div>
                     <button
                         type="button"
-                        class="tw:p-1 tw:rounded tw:hover:bg-gray-200"
-                        @click="removeFile(index)"
+                        class="tw:p-2 tw:mt-0.5 tw:rounded tw:hover:bg-gray-200"
+                        @click="removeAttachment(index)"
                     >
                         <X class="tw:w-4 tw:h-4 tw:text-gray-500" />
                     </button>
                 </div>
             </div>
-            <McButton type="button" variant="outline" @click="triggerFileInput">
+            <McButton
+                type="button"
+                variant="outline"
+                @click="addAttachment({ filename: '', path: '' })"
+            >
                 <Paperclip class="tw:w-4 tw:h-4 tw:mr-1" />
                 Add Attachment
             </McButton>

@@ -1,5 +1,10 @@
 import z from 'zod'
 
+export const attachmentSchema = z.object({
+    filename: z.string().min(1, 'Filename is required'),
+    path: z.string().url('Must be a valid URL'),
+})
+
 const baseAssignmentSchema = z.object({
     name: z.string().min(1, 'Assignment name is required').max(100, 'Assignment name is too long'),
     dueDate: z.string().min(1, 'Due date is required'),
@@ -8,6 +13,7 @@ const baseAssignmentSchema = z.object({
     description: z.string().optional(),
     instructions: z.string().optional(),
     points: z.number().min(0).int().optional(),
+    attachments: z.array(attachmentSchema).optional(),
 })
 
 export const createAssignmentFormSchema = baseAssignmentSchema

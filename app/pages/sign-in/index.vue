@@ -12,9 +12,9 @@ const router = useRouter()
 
 const error = ref('')
 
-const handleSignIn = (values: SignInFormData) => {
+const handleSignIn = async (values: SignInFormData) => {
     error.value = ''
-    const ok = signIn(values)
+    const ok = await signIn(values)
     if (ok) {
         router.push('/')
     } else {

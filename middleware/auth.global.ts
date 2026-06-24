@@ -1,37 +1,22 @@
 export default defineNuxtRouteMiddleware(async (to, from) => {
-    const staffStore = useStaff()
+    const config = useRuntimeConfig()
     const breadcrumb = useBreadcrumb()
-    const accessToken = staffStore.userToken?.accessToken
-
-    // Check if user has a valid token (not empty string)
-    const hasValidToken = accessToken && accessToken.trim() !== ''
-
-    // If user has token and trying to access login, redirect to dashboard
-    if (hasValidToken && to.path === '/login') {
-        return navigateTo('/', { replace: true })
-    }
-
-    // If user doesn't have token and trying to access protected route, redirect to login
-    if (!hasValidToken && to.path !== '/login') {
-        return navigateTo('/login', { replace: true })
-    }
 
     if (to.fullPath !== from.fullPath) {
         breadcrumb.clearBreadcrumbs()
     }
 
-    if (!staffStore.isLoggedIn) {
+    if (config.public.authDisabled) {
         return
     }
 
-    if (!staffStore.userConfig) {
-        await staffStore.handleFetchConfig()
-    }
-    const hasPermission = staffStore.hasPermissionPath(to.path)
+    const auth = useAuth()
 
-    if (!hasPermission) {
+    if (auth.isSignedIn && to.path === '/sign-in') {
         return navigateTo('/', { replace: true })
     }
 
-    return
+    if (!auth.isSignedIn && to.path !== '/sign-in') {
+        return navigateTo('/sign-in', { replace: true })
+    }
 })
