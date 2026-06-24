@@ -60,10 +60,15 @@ const loadAssignments = async () => {
 }
 
 isLoading.value = true
-await Promise.all([classFilterStore.fetchClasses(), loadSubmissions()])
-await loadAllStudents()
-await loadAssignments()
-isLoading.value = false
+try {
+    await Promise.all([classFilterStore.fetchClasses(), loadSubmissions()])
+    await loadAllStudents()
+    await loadAssignments()
+} catch {
+    // auth failure or network error — show empty state, don't 500
+} finally {
+    isLoading.value = false
+}
 
 watch(() => classFilterStore.selectedClassId, loadAssignments)
 

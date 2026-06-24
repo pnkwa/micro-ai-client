@@ -10,11 +10,13 @@ export const classSchema = z.object({
 })
 
 export const studentRosterSchema = z.object({
-    id: z.number(),
-    email: z.string(),
-    firstname: z.string(),
-    lastname: z.string(),
     student_id: z.string(),
+    userID: z.number(),
+    user: z.object({
+        email: z.string(),
+        firstname: z.string(),
+        lastname: z.string(),
+    }),
 })
 
 export type ClassItem = z.infer<typeof classSchema>

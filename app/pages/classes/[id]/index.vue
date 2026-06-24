@@ -124,7 +124,7 @@ const handleDelete = async (id: number) => {
 const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 
 const studentInitials = (s: StudentRosterItem) =>
-    `${s.firstname[0] ?? ''}${s.lastname[0] ?? ''}`.toUpperCase()
+    `${s.user.firstname[0] ?? ''}${s.user.lastname[0] ?? ''}`.toUpperCase()
 </script>
 
 <template>
@@ -259,7 +259,7 @@ const studentInitials = (s: StudentRosterItem) =>
                     <div v-else class="tw:divide-y tw:divide-navy-10">
                         <div
                             v-for="student in students"
-                            :key="student.id"
+                            :key="student.student_id"
                             class="tw:flex tw:items-center tw:gap-3 tw:px-6 tw:py-3"
                         >
                             <div
@@ -269,10 +269,10 @@ const studentInitials = (s: StudentRosterItem) =>
                             </div>
                             <div>
                                 <p class="tw:text-sm tw:font-medium tw:text-navy-100">
-                                    {{ student.firstname }} {{ student.lastname }}
+                                    {{ student.user.firstname }} {{ student.user.lastname }}
                                 </p>
                                 <p class="tw:text-xs tw:text-navy-50">
-                                    {{ student.email }} · {{ student.student_id }}
+                                    {{ student.user.email }} · {{ student.student_id }}
                                 </p>
                             </div>
                         </div>
