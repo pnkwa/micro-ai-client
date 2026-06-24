@@ -5,7 +5,7 @@ export default defineNuxtConfig({
     compatibilityDate: '2025-07-15',
     runtimeConfig: {
         public: {
-            apiBaseUrl: 'http://localhost:3000',
+            apiBaseUrl: '/api',
             authDisabled: false,
         },
     },
@@ -16,6 +16,15 @@ export default defineNuxtConfig({
             // @ts-ignore
             tailwindcss(),
         ],
+        server: {
+            proxy: {
+                '/api': {
+                    target: process.env.NUXT_PUBLIC_API_BASE_URL_TARGET ?? 'http://localhost:3000',
+                    changeOrigin: true,
+                    rewrite: (path: string) => path.replace(/^\/api/, ''),
+                },
+            },
+        },
     },
     ssr: false,
     modules: [
