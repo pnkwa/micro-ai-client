@@ -145,7 +145,7 @@ const monthlyActivity = computed(() => {
     scopedSubmissions.value.forEach((s) => {
         const weeksAgo = now.diff(dayjs(s.submitted_at), 'week')
         if (weeksAgo >= 0 && weeksAgo < 4) {
-            buckets[3 - weeksAgo]++
+            buckets[3 - weeksAgo] = (buckets[3 - weeksAgo] ?? 0) + 1
         }
     })
     return buckets.map((count, i) => ({ label: `Week ${i + 1}`, value: count }))
