@@ -90,9 +90,7 @@ const scopedSubmissions = computed(() => {
 
 const totalStudents = computed(() => {
     if (classFilterStore.isAllSelected) {
-        const ids = new Set(
-            [...classStudents.value.values()].flat().map((s) => s.student_id),
-        )
+        const ids = new Set([...classStudents.value.values()].flat().map((s) => s.student_id))
         return ids.size
     }
     return classStudents.value.get(classFilterStore.selectedClassId as number)?.length ?? 0
@@ -159,17 +157,13 @@ const submissionActivity = computed(() =>
 
 // ---- computed: class summary ----
 
-const assignmentPointsMap = computed(
-    () => new Map(assignments.value.map((a) => [a.id, a.points])),
-)
+const assignmentPointsMap = computed(() => new Map(assignments.value.map((a) => [a.id, a.points])))
 
 const activeAssignmentsCount = computed(
     () => assignments.value.filter((a) => dayjs(a.due_date).isAfter(dayjs())).length,
 )
 
-const avgSubmissionsPerDay = computed(() =>
-    (scopedSubmissions.value.length / 7).toFixed(1),
-)
+const avgSubmissionsPerDay = computed(() => (scopedSubmissions.value.length / 7).toFixed(1))
 
 const completionRate = computed(() => {
     if (!enrolledCount.value) return '—'
@@ -178,9 +172,7 @@ const completionRate = computed(() => {
 })
 
 const avgGrade = computed(() => {
-    const graded = scopedSubmissions.value.filter(
-        (s) => s.status === 'graded' && s.score != null,
-    )
+    const graded = scopedSubmissions.value.filter((s) => s.status === 'graded' && s.score != null)
     if (!graded.length) return '—'
     const percentages = graded
         .map((s) => {
