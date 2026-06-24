@@ -12,7 +12,11 @@ breadcrumb.setBreadcrumbs([{ label: 'Welcome' }])
 
 const isInstructor = computed(() => auth.user?.user_type === 'staff')
 const userName = computed(() =>
-    auth.user ? `${auth.user.firstname} ${auth.user.lastname}` : 'User',
+    auth.user
+        ? auth.user.firstname
+            ? `${auth.user.firstname} ${auth.user.lastname ?? ''}`.trim()
+            : auth.user.email
+        : 'User',
 )
 const hasClass = computed(() => !!auth.user)
 

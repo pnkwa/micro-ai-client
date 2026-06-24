@@ -5,14 +5,16 @@ const loginResponseSchema = z.object({
     access_token: z.string(),
 })
 
-const profileSchema = z.object({
-    id: z.number(),
-    email: z.string(),
-    firstname: z.string(),
-    lastname: z.string(),
-    user_type: z.enum(['staff', 'student']),
-    role: z.enum(['admin', 'instructor', 'ta']).nullable().optional(),
-})
+const profileSchema = z
+    .object({
+        sub: z.number(),
+        email: z.string(),
+        user_type: z.enum(['staff', 'student']),
+        role: z.enum(['admin', 'instructor', 'ta']).nullable().optional(),
+        firstname: z.string().optional(),
+        lastname: z.string().optional(),
+    })
+    .transform(({ sub, ...rest }) => ({ id: sub, ...rest }))
 
 export type UserProfile = z.infer<typeof profileSchema>
 
