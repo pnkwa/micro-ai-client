@@ -6,19 +6,7 @@ import EditClass from '~/features/components/forms/EditClass.vue'
 import type { CreateAssignmentFormData } from '~/features/types/forms/assignment'
 import type { EditClassFormData } from '~/features/types/forms/class'
 import { classService, type ClassItem, type StudentRosterItem } from '~/services/classService'
-
-import assignmentsData from '~/data/assignments.json'
-
-interface AssignmentItem {
-    id: number
-    name: string
-    dueDate: string
-    classId: number
-    submissions: number
-    description?: string
-    instructions?: string
-    points?: number
-}
+import { assignmentService, type AssignmentListItem } from '~/services/assignmentService'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,8 +16,10 @@ const classId = computed(() => Number(route.params.id))
 
 const classItem = ref<ClassItem | null>(null)
 const students = ref<StudentRosterItem[]>([])
+const assignments = ref<AssignmentListItem[]>([])
 const isLoadingClass = ref(false)
 const isLoadingStudents = ref(false)
+const isLoadingAssignments = ref(false)
 
 const loadClass = async () => {
     isLoadingClass.value = true
@@ -53,19 +43,24 @@ const loadStudents = async () => {
     }
 }
 
-await loadClass()
+const loadAssignments = async () => {
+    isLoadingAssignments.value = true
+    try {
+        assignments.value = await assignmentService.listByClass(classId.value)
+    } catch {
+        toast.error('Failed to load assignments')
+    } finally {
+        isLoadingAssignments.value = false
+    }
+}
+
+await Promise.all([loadClass(), loadAssignments()])
 
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([
     { label: 'Classes', to: '/classes' },
     { label: classItem.value?.name ?? 'Class' },
 ])
-
-// Assignments still on mock data — wired in Section 2
-const assignments = ref<AssignmentItem[]>(assignmentsData.assignments as AssignmentItem[])
-const classAssignments = computed(() =>
-    assignments.value.filter((a) => a.classId === classId.value),
-)
 
 const activeTab = ref<'assignments' | 'students'>('assignments')
 
@@ -87,11 +82,15 @@ const editFormValues = computed<EditClassFormData>(() => ({
     status: classItem.value?.status ?? 'active',
 }))
 
-const handleCreate = (values: CreateAssignmentFormData) => {
-    // TODO: wire to POST /assignments in Section 2
-    const newId = Math.max(0, ...assignments.value.map((a) => a.id)) + 1
-    assignments.value.push({ id: newId, submissions: 0, ...values })
-    isCreateDialogOpen.value = false
+const handleCreate = async (values: CreateAssignmentFormData) => {
+    try {
+        const created = await assignmentService.create(values)
+        assignments.value.push(created)
+        isCreateDialogOpen.value = false
+        toast.success('Assignment created')
+    } catch {
+        toast.error('Failed to create assignment')
+    }
 }
 
 const handleEdit = async (values: EditClassFormData) => {
@@ -181,11 +180,11 @@ const studentInitials = (s: StudentRosterItem) =>
                 </button>
             </div>
 
-            <!-- Assignments tab (still mock data) -->
+            <!-- Assignments tab -->
             <template v-if="activeTab === 'assignments'">
                 <div class="tw:flex tw:justify-between tw:mb-4">
                     <span class="tw:text-sm tw:text-navy-60">
-                        {{ classAssignments.length }} assignments
+                        {{ assignments.length }} assignments
                     </span>
                     <McButton @click="isCreateDialogOpen = true">
                         <Plus class="tw:w-4 tw:h-4 tw:mr-1" />
@@ -193,9 +192,16 @@ const studentInitials = (s: StudentRosterItem) =>
                     </McButton>
                 </div>
 
-                <div v-if="classAssignments.length > 0" class="tw:flex tw:flex-col tw:gap-3">
+                <div
+                    v-if="isLoadingAssignments"
+                    class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
+                >
+                    Loading assignments…
+                </div>
+
+                <div v-else-if="assignments.length > 0" class="tw:flex tw:flex-col tw:gap-3">
                     <div
-                        v-for="assignment in classAssignments"
+                        v-for="assignment in assignments"
                         :key="assignment.id"
                         class="tw:flex tw:justify-between tw:items-center tw:p-4 tw:bg-white tw:rounded-lg tw:border tw:border-gray-200 tw:cursor-pointer tw:hover:shadow-md tw:transition-shadow"
                         @click="router.push(`/classes/${classId}/assignments/${assignment.id}`)"
@@ -207,13 +213,13 @@ const studentInitials = (s: StudentRosterItem) =>
                                     {{ assignment.name }}
                                 </h3>
                                 <p class="tw:text-xs tw:text-navy-60">
-                                    Due {{ formatDate(assignment.dueDate) }}
+                                    Due {{ formatDate(assignment.due_date) }}
                                 </p>
                             </div>
                         </div>
-                        <span class="tw:text-xs tw:text-navy-50">
-                            {{ assignment.submissions }} submissions
-                        </span>
+                        <McBadge :variant="assignment.status === 'active' ? 'default' : 'outline'">
+                            {{ assignment.status }}
+                        </McBadge>
                     </div>
                 </div>
 

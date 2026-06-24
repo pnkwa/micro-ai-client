@@ -10,37 +10,12 @@ import {
     User,
     Send,
 } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import type { ColumnDef, PaginationState } from '@tanstack/vue-table'
-import assignmentsData from '~/data/assignments.json'
-import submissionsData from '~/data/submissions.json'
-import classesData from '~/data/classes.json'
-import SubmitAssignment from '~/features/components/forms/SubmitAssignment.vue'
-import type { SubmitAssignmentFormData } from '~/features/types/forms/submit-assignment'
+import { assignmentService, type Assignment } from '~/services/assignmentService'
+import { submissionService, type SubmissionView } from '~/services/submissionService'
+import { classService, type ClassItem } from '~/services/classService'
 import { getStatusVariant } from '~/core/helpers/variants'
-
-interface AssignmentItem {
-    id: number
-    name: string
-    dueDate: string
-    classId: number
-    submissions: number
-    status: 'active' | 'closed'
-    description?: string
-    instructions?: string
-    points?: number
-    attachments?: string[]
-}
-
-interface SubmissionItem {
-    id: number
-    studentName: string
-    studentInitials: string
-    assignment: string
-    classId: number
-    submittedAt: string
-    quality: number
-    status: 'submitted' | 'graded'
-}
 
 const route = useRoute()
 const router = useRouter()
@@ -50,16 +25,45 @@ const authStore = useAuth()
 const classId = computed(() => Number(route.params.id))
 const assignmentId = computed(() => Number(route.params.assignmentId))
 
-const assignment = computed(() =>
-    (assignmentsData.assignments as AssignmentItem[]).find((a) => a.id === assignmentId.value),
-)
+const assignment = ref<Assignment | null>(null)
+const classItem = ref<ClassItem | null>(null)
+const submissions = ref<SubmissionView[]>([])
+const isLoadingAssignment = ref(false)
+const isLoadingSubmissions = ref(false)
 
-const classItem = computed(() =>
-    (classesData.classes as { id: number; name: string }[]).find((c) => c.id === classId.value),
-)
+const loadAssignment = async () => {
+    isLoadingAssignment.value = true
+    try {
+        assignment.value = await assignmentService.getById(assignmentId.value)
+    } catch {
+        toast.error('Failed to load assignment')
+    } finally {
+        isLoadingAssignment.value = false
+    }
+}
+
+const loadClass = async () => {
+    try {
+        classItem.value = await classService.getById(classId.value)
+    } catch {
+        // breadcrumb fallback only — non-critical
+    }
+}
+
+const loadSubmissions = async () => {
+    isLoadingSubmissions.value = true
+    try {
+        submissions.value = await submissionService.listByAssignment(assignmentId.value)
+    } catch {
+        toast.error('Failed to load submissions')
+    } finally {
+        isLoadingSubmissions.value = false
+    }
+}
+
+await Promise.all([loadAssignment(), loadClass()])
 
 const breadcrumb = useBreadcrumb()
-
 breadcrumb.setBreadcrumbs([
     { label: 'Classes', to: '/classes' },
     { label: classItem.value?.name ?? 'Class', to: `/classes/${classId.value}` },
@@ -73,47 +77,40 @@ const isSubmitDialogOpen = ref(false)
 const searchQuery = ref('')
 const pagination = ref<PaginationState>({ pageIndex: 0, pageSize: 10 })
 
-const allSubmissions = ref<SubmissionItem[]>(submissionsData.submissions as SubmissionItem[])
+const onTabChange = async (tab: 'detail' | 'submissions') => {
+    activeTab.value = tab
+    if (tab === 'submissions' && submissions.value.length === 0) {
+        await loadSubmissions()
+    }
+}
+
+const studentFullName = (s: SubmissionView) =>
+    s.student ? `${s.student.user.firstname} ${s.student.user.lastname}` : s.student_id
 
 const filteredSubmissions = computed(() => {
-    let result = allSubmissions.value.filter(
-        (s) => s.classId === classId.value && s.assignment === assignment.value?.name,
-    )
-    if (searchQuery.value) {
-        const q = searchQuery.value.toLowerCase()
-        result = result.filter((s) => s.studentName.toLowerCase().includes(q))
-    }
-    return result
+    if (!searchQuery.value) return submissions.value
+    const q = searchQuery.value.toLowerCase()
+    return submissions.value.filter((s) => studentFullName(s).toLowerCase().includes(q))
 })
 
 watch(searchQuery, () => {
     pagination.value = { ...pagination.value, pageIndex: 0 }
 })
 
-const columns: ColumnDef<SubmissionItem>[] = [
+const submissionScore = (s: SubmissionView): number | null => {
+    if (s.score === null || s.score === undefined) return null
+    const points = assignment.value?.points
+    if (!points) return null
+    return Math.round((s.score / points) * 100)
+}
+
+const columns: ColumnDef<SubmissionView>[] = [
     { accessorKey: 'studentName', header: 'Student' },
-    { accessorKey: 'submittedAt', header: 'Submitted' },
-    { accessorKey: 'quality', header: () => h('div', { class: 'tw:text-center' }, 'AI Score') },
+    { accessorKey: 'submitted_at', header: 'Submitted' },
+    { accessorKey: 'quality', header: () => h('div', { class: 'tw:text-center' }, 'Score') },
     { accessorKey: 'status', header: () => h('div', { class: 'tw:text-center' }, 'Status') },
     { accessorKey: 'actions', header: () => h('div', { class: 'tw:text-center' }, 'Actions') },
 ]
-
-const handleSubmit = (values: SubmitAssignmentFormData & { assignmentFile?: File | null }) => {
-    allSubmissions.value.push({
-        id: allSubmissions.value.length + 1,
-        studentName: values.studentName,
-        studentInitials: values.studentName
-            .split(' ')
-            .map((n: string) => n[0])
-            .join(''),
-        assignment: assignment.value?.name ?? '',
-        classId: values.classId,
-        submittedAt: new Date().toISOString(),
-        quality: 0,
-        status: 'submitted',
-    })
-    isSubmitDialogOpen.value = false
-}
 
 const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 const formatDateTime = (date: string) => $dayjs(date).format('MMM D, h:mm A')
@@ -127,7 +124,14 @@ function getScoreColor(score: number) {
 
 <template>
     <div>
-        <template v-if="assignment">
+        <div
+            v-if="isLoadingAssignment"
+            class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
+        >
+            Loading…
+        </div>
+
+        <template v-else-if="assignment">
             <!-- Header -->
             <div class="tw:flex tw:items-center tw:justify-between tw:mb-6">
                 <div class="tw:flex tw:items-center tw:gap-3">
@@ -148,7 +152,7 @@ function getScoreColor(score: number) {
                                 {{ assignment.name }}
                             </h1>
                             <p class="tw:text-xs tw:text-navy-60">
-                                Due {{ formatDate(assignment.dueDate) }}
+                                Due {{ formatDate(assignment.due_date) }}
                             </p>
                         </div>
                     </div>
@@ -174,7 +178,7 @@ function getScoreColor(score: number) {
                         { value: 'detail', label: 'Detail' },
                         {
                             value: 'submissions',
-                            label: `Submissions (${filteredSubmissions.length})`,
+                            label: `Submissions (${submissions.length})`,
                         },
                     ]"
                     :key="tab.value"
@@ -184,7 +188,7 @@ function getScoreColor(score: number) {
                             ? 'tw:border-primary tw:text-primary'
                             : 'tw:border-transparent tw:text-navy-60 tw:hover:text-navy-100'
                     "
-                    @click="activeTab = tab.value as 'detail' | 'submissions'"
+                    @click="onTabChange(tab.value as 'detail' | 'submissions')"
                 >
                     {{ tab.label }}
                 </button>
@@ -200,7 +204,7 @@ function getScoreColor(score: number) {
                         <div>
                             <p class="tw:text-sm tw:text-navy-60">Due Date</p>
                             <p class="tw:text-base tw:font-medium">
-                                {{ formatDate(assignment.dueDate) }}
+                                {{ formatDate(assignment.due_date) }}
                             </p>
                         </div>
                     </div>
@@ -250,7 +254,7 @@ function getScoreColor(score: number) {
                 </div>
 
                 <div
-                    v-if="assignment.attachments && assignment.attachments.length > 0"
+                    v-if="assignment.attachments.length > 0"
                     class="tw:bg-white tw:rounded-md tw:border tw:border-gray-200 tw:p-6"
                 >
                     <h2
@@ -260,21 +264,23 @@ function getScoreColor(score: number) {
                         Attachments
                     </h2>
                     <div class="tw:flex tw:flex-col tw:gap-2">
-                        <div
-                            v-for="file in assignment.attachments"
-                            :key="file"
-                            class="tw:flex tw:items-center tw:gap-2 tw:p-2 tw:bg-gray-50 tw:rounded-md tw:cursor-pointer tw:hover:bg-gray-100"
+                        <a
+                            v-for="att in assignment.attachments"
+                            :key="att.id"
+                            :href="att.path"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="tw:flex tw:items-center tw:gap-2 tw:p-2 tw:bg-gray-50 tw:rounded-md tw:hover:bg-gray-100"
                         >
                             <FileText class="tw:w-4 tw:h-4 tw:text-primary" />
-                            <span class="tw:text-sm">{{ file }}</span>
-                        </div>
+                            <span class="tw:text-sm">{{ att.filename }}</span>
+                        </a>
                     </div>
                 </div>
             </template>
 
             <!-- Submissions Tab -->
             <template v-else>
-                <!-- Search -->
                 <div class="tw:flex tw:items-center tw:justify-between tw:mb-4">
                     <span class="tw:text-sm tw:text-navy-60">
                         {{ filteredSubmissions.length }} submission{{
@@ -294,7 +300,14 @@ function getScoreColor(score: number) {
                     </div>
                 </div>
 
-                <div class="tw:bg-white tw:p-6 tw:border tw:border-navy-10 tw:rounded-md">
+                <div
+                    v-if="isLoadingSubmissions"
+                    class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
+                >
+                    Loading submissions…
+                </div>
+
+                <div v-else class="tw:bg-white tw:p-6 tw:border tw:border-navy-10 tw:rounded-md">
                     <McDataTable
                         v-model:pagination="pagination"
                         :columns="columns"
@@ -308,35 +321,49 @@ function getScoreColor(score: number) {
                                 >
                                     <User class="tw:w-4 tw:h-4 tw:text-navy-60" />
                                 </div>
-                                <span class="tw:text-sm tw:font-medium tw:text-navy-100">
-                                    {{ row.original.studentName }}
-                                </span>
+                                <div class="tw:flex tw:flex-col">
+                                    <span class="tw:text-sm tw:font-medium tw:text-navy-100">
+                                        {{ studentFullName(row.original) }}
+                                    </span>
+                                    <span class="tw:text-xs tw:text-navy-50">
+                                        {{ row.original.student_id }}
+                                    </span>
+                                </div>
                             </div>
                         </template>
 
-                        <template #body-submittedAt="{ row }">
+                        <template #body-submitted_at="{ row }">
                             <span class="tw:text-sm tw:text-slate-500">
-                                {{ formatDateTime(row.original.submittedAt) }}
+                                {{ formatDateTime(row.original.submitted_at) }}
                             </span>
                         </template>
 
                         <template #body-quality="{ row }">
                             <div class="tw:flex tw:items-center tw:justify-center tw:gap-2.5">
-                                <div
-                                    class="tw:w-14 tw:h-1.5 tw:bg-slate-100 tw:rounded-md tw:overflow-hidden tw:shrink-0"
-                                >
+                                <template v-if="submissionScore(row.original) !== null">
                                     <div
-                                        class="tw:h-full tw:rounded-md tw:transition-all"
-                                        :class="getScoreColor(row.original.quality).bar"
-                                        :style="{ width: `${row.original.quality}%` }"
-                                    />
-                                </div>
-                                <span
-                                    class="tw:text-xs tw:font-semibold tw:tabular-nums"
-                                    :class="getScoreColor(row.original.quality).text"
-                                >
-                                    {{ row.original.quality }}
-                                </span>
+                                        class="tw:w-14 tw:h-1.5 tw:bg-slate-100 tw:rounded-md tw:overflow-hidden tw:shrink-0"
+                                    >
+                                        <div
+                                            class="tw:h-full tw:rounded-md tw:transition-all"
+                                            :class="
+                                                getScoreColor(submissionScore(row.original)!).bar
+                                            "
+                                            :style="{
+                                                width: `${submissionScore(row.original)}%`,
+                                            }"
+                                        />
+                                    </div>
+                                    <span
+                                        class="tw:text-xs tw:font-semibold tw:tabular-nums"
+                                        :class="
+                                            getScoreColor(submissionScore(row.original)!).text
+                                        "
+                                    >
+                                        {{ submissionScore(row.original) }}%
+                                    </span>
+                                </template>
+                                <span v-else class="tw:text-xs tw:text-navy-40">—</span>
                             </div>
                         </template>
 
@@ -369,9 +396,12 @@ function getScoreColor(score: number) {
 
         <div v-else class="tw:text-center tw:py-16 tw:text-navy-60">Assignment not found.</div>
 
+        <!-- Submit dialog placeholder — wired in Phase 4 (submissions) -->
         <McDialog v-model:open="isSubmitDialogOpen">
             <McDialogContent class="tw:sm:max-w-xl">
-                <SubmitAssignment @save="handleSubmit" @cancel="isSubmitDialogOpen = false" />
+                <div class="tw:p-6 tw:text-center tw:text-navy-60 tw:text-sm">
+                    Submit assignment — coming soon
+                </div>
             </McDialogContent>
         </McDialog>
     </div>
