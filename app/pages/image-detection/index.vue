@@ -13,7 +13,7 @@ import { detectionService, DEFAULT_MODEL, type DetectionStep } from '~/services/
 
 type ViewerMode = 'empty' | 'camera' | 'preview'
 // Detection may have single to many steps
-// e.g. Segmentation -> Classification 
+// e.g. Segmentation -> Classification
 const STEP_COLORS = [
     {
         bg: 'tw:bg-primary/8',
