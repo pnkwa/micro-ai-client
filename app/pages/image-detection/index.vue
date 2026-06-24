@@ -8,28 +8,44 @@ import {
     ScanSearch,
     FlipHorizontal,
 } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
+import { detectionService, DEFAULT_MODEL, type DetectionStep } from '~/services/detectionService'
 
 type ViewerMode = 'empty' | 'camera' | 'preview'
-
-interface DetectionBox {
-    id: number
-    label: string
-    confidence: number
-    style: string
-    borderColor: string
-    labelBg: string
-    labelText: string
-}
-
-interface DetectionResult {
-    label: string
-    count: number
-    confidence: number
-    bg: string
-    text: string
-    bar: string
-    dot: string
-}
+// Detection may have single to many steps
+// e.g. Segmentation -> Classification 
+const STEP_COLORS = [
+    {
+        bg: 'tw:bg-primary/8',
+        text: 'tw:text-primary',
+        bar: 'tw:bg-primary',
+        dot: 'tw:bg-primary',
+    },
+    {
+        bg: 'tw:bg-emerald-50',
+        text: 'tw:text-emerald-700',
+        bar: 'tw:bg-emerald-500',
+        dot: 'tw:bg-emerald-500',
+    },
+    {
+        bg: 'tw:bg-amber-50',
+        text: 'tw:text-amber-700',
+        bar: 'tw:bg-amber-500',
+        dot: 'tw:bg-amber-500',
+    },
+    {
+        bg: 'tw:bg-violet-50',
+        text: 'tw:text-violet-700',
+        bar: 'tw:bg-violet-500',
+        dot: 'tw:bg-violet-500',
+    },
+    {
+        bg: 'tw:bg-rose-50',
+        text: 'tw:text-rose-700',
+        bar: 'tw:bg-rose-500',
+        dot: 'tw:bg-rose-500',
+    },
+]
 
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([{ label: 'Image Detection', to: '/image-detection' }])
@@ -39,12 +55,27 @@ const fileInput = ref<HTMLInputElement>()
 
 const mode = ref<ViewerMode>('empty')
 const imageUrl = ref<string | null>(null)
+const currentFile = ref<File | Blob | null>(null)
+const currentSource = ref<'upload' | 'camera'>('upload')
 const isAnalyzing = ref(false)
 const hasResults = ref(false)
+const detectionSteps = ref<DetectionStep[]>([])
+
+const detectionResults = computed(() =>
+    detectionSteps.value.map((step, i) => ({
+        label: step.predicted_class,
+        confidence: Math.round(step.confidence * 100),
+        colors: STEP_COLORS[i % STEP_COLORS.length]!,
+    })),
+)
+
+const topResult = computed(() => detectionSteps.value[0] ?? null)
 
 const startCamera = () => {
     imageUrl.value = null
+    currentFile.value = null
     hasResults.value = false
+    detectionSteps.value = []
     mode.value = 'camera'
 }
 
@@ -53,8 +84,11 @@ const takeSnapshot = async () => {
     if (blob) {
         if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
         imageUrl.value = URL.createObjectURL(blob)
+        currentFile.value = blob
+        currentSource.value = 'camera'
         mode.value = 'preview'
         hasResults.value = false
+        detectionSteps.value = []
     }
 }
 
@@ -65,86 +99,42 @@ const onFileChange = (e: Event) => {
     if (!file) return
     if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
     imageUrl.value = URL.createObjectURL(file)
+    currentFile.value = file
+    currentSource.value = 'upload'
     mode.value = 'preview'
     hasResults.value = false
+    detectionSteps.value = []
     if (fileInput.value) fileInput.value.value = ''
 }
 
 const clearImage = () => {
     if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
     imageUrl.value = null
+    currentFile.value = null
     mode.value = 'empty'
     hasResults.value = false
+    detectionSteps.value = []
 }
 
 const runDetection = async () => {
-    if (!imageUrl.value) return
+    if (!currentFile.value) return
     isAnalyzing.value = true
     hasResults.value = false
-    await new Promise((r) => setTimeout(r, 2000))
-    isAnalyzing.value = false
-    hasResults.value = true
+    detectionSteps.value = []
+    try {
+        const result = await detectionService.run(
+            currentFile.value,
+            DEFAULT_MODEL,
+            currentSource.value,
+        )
+        detectionSteps.value = result.steps
+        hasResults.value = result.steps.length > 0
+    } catch {
+        toast.error('Detection failed. Please try again.')
+    } finally {
+        isAnalyzing.value = false
+    }
 }
-
-const detectionBoxes: DetectionBox[] = [
-    {
-        id: 1,
-        label: 'Clue Cell',
-        confidence: 92,
-        style: 'left:12%;top:18%;width:26%;height:22%',
-        borderColor: 'tw:border-primary',
-        labelBg: 'tw:bg-primary',
-        labelText: 'tw:text-white',
-    },
-    {
-        id: 2,
-        label: 'Gram+ Rod',
-        confidence: 89,
-        style: 'left:54%;top:36%;width:22%;height:24%',
-        borderColor: 'tw:border-emerald-500',
-        labelBg: 'tw:bg-emerald-500',
-        labelText: 'tw:text-white',
-    },
-    {
-        id: 3,
-        label: 'Fungal',
-        confidence: 77,
-        style: 'left:30%;top:62%;width:18%;height:18%',
-        borderColor: 'tw:border-amber-500',
-        labelBg: 'tw:bg-amber-500',
-        labelText: 'tw:text-white',
-    },
-]
-
-const detectionResults: DetectionResult[] = [
-    {
-        label: 'Clue Cells',
-        count: 4,
-        confidence: 88,
-        bg: 'tw:bg-primary/8',
-        text: 'tw:text-primary',
-        bar: 'tw:bg-primary',
-        dot: 'tw:bg-primary',
-    },
-    {
-        label: 'Gram-positive Rods',
-        count: 12,
-        confidence: 91,
-        bg: 'tw:bg-emerald-50',
-        text: 'tw:text-emerald-700',
-        bar: 'tw:bg-emerald-500',
-        dot: 'tw:bg-emerald-500',
-    },
-    {
-        label: 'Fungal Elements',
-        count: 1,
-        confidence: 77,
-        bg: 'tw:bg-amber-50',
-        text: 'tw:text-amber-700',
-        bar: 'tw:bg-amber-500',
-        dot: 'tw:bg-amber-500',
-    },
-]
 
 onUnmounted(() => {
     if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
@@ -275,23 +265,6 @@ onUnmounted(() => {
                                 class="tw:absolute tw:inset-0 tw:w-full tw:h-full tw:object-contain"
                             />
 
-                            <template v-if="hasResults">
-                                <div
-                                    v-for="box in detectionBoxes"
-                                    :key="box.id"
-                                    :style="box.style"
-                                    class="tw:absolute tw:border-2 tw:rounded-md tw:backdrop-blur-[1px]"
-                                    :class="box.borderColor"
-                                >
-                                    <span
-                                        class="tw:absolute tw:-top-6 tw:left-0 tw:px-2 tw:py-0.5 tw:rounded-md tw:text-[10px] tw:font-bold tw:tracking-wide tw:whitespace-nowrap tw:shadow-sm"
-                                        :class="[box.labelBg, box.labelText]"
-                                    >
-                                        {{ box.label }} · {{ box.confidence }}%
-                                    </span>
-                                </div>
-                            </template>
-
                             <!-- Analyzing overlay -->
                             <Transition
                                 enter-active-class="tw:transition-opacity tw:duration-300"
@@ -303,7 +276,6 @@ onUnmounted(() => {
                                     v-if="isAnalyzing"
                                     class="tw:absolute tw:inset-0 tw:bg-slate-900/60 tw:backdrop-blur-sm tw:flex tw:flex-col tw:items-center tw:justify-center tw:gap-3"
                                 >
-                                    <!-- Scanning line animation -->
                                     <div class="tw:relative tw:w-16 tw:h-16">
                                         <div
                                             class="tw:absolute tw:inset-0 tw:rounded-full tw:border-2 tw:border-white/20"
@@ -386,7 +358,7 @@ onUnmounted(() => {
                     <div class="tw:pt-3 tw:border-t tw:border-slate-200">
                         <McButton
                             class="tw:w-full tw:gap-2 tw:text-sm tw:font-bold tw:shadow-md tw:shadow-primary/20 tw:transition-all hover:tw:shadow-lg hover:tw:shadow-primary/25 disabled:tw:shadow-none"
-                            :disabled="!imageUrl || isAnalyzing"
+                            :disabled="!currentFile || isAnalyzing"
                             @click="runDetection"
                         >
                             <Loader2 v-if="isAnalyzing" class="tw:w-4 tw:h-4 tw:animate-spin" />
@@ -397,7 +369,7 @@ onUnmounted(() => {
                             class="tw:text-[10px] tw:text-slate-400 tw:text-center tw:mt-2.5 tw:leading-relaxed"
                         >
                             {{
-                                imageUrl
+                                currentFile
                                     ? 'Image ready for analysis'
                                     : 'Select an image to continue'
                             }}
@@ -405,6 +377,7 @@ onUnmounted(() => {
                     </div>
                 </div>
             </div>
+
             <div class="tw:grid tw:grid-cols-1 tw:lg:grid-cols-3 tw:gap-4 tw:mt-4">
                 <!-- Detection summary -->
                 <Transition
@@ -423,7 +396,10 @@ onUnmounted(() => {
                                 <span
                                     class="tw:text-[10px] tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest tw:bg-slate-100 tw:px-2 tw:py-0.5 tw:rounded-full"
                                 >
-                                    {{ detectionResults.length }} types found
+                                    {{ detectionResults.length }} class{{
+                                        detectionResults.length === 1 ? '' : 'es'
+                                    }}
+                                    found
                                 </span>
                             </div>
 
@@ -434,13 +410,13 @@ onUnmounted(() => {
                                     v-for="result in detectionResults"
                                     :key="result.label"
                                     class="tw:group tw:relative tw:rounded-xl tw:p-4 tw:border tw:border-slate-100 tw:overflow-hidden tw:transition-shadow hover:tw:shadow-md"
-                                    :class="result.bg"
+                                    :class="result.colors.bg"
                                 >
                                     <div class="tw:flex tw:items-start tw:justify-between tw:mb-4">
                                         <div class="tw:flex tw:items-center tw:gap-2">
                                             <span
                                                 class="tw:w-2.5 tw:h-2.5 tw:rounded-full tw:shrink-0 tw:shadow-sm"
-                                                :class="result.dot"
+                                                :class="result.colors.dot"
                                             ></span>
                                             <span
                                                 class="tw:text-xs tw:font-semibold tw:text-slate-600"
@@ -450,13 +426,12 @@ onUnmounted(() => {
                                         </div>
                                         <span
                                             class="tw:text-2xl tw:font-black tw:leading-none tw:tabular-nums"
-                                            :class="result.text"
+                                            :class="result.colors.text"
                                         >
-                                            {{ result.count }}
+                                            {{ result.confidence }}%
                                         </span>
                                     </div>
 
-                                    <!-- Confidence bar -->
                                     <div>
                                         <div
                                             class="tw:flex tw:items-center tw:justify-between tw:text-[10px] tw:mb-1.5"
@@ -464,7 +439,7 @@ onUnmounted(() => {
                                             <span class="tw:text-slate-400 tw:font-medium">
                                                 Confidence
                                             </span>
-                                            <span class="tw:font-bold" :class="result.text">
+                                            <span class="tw:font-bold" :class="result.colors.text">
                                                 {{ result.confidence }}%
                                             </span>
                                         </div>
@@ -473,7 +448,7 @@ onUnmounted(() => {
                                         >
                                             <div
                                                 class="tw:h-full tw:rounded-full tw:transition-all tw:duration-700 tw:delay-200"
-                                                :class="result.bar"
+                                                :class="result.colors.bar"
                                                 :style="`width:${result.confidence}%`"
                                             ></div>
                                         </div>
@@ -483,6 +458,7 @@ onUnmounted(() => {
                         </div>
 
                         <div
+                            v-if="topResult"
                             class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
                         >
                             <h2 class="tw:text-sm tw:font-bold tw:text-slate-700 tw:mb-3">
@@ -500,23 +476,19 @@ onUnmounted(() => {
                                 <p
                                     class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative"
                                 >
-                                    The AI detected
-                                    <span class="tw:font-bold tw:text-primary">4 clue cells</span>
-                                    and
-                                    <span class="tw:font-bold tw:text-emerald-700">
-                                        12 gram-positive rods
+                                    The AI identified
+                                    <span class="tw:font-bold tw:text-primary">
+                                        {{ topResult.predicted_class }}
                                     </span>
-                                    with high confidence, along with
-                                    <span class="tw:font-bold tw:text-amber-700">
-                                        1 fungal element
+                                    as the primary finding with
+                                    <span class="tw:font-bold tw:text-primary">
+                                        {{ Math.round(topResult.confidence * 100) }}% confidence
                                     </span>
-                                    . The presence of clue cells alongside gram-positive rods may
-                                    indicate
-                                    <span class="tw:font-bold tw:text-slate-800">
-                                        bacterial vaginosis (BV)
-                                    </span>
-                                    . Please review the image and consult results carefully before
-                                    grading.
+                                    .
+                                    <template v-if="detectionSteps.length > 1">
+                                        Additional classes were also detected — review all results
+                                        below before grading.
+                                    </template>
                                 </p>
                             </div>
 
