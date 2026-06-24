@@ -141,7 +141,7 @@ const weeklyActivity = computed(() => {
 
 const monthlyActivity = computed(() => {
     const now = dayjs()
-    const buckets = [0, 0, 0, 0]
+    const buckets: number[] = [0, 0, 0, 0]
     scopedSubmissions.value.forEach((s) => {
         const weeksAgo = now.diff(dayjs(s.submitted_at), 'week')
         if (weeksAgo >= 0 && weeksAgo < 4) {
