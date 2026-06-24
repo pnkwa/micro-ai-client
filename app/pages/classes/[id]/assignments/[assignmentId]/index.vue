@@ -72,15 +72,154 @@ breadcrumb.setBreadcrumbs([
 
 const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
 
-const activeTab = ref<'detail' | 'submissions'>('detail')
+const activeTab = ref<'detail' | 'exercises' | 'submissions'>('detail')
 const isSubmitDialogOpen = ref(false)
 const searchQuery = ref('')
 const pagination = ref<PaginationState>({ pageIndex: 0, pageSize: 10 })
 
-const onTabChange = async (tab: 'detail' | 'submissions') => {
+const onTabChange = async (tab: 'detail' | 'exercises' | 'submissions') => {
     activeTab.value = tab
     if (tab === 'submissions' && submissions.value.length === 0) {
         await loadSubmissions()
+    }
+}
+
+// ---- exercises / questions CRUD state ----
+
+const showAddExercise = ref(false)
+const addExerciseForm = reactive({ title: '', instructions: '' })
+const editingExerciseId = ref<number | null>(null)
+const editExerciseForm = reactive({ title: '', instructions: '' })
+
+const addingQuestionExerciseId = ref<number | null>(null)
+const addQuestionForm = reactive({
+    type: 'fill_in',
+    prompt: '',
+    options: '',
+    accepted_answers: '',
+    points: '',
+})
+const editingQuestionId = ref<number | null>(null)
+const editQuestionForm = reactive({
+    prompt: '',
+    options: '',
+    accepted_answers: '',
+    points: '',
+})
+
+const splitLines = (s: string) =>
+    s
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+
+const choiceTypes = new Set(['multiple_choice', 'multiple_select'])
+
+const startEditExercise = (ex: { id: number; title: string; instructions: string | null }) => {
+    editingExerciseId.value = ex.id
+    editExerciseForm.title = ex.title
+    editExerciseForm.instructions = ex.instructions ?? ''
+}
+
+const startEditQuestion = (q: {
+    id: number
+    prompt: string
+    options: string[]
+    accepted_answers?: string[]
+    points?: number | null
+}) => {
+    editingQuestionId.value = q.id
+    editQuestionForm.prompt = q.prompt
+    editQuestionForm.options = q.options.join('\n')
+    editQuestionForm.accepted_answers = (q.accepted_answers ?? []).join('\n')
+    editQuestionForm.points = q.points != null ? String(q.points) : ''
+}
+
+const handleAddExercise = async () => {
+    if (!addExerciseForm.title.trim()) return
+    try {
+        await assignmentService.addExercise(assignmentId.value, {
+            title: addExerciseForm.title.trim(),
+            instructions: addExerciseForm.instructions.trim() || undefined,
+        })
+        await loadAssignment()
+        showAddExercise.value = false
+        addExerciseForm.title = ''
+        addExerciseForm.instructions = ''
+    } catch {
+        toast.error('Failed to add exercise')
+    }
+}
+
+const handleUpdateExercise = async (exerciseId: number) => {
+    try {
+        await assignmentService.updateExercise(exerciseId, {
+            title: editExerciseForm.title.trim(),
+            instructions: editExerciseForm.instructions.trim() || undefined,
+        })
+        await loadAssignment()
+        editingExerciseId.value = null
+    } catch {
+        toast.error('Failed to update exercise')
+    }
+}
+
+const handleRemoveExercise = async (exerciseId: number) => {
+    try {
+        await assignmentService.removeExercise(exerciseId)
+        await loadAssignment()
+    } catch {
+        toast.error('Failed to delete exercise')
+    }
+}
+
+const handleAddQuestion = async (exerciseId: number) => {
+    if (!addQuestionForm.prompt.trim()) return
+    try {
+        await assignmentService.addQuestion(exerciseId, {
+            type: addQuestionForm.type,
+            prompt: addQuestionForm.prompt.trim(),
+            options: choiceTypes.has(addQuestionForm.type)
+                ? splitLines(addQuestionForm.options)
+                : undefined,
+            accepted_answers: splitLines(addQuestionForm.accepted_answers),
+            points: addQuestionForm.points ? Number(addQuestionForm.points) : undefined,
+        })
+        await loadAssignment()
+        addingQuestionExerciseId.value = null
+        addQuestionForm.type = 'fill_in'
+        addQuestionForm.prompt = ''
+        addQuestionForm.options = ''
+        addQuestionForm.accepted_answers = ''
+        addQuestionForm.points = ''
+    } catch {
+        toast.error('Failed to add question')
+    }
+}
+
+const handleUpdateQuestion = async (questionId: number, questionType: string) => {
+    try {
+        await assignmentService.updateQuestion(questionId, {
+            prompt: editQuestionForm.prompt.trim(),
+            options: choiceTypes.has(questionType)
+                ? splitLines(editQuestionForm.options)
+                : undefined,
+            accepted_answers: splitLines(editQuestionForm.accepted_answers),
+            points: editQuestionForm.points ? Number(editQuestionForm.points) : undefined,
+        })
+        await loadAssignment()
+        editingQuestionId.value = null
+    } catch {
+        toast.error('Failed to update question')
+    }
+}
+
+const handleRemoveQuestion = async (questionId: number) => {
+    try {
+        await assignmentService.removeQuestion(questionId)
+        await loadAssignment()
+    } catch {
+        toast.error('Failed to delete question')
     }
 }
 
@@ -177,6 +316,10 @@ function getScoreColor(score: number) {
                     v-for="tab in [
                         { value: 'detail', label: 'Detail' },
                         {
+                            value: 'exercises',
+                            label: `Exercises (${assignment.exercises.length})`,
+                        },
+                        {
                             value: 'submissions',
                             label: `Submissions (${submissions.length})`,
                         },
@@ -188,7 +331,7 @@ function getScoreColor(score: number) {
                             ? 'tw:border-primary tw:text-primary'
                             : 'tw:border-transparent tw:text-navy-60 tw:hover:text-navy-100'
                     "
-                    @click="onTabChange(tab.value as 'detail' | 'submissions')"
+                    @click="onTabChange(tab.value as 'detail' | 'exercises' | 'submissions')"
                 >
                     {{ tab.label }}
                 </button>
@@ -279,8 +422,274 @@ function getScoreColor(score: number) {
                 </div>
             </template>
 
+            <!-- Exercises Tab -->
+            <template v-else-if="activeTab === 'exercises'">
+                <div class="tw:flex tw:flex-col tw:gap-4">
+                    <div
+                        v-for="ex in assignment.exercises"
+                        :key="ex.id"
+                        class="tw:bg-white tw:border tw:border-gray-200 tw:rounded-md tw:p-4"
+                    >
+                        <!-- Exercise header -->
+                        <template v-if="editingExerciseId === ex.id">
+                            <div class="tw:flex tw:flex-col tw:gap-2 tw:mb-3">
+                                <input
+                                    v-model="editExerciseForm.title"
+                                    placeholder="Exercise title"
+                                    class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-full"
+                                />
+                                <textarea
+                                    v-model="editExerciseForm.instructions"
+                                    placeholder="Instructions (optional)"
+                                    rows="2"
+                                    class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-full"
+                                />
+                                <div class="tw:flex tw:gap-2">
+                                    <button
+                                        class="tw:text-xs tw:px-3 tw:py-1 tw:bg-primary tw:text-white tw:rounded"
+                                        @click="handleUpdateExercise(ex.id)"
+                                    >
+                                        Save
+                                    </button>
+                                    <button
+                                        class="tw:text-xs tw:px-3 tw:py-1 tw:border tw:border-gray-300 tw:rounded"
+                                        @click="editingExerciseId = null"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                        <template v-else>
+                            <div class="tw:flex tw:items-start tw:justify-between tw:mb-3">
+                                <div>
+                                    <p class="tw:font-medium tw:text-sm tw:text-navy-100">
+                                        {{ ex.title }}
+                                    </p>
+                                    <p
+                                        v-if="ex.instructions"
+                                        class="tw:text-xs tw:text-navy-60 tw:mt-0.5"
+                                    >
+                                        {{ ex.instructions }}
+                                    </p>
+                                </div>
+                                <div v-if="!isStudent" class="tw:flex tw:gap-2 tw:shrink-0">
+                                    <button
+                                        class="tw:text-xs tw:text-navy-60 tw:hover:text-primary"
+                                        @click="startEditExercise(ex)"
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        class="tw:text-xs tw:text-red-500 tw:hover:text-red-700"
+                                        @click="handleRemoveExercise(ex.id)"
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Questions list -->
+                        <div class="tw:flex tw:flex-col tw:gap-2 tw:pl-3 tw:border-l tw:border-gray-100">
+                            <div
+                                v-for="q in ex.questions"
+                                :key="q.id"
+                                class="tw:text-sm"
+                            >
+                                <template v-if="editingQuestionId === q.id">
+                                    <div class="tw:flex tw:flex-col tw:gap-2 tw:p-2 tw:bg-gray-50 tw:rounded">
+                                        <textarea
+                                            v-model="editQuestionForm.prompt"
+                                            placeholder="Question prompt"
+                                            rows="2"
+                                            class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-full"
+                                        />
+                                        <template v-if="choiceTypes.has(q.type)">
+                                            <textarea
+                                                v-model="editQuestionForm.options"
+                                                placeholder="Options (one per line)"
+                                                rows="3"
+                                                class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-full"
+                                            />
+                                        </template>
+                                        <textarea
+                                            v-model="editQuestionForm.accepted_answers"
+                                            placeholder="Accepted answers (one per line)"
+                                            rows="2"
+                                            class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-full"
+                                        />
+                                        <input
+                                            v-model="editQuestionForm.points"
+                                            type="number"
+                                            placeholder="Points (optional)"
+                                            class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-32"
+                                        />
+                                        <div class="tw:flex tw:gap-2">
+                                            <button
+                                                class="tw:text-xs tw:px-3 tw:py-1 tw:bg-primary tw:text-white tw:rounded"
+                                                @click="handleUpdateQuestion(q.id, q.type)"
+                                            >
+                                                Save
+                                            </button>
+                                            <button
+                                                class="tw:text-xs tw:px-3 tw:py-1 tw:border tw:border-gray-300 tw:rounded"
+                                                @click="editingQuestionId = null"
+                                            >
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template v-else>
+                                    <div class="tw:flex tw:items-start tw:justify-between tw:py-1">
+                                        <div>
+                                            <span class="tw:text-navy-100">{{ q.prompt }}</span>
+                                            <span
+                                                class="tw:ml-2 tw:text-xs tw:text-navy-40 tw:font-mono"
+                                            >
+                                                {{ q.type }}
+                                            </span>
+                                            <span
+                                                v-if="q.points"
+                                                class="tw:ml-1 tw:text-xs tw:text-navy-40"
+                                            >
+                                                · {{ q.points }}pt
+                                            </span>
+                                        </div>
+                                        <div v-if="!isStudent" class="tw:flex tw:gap-2 tw:shrink-0 tw:ml-4">
+                                            <button
+                                                class="tw:text-xs tw:text-navy-60 tw:hover:text-primary"
+                                                @click="startEditQuestion(q)"
+                                            >
+                                                Edit
+                                            </button>
+                                            <button
+                                                class="tw:text-xs tw:text-red-500 tw:hover:text-red-700"
+                                                @click="handleRemoveQuestion(q.id)"
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <!-- Add question form -->
+                            <template v-if="addingQuestionExerciseId === ex.id">
+                                <div class="tw:flex tw:flex-col tw:gap-2 tw:mt-2 tw:p-2 tw:bg-gray-50 tw:rounded">
+                                    <select
+                                        v-model="addQuestionForm.type"
+                                        class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm"
+                                    >
+                                        <option value="fill_in">Fill In</option>
+                                        <option value="multiple_choice">Multiple Choice</option>
+                                        <option value="multiple_select">Multiple Select</option>
+                                        <option value="image_detection">Image Detection</option>
+                                    </select>
+                                    <textarea
+                                        v-model="addQuestionForm.prompt"
+                                        placeholder="Question prompt"
+                                        rows="2"
+                                        class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-full"
+                                    />
+                                    <template v-if="choiceTypes.has(addQuestionForm.type)">
+                                        <textarea
+                                            v-model="addQuestionForm.options"
+                                            placeholder="Options (one per line)"
+                                            rows="3"
+                                            class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-full"
+                                        />
+                                    </template>
+                                    <textarea
+                                        v-model="addQuestionForm.accepted_answers"
+                                        placeholder="Accepted answers (one per line)"
+                                        rows="2"
+                                        class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-full"
+                                    />
+                                    <input
+                                        v-model="addQuestionForm.points"
+                                        type="number"
+                                        placeholder="Points (optional)"
+                                        class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-32"
+                                    />
+                                    <div class="tw:flex tw:gap-2">
+                                        <button
+                                            class="tw:text-xs tw:px-3 tw:py-1 tw:bg-primary tw:text-white tw:rounded"
+                                            @click="handleAddQuestion(ex.id)"
+                                        >
+                                            Add Question
+                                        </button>
+                                        <button
+                                            class="tw:text-xs tw:px-3 tw:py-1 tw:border tw:border-gray-300 tw:rounded"
+                                            @click="addingQuestionExerciseId = null"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                            <button
+                                v-else-if="!isStudent"
+                                class="tw:text-xs tw:text-navy-50 tw:hover:text-primary tw:text-left tw:mt-1"
+                                @click="addingQuestionExerciseId = ex.id"
+                            >
+                                + Add Question
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Add exercise -->
+                    <template v-if="!isStudent">
+                        <template v-if="showAddExercise">
+                            <div class="tw:bg-white tw:border tw:border-gray-200 tw:rounded-md tw:p-4 tw:flex tw:flex-col tw:gap-2">
+                                <input
+                                    v-model="addExerciseForm.title"
+                                    placeholder="Exercise title"
+                                    class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-full"
+                                />
+                                <textarea
+                                    v-model="addExerciseForm.instructions"
+                                    placeholder="Instructions (optional)"
+                                    rows="2"
+                                    class="tw:border tw:border-gray-300 tw:rounded tw:px-2 tw:py-1 tw:text-sm tw:w-full"
+                                />
+                                <div class="tw:flex tw:gap-2">
+                                    <button
+                                        class="tw:text-xs tw:px-3 tw:py-1 tw:bg-primary tw:text-white tw:rounded"
+                                        @click="handleAddExercise"
+                                    >
+                                        Add Exercise
+                                    </button>
+                                    <button
+                                        class="tw:text-xs tw:px-3 tw:py-1 tw:border tw:border-gray-300 tw:rounded"
+                                        @click="showAddExercise = false"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                        <button
+                            v-else
+                            class="tw:text-sm tw:text-navy-50 tw:hover:text-primary tw:text-left"
+                            @click="showAddExercise = true"
+                        >
+                            + Add Exercise
+                        </button>
+                    </template>
+
+                    <p
+                        v-if="assignment.exercises.length === 0 && isStudent"
+                        class="tw:text-sm tw:text-navy-50 tw:py-8 tw:text-center"
+                    >
+                        No exercises yet.
+                    </p>
+                </div>
+            </template>
+
             <!-- Submissions Tab -->
-            <template v-else>
+            <template v-else-if="activeTab === 'submissions'">
                 <div class="tw:flex tw:items-center tw:justify-between tw:mb-4">
                     <span class="tw:text-sm tw:text-navy-60">
                         {{ filteredSubmissions.length }} submission{{
