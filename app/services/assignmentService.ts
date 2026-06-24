@@ -58,6 +58,12 @@ export type AssignmentListItem = z.infer<typeof assignmentListItemSchema>
 export type Assignment = z.infer<typeof assignmentSchema>
 
 export const assignmentService = {
+    async list(): Promise<AssignmentListItem[]> {
+        const { $api } = useNuxtApp()
+        const response = await $api(assignmentRoutes.list)
+        return z.array(assignmentListItemSchema).parse(response)
+    },
+
     async listByClass(classId: number): Promise<AssignmentListItem[]> {
         const { $api } = useNuxtApp()
         const response = await $api(`${assignmentRoutes.list}?class_id=${classId}`)

@@ -29,6 +29,12 @@ const submissionViewSchema = z.object({
 export type SubmissionView = z.infer<typeof submissionViewSchema>
 
 export const submissionService = {
+    async list(): Promise<SubmissionView[]> {
+        const { $api } = useNuxtApp()
+        const response = await $api('/submissions')
+        return z.array(submissionViewSchema).parse(response)
+    },
+
     async listByAssignment(assignmentId: number): Promise<SubmissionView[]> {
         const { $api } = useNuxtApp()
         const response = await $api(`/submissions?assignment_id=${assignmentId}`)
