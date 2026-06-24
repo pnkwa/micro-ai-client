@@ -16,7 +16,9 @@ const questionSchema = z.object({
     type: z.enum(['multiple_choice', 'multiple_select', 'fill_in', 'image_detection']),
     prompt: z.string(),
     position: z.number(),
+    points: z.number().nullable().optional(),
     options: z.array(z.string()),
+    accepted_answers: z.array(z.string()).optional(),
     created_at: z.string(),
     updated_at: z.string(),
 })
@@ -105,5 +107,62 @@ export const assignmentService = {
     async remove(id: number): Promise<void> {
         const { $api } = useNuxtApp()
         await $api(assignmentRoutes.byId(id), { method: 'DELETE' })
+    },
+
+    // ---- exercises ----
+
+    async addExercise(
+        assignmentId: number,
+        payload: { title: string; instructions?: string },
+    ): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(assignmentRoutes.exercises(assignmentId), { method: 'POST', body: payload })
+    },
+
+    async updateExercise(
+        exerciseId: number,
+        payload: { title?: string; instructions?: string },
+    ): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(assignmentRoutes.exerciseById(exerciseId), { method: 'PATCH', body: payload })
+    },
+
+    async removeExercise(exerciseId: number): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(assignmentRoutes.exerciseById(exerciseId), { method: 'DELETE' })
+    },
+
+    // ---- questions ----
+
+    async addQuestion(
+        exerciseId: number,
+        payload: {
+            type: string
+            prompt: string
+            options?: string[]
+            accepted_answers?: string[]
+            points?: number
+        },
+    ): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(assignmentRoutes.questions(exerciseId), { method: 'POST', body: payload })
+    },
+
+    async updateQuestion(
+        questionId: number,
+        payload: {
+            prompt?: string
+            options?: string[]
+            accepted_answers?: string[]
+            points?: number
+        },
+    ): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(assignmentRoutes.questionById(questionId), { method: 'PATCH', body: payload })
+    },
+
+    async removeQuestion(questionId: number): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(assignmentRoutes.questionById(questionId), { method: 'DELETE' })
     },
 }
