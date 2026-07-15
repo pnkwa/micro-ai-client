@@ -33,7 +33,10 @@ export { default as SidebarRail } from './SidebarRail.vue'
 export { default as SidebarSeparator } from './SidebarSeparator.vue'
 export { default as SidebarTrigger } from './SidebarTrigger.vue'
 
-export { useSidebar } from './utils'
+// useSidebar is intentionally NOT re-exported here: nuxt.config's `imports.dirs: ['core/**']`
+// already auto-imports it from ./utils, and re-exporting it made Nuxt register the symbol
+// twice, emitting a "Duplicated imports useSidebar" warning. Consumers get it via auto-import
+// or import directly from './utils'.
 
 export const sidebarMenuButtonVariants = cva(
     'tw:peer/menu-button tw:flex tw:w-full tw:items-center tw:gap-2 tw:overflow-hidden tw:rounded-md tw:p-2 tw:text-left tw:text-sm tw:outline-hidden tw:ring-sidebar-ring tw:transition-[width,height,padding] tw:hover:bg-sidebar-accent tw:hover:text-sidebar-accent-foreground tw:focus-visible:ring-2 tw:active:bg-sidebar-accent tw:active:text-sidebar-accent-foreground tw:disabled:pointer-events-none tw:disabled:opacity-50 tw:group-has-data-[sidebar=menu-action]/menu-item:pr-8 tw:aria-disabled:pointer-events-none tw:aria-disabled:opacity-50 tw:data-[active=true]:bg-sidebar-accent tw:data-[active=true]:font-medium tw:data-[active=true]:text-sidebar-accent-foreground tw:data-[state=open]:hover:bg-sidebar-accent tw:data-[state=open]:hover:text-sidebar-accent-foreground tw:group-data-[collapsible=icon]:size-10! tw:group-data-[collapsible=icon]:p-1.5! tw:group-data-[collapsible=icon]:justify-center tw:[&>span:last-child]:truncate tw:[&>svg]:size-4 tw:[&>svg]:shrink-0',
