@@ -3,6 +3,9 @@ import tailwindcss from '@tailwindcss/vite'
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
     compatibilityDate: '2025-07-15',
+    devServer: {
+        port: Number(process.env.NUXT_DEV_PORT ?? 3001),
+    },
     runtimeConfig: {
         public: {
             apiBaseUrl: '/api',

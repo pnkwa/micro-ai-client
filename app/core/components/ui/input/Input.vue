@@ -64,6 +64,17 @@ const IconAppendComponent = computed(() => {
 const errorMessage = computed(() => {
     return modelValue.errorMessage.value || ''
 })
+
+const isPassword = computed(() => props.type === 'password')
+const showPassword = ref(false)
+
+// Swaps password -> text to reveal.
+const resolvedType = computed(() => {
+    if (!isPassword.value) {
+        return props.type
+    }
+    return showPassword.value ? 'text' : 'password'
+})
 </script>
 
 <template>
@@ -79,7 +90,7 @@ const errorMessage = computed(() => {
                     inputVariants(),
                     props.class,
                     iconPrepend && 'tw:pl-8',
-                    iconAppend && 'tw:pr-8',
+                    (iconAppend || isPassword) && 'tw:pr-8',
                     props.disabled &&
                         'tw:pointer-events-none tw:cursor-not-allowed tw:bg-basic-gray-20 tw:border-basic-gray-40 tw:text-basic-gray-50 ',
                 )
@@ -90,6 +101,7 @@ const errorMessage = computed(() => {
                 :value="modelValue.value.value"
                 data-slot="input"
                 v-bind="{ ...$attrs, disabled: props.disabled }"
+                :type="resolvedType"
                 @input="handleInput"
                 @keypress="props.type === 'number' && isTypingNumber($event)"
             />
@@ -100,8 +112,23 @@ const errorMessage = computed(() => {
                 <IconPrependComponent />
             </span>
 
+            <!-- type="button": a bare button inside a form defaults to submit, which would
+                 fire the form on every reveal. -->
+            <button
+                v-if="isPassword"
+                type="button"
+                tabindex="-1"
+                :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                :aria-pressed="showPassword"
+                class="tw:inset-e-0 tw:absolute tw:inset-y-0 tw:flex tw:items-center tw:justify-center tw:px-2 tw:cursor-pointer tw:text-basic-gray-50 tw:hover:text-navy"
+                @click="showPassword = !showPassword"
+            >
+                <icons.EyeOff v-if="showPassword" class="tw:size-4" />
+                <icons.Eye v-else class="tw:size-4" />
+            </button>
+
             <span
-                v-if="props.iconAppend"
+                v-else-if="props.iconAppend"
                 class="tw:inset-e-0 tw:absolute tw:inset-y-0 tw:flex tw:items-center tw:justify-center tw:px-2"
             >
                 <IconAppendComponent />

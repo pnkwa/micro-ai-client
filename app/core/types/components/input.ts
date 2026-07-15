@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes } from 'vue'
+import type { InputHTMLAttributes, InputTypeHTMLAttribute } from 'vue'
 import type { CommonComponent } from '.'
 import type * as icons from 'lucide-vue-next'
 
@@ -10,6 +10,7 @@ export type McInputProps = {
     iconPrepend?: AllIcon
     iconAppend?: AllIcon
     disabled?: boolean
+    type?: InputTypeHTMLAttribute
 } & CommonComponent &
     /* @vue-ignore */ Partial<InputHTMLAttributes>
 

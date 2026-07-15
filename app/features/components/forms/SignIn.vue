@@ -3,6 +3,10 @@ import { signInSchema, type SignInFormData } from '~/features/types/forms/sign-i
 import { Microscope } from 'lucide-vue-next'
 import CmuLogo from '~/assets/images/CMU-logo.png'
 
+const props = defineProps<{
+    loading?: boolean
+}>()
+
 const emit = defineEmits<{
     signIn: [values: SignInFormData]
     signInWithCmu: []
@@ -63,6 +67,7 @@ const onSignInWithCmu = () => {
 
                 <McButton
                     class="tw:w-full tw:flex tw:items-center tw:justify-center tw:gap-3 tw:border tw:border-[#6868AC] tw:p-6 tw:bg-white tw:hover:bg-slate-50 tw:cursor-pointer tw:group"
+                    :disabled="props.loading"
                     @click="onSignInWithCmu"
                 >
                     <img :src="CmuLogo" alt="CMU" class="tw:h-6 tw:w-auto tw:object-contain" />
@@ -101,8 +106,10 @@ const onSignInWithCmu = () => {
                         <McInput name="password" type="password" placeholder="••••••" />
                     </div>
 
-                    <McButton type="submit" class="tw:w-full tw:mt-2" @click="onSignIn">
-                        Sign in
+                    <!-- No @click: the form's @submit already calls onSignIn, and having both
+                         fired it twice per press — two login requests. -->
+                    <McButton type="submit" class="tw:w-full tw:mt-2" :loading="props.loading">
+                        {{ props.loading ? 'Signing in…' : 'Sign in' }}
                     </McButton>
                 </form>
 

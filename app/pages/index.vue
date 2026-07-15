@@ -91,7 +91,9 @@ const studentActions = [
         <div
             class="tw:max-w-6xl tw:mx-auto tw:w-full tw:flex tw:flex-col tw:md:flex-row tw:gap-10 md:tw:gap-12 tw:items-center"
         >
-            <div class="tw:flex tw:flex-col tw:gap-5 tw:w-full md:tw:flex-1 tw:min-w-0">
+            <div
+                class="tw:flex tw:px-6 tw:md:px-12 tw:flex-col tw:gap-5 tw:w-full md:tw:flex-1 tw:min-w-0"
+            >
                 <McBadge
                     :class="
                         isInstructor
@@ -106,15 +108,15 @@ const studentActions = [
                 <h1
                     class="tw:text-3xl md:tw:text-4xl lg:tw:text-5xl tw:font-extrabold tw:text-navy tw:leading-tight"
                 >
-                    Welcome back,
+                    Welcome,
                     <span class="tw:text-primary tw:block">{{ userName }}</span>
                 </h1>
 
                 <p class="tw:text-base lg:tw:text-lg tw:text-navy-60 tw:max-w-lg">
                     {{
                         isInstructor
-                            ? 'Manage classes, monitor student progress, and leverage AI-powered image detection.'
-                            : 'Submit assignments, join classes, and explore AI-powered microscope analysis.'
+                            ? 'Manage classes, monitor student progress, and leverage AI image detection.'
+                            : 'Submit assignments, join classes, and explore AI microscope analysis.'
                     }}
                 </p>
 
@@ -161,7 +163,7 @@ const studentActions = [
                         </p>
                         <input
                             v-model="joinCode"
-                            class="tw:px-5 tw:py-3 tw:text-lg tw:font-bold tw:text-center tw:tracking-widest tw:uppercase tw:border-2 tw:border-navy-10 tw:rounded-xl tw:bg-white tw:outline-none tw:transition-[border-color] tw:duration-200 tw:focus:border-primary tw:focus:[box-shadow:0_0_0_3px_rgba(36,148,134,0.15)] tw:placeholder:font-normal tw:placeholder:tracking-normal tw:placeholder:normal-case tw:placeholder:text-navy-60"
+                            class="tw:py-2 tw:text-lg tw:font-bold tw:text-center tw:tracking-widest tw:uppercase tw:border-2 tw:border-navy-10 tw:rounded-xl tw:bg-white tw:outline-none tw:transition-[border-color] tw:duration-200 tw:focus:border-primary tw:focus:[box-shadow:0_0_0_3px_rgba(36,148,134,0.15)] tw:placeholder:font-normal tw:placeholder:tracking-normal tw:placeholder:normal-case tw:placeholder:text-navy-60"
                             placeholder="e.g. MICRO01"
                             maxlength="10"
                             autocomplete="off"

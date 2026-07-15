@@ -1,4 +1,4 @@
-import { useStorage } from '@vueuse/core'
+import { useStorage, StorageSerializers } from '@vueuse/core'
 import { useJwt } from '@vueuse/integrations/useJwt'
 import { authService, type UserProfile } from '~/services/authService'
 
@@ -7,7 +7,9 @@ export const useAuth = defineStore('auth', () => {
         accessToken: '',
         refreshToken: '',
     })
-    const user = useStorage<UserProfile | null>('authUser', null)
+    const user = useStorage<UserProfile | null>('authUser', null, undefined, {
+        serializer: StorageSerializers.object,
+    })
 
     const jwtUserInfo = computed(() => {
         if (!userToken.value.accessToken) return null
