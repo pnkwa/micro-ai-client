@@ -1,26 +1,36 @@
 <script setup lang="ts">
-import { Paperclip, X } from 'lucide-vue-next'
+import { Link, X } from 'lucide-vue-next'
 import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
+import { toast } from 'vue-sonner'
 
 import {
     createAssignmentFormSchema,
     type CreateAssignmentFormData,
 } from '~/features/types/forms/assignment'
-import classesData from '~/data/classes.json'
+import { classService, type ClassItem } from '~/services/classService'
 
-interface ClassItem {
-    id: number
-    name: string
-    semester: string
-    students: number
-    status: 'active' | 'closed'
+const classes = ref<ClassItem[]>([])
+const isLoadingClasses = ref(false)
+
+const loadClasses = async () => {
+    isLoadingClasses.value = true
+    try {
+        classes.value = await classService.list()
+    } catch {
+        toast.error('Failed to load classes')
+    } finally {
+        isLoadingClasses.value = false
+    }
 }
 
-const classes = (classesData.classes as ClassItem[]).filter((c) => c.status === 'active')
+onMounted(loadClasses)
+
+// Only active classes can receive new assignments.
+const isActive = (c: ClassItem) => c.status === 'active'
 
 const classOptions = computed(() =>
-    classes.map((c) => ({
+    classes.value.filter(isActive).map((c) => ({
         value: c.id,
         label: c.name,
     })),
@@ -30,6 +40,11 @@ const statusOptions = [
     { value: 'active', label: 'Active' },
     { value: 'closed', label: 'Closed' },
 ]
+
+const props = defineProps<{
+    // When the form is opened from a class page, pre-select that class.
+    defaultClassId?: number
+}>()
 
 const emit = defineEmits<{
     save: [values: CreateAssignmentFormData]
@@ -41,7 +56,7 @@ const { handleSubmit, errors } = useForm<CreateAssignmentFormData>({
     initialValues: {
         name: '',
         dueDate: '',
-        classId: 0,
+        classId: props.defaultClassId ?? 0,
         status: 'active',
         description: '',
         instructions: '',
@@ -54,13 +69,10 @@ const {
     fields: attachmentFields,
     push: addAttachment,
     remove: removeAttachment,
-} = useFieldArray<{
-    filename: string
-    path: string
-}>('attachments')
+} = useFieldArray<{ path: string }>('attachments')
 
-const attachmentError = (index: number, field: 'filename' | 'path') =>
-    (errors.value as Record<string, string>)[`attachments[${index}].${field}`]
+const attachmentError = (index: number) =>
+    (errors.value as Record<string, string>)[`attachments[${index}].path`]
 
 const handleSave = handleSubmit((values) => {
     emit('save', values)
@@ -80,7 +92,10 @@ const handleCancel = () => {
         @submit.prevent="handleSave"
     >
         <div class="tw:flex tw:flex-col tw:gap-2">
-            <label class="tw:text-sm tw:font-medium">Assignment Name</label>
+            <label class="tw:text-sm tw:font-medium">
+                Assignment Name
+                <span class="tw:text-red-500">*</span>
+            </label>
             <McInput name="name" placeholder="e.g., Mitosis Analysis" />
         </div>
         <div class="tw:flex tw:flex-col tw:gap-2">
@@ -91,13 +106,18 @@ const handleCancel = () => {
             <label class="tw:text-sm tw:font-medium">Instructions</label>
             <McTextarea
                 name="instructions"
+                auto-list
+                class="tw:min-h-32 tw:text-sm tw:leading-relaxed"
                 placeholder="1. Step one&#10;2. Step two&#10;3. Step three"
             />
         </div>
         <div class="tw:grid tw:grid-cols-2 tw:gap-4">
             <div class="tw:flex tw:flex-col tw:gap-2">
-                <label class="tw:text-sm tw:font-medium">Due Date</label>
-                <McInput name="dueDate" placeholder="e.g., 2025-02-20" />
+                <label class="tw:text-sm tw:font-medium">
+                    Due Date
+                    <span class="tw:text-red-500">*</span>
+                </label>
+                <McDatePicker name="dueDate" placeholder="Select a date" />
             </div>
             <div class="tw:flex tw:flex-col tw:gap-2">
                 <label class="tw:text-sm tw:font-medium">Points</label>
@@ -106,20 +126,24 @@ const handleCancel = () => {
         </div>
         <div class="tw:grid tw:grid-cols-2 tw:gap-4">
             <div class="tw:flex tw:flex-col tw:gap-2">
-                <label class="tw:text-sm tw:font-medium">Class</label>
+                <label class="tw:text-sm tw:font-medium">
+                    Class
+                    <span class="tw:text-red-500">*</span>
+                </label>
                 <McSelect
                     name="classId"
                     placeholder="Select a class"
                     :options="classOptions"
                     option-value="value"
                     option-label="label"
+                    :loading="isLoadingClasses"
                 />
-                <span v-if="errors.classId" class="tw:text-xs tw:text-red-500">
-                    {{ errors.classId }}
-                </span>
             </div>
             <div class="tw:flex tw:flex-col tw:gap-2">
-                <label class="tw:text-sm tw:font-medium">Status</label>
+                <label class="tw:text-sm tw:font-medium">
+                    Status
+                    <span class="tw:text-red-500">*</span>
+                </label>
                 <McSelect
                     name="status"
                     placeholder="Select status"
@@ -134,52 +158,38 @@ const handleCancel = () => {
         </div>
         <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">Attachments</label>
+            <p class="tw:text-xs tw:text-navy-60">
+                Paste links to reference material (PDF, slides, video…).
+            </p>
             <div v-if="attachmentFields.length > 0" class="tw:flex tw:flex-col tw:gap-2">
                 <div
                     v-for="(field, index) in attachmentFields"
                     :key="field.key"
                     class="tw:flex tw:items-start tw:gap-2"
                 >
-                    <div class="tw:flex tw:flex-col tw:gap-1 tw:flex-1">
-                        <McInput
-                            :name="`attachments[${index}].filename`"
-                            placeholder="Filename (e.g., Lab Guide.pdf)"
-                        />
-                        <span
-                            v-if="attachmentError(index, 'filename')"
-                            class="tw:text-xs tw:text-red-500"
-                        >
-                            {{ attachmentError(index, 'filename') }}
-                        </span>
-                    </div>
-                    <div class="tw:flex tw:flex-col tw:gap-1 tw:flex-1">
+                    <div class="tw:flex tw:flex-1 tw:flex-col tw:gap-1">
                         <McInput
                             :name="`attachments[${index}].path`"
-                            placeholder="URL (e.g., https://...)"
+                            icon-prepend="Link"
+                            placeholder="https://example.com/lab-guide.pdf"
                         />
-                        <span
-                            v-if="attachmentError(index, 'path')"
-                            class="tw:text-xs tw:text-red-500"
-                        >
-                            {{ attachmentError(index, 'path') }}
+                        <span v-if="attachmentError(index)" class="tw:text-xs tw:text-red-500">
+                            {{ attachmentError(index) }}
                         </span>
                     </div>
                     <button
                         type="button"
-                        class="tw:p-2 tw:mt-0.5 tw:rounded tw:hover:bg-gray-200"
+                        aria-label="Remove attachment"
+                        class="tw:flex tw:size-9 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:border tw:border-input tw:text-navy-60 tw:transition-colors tw:cursor-pointer tw:hover:border-danger tw:hover:text-danger"
                         @click="removeAttachment(index)"
                     >
-                        <X class="tw:w-4 tw:h-4 tw:text-gray-500" />
+                        <X class="tw:size-4" />
                     </button>
                 </div>
             </div>
-            <McButton
-                type="button"
-                variant="outline"
-                @click="addAttachment({ filename: '', path: '' })"
-            >
-                <Paperclip class="tw:w-4 tw:h-4 tw:mr-1" />
-                Add Attachment
+            <McButton type="button" variant="outline" @click="addAttachment({ path: '' })">
+                <Link class="tw:w-4 tw:h-4 tw:mr-1" />
+                Add link
             </McButton>
         </div>
     </form>

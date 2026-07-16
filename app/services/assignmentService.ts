@@ -57,6 +57,16 @@ const assignmentSchema = assignmentListItemSchema.extend({
 export type AssignmentListItem = z.infer<typeof assignmentListItemSchema>
 export type Assignment = z.infer<typeof assignmentSchema>
 
+const deriveFilename = (url: string): string => {
+    try {
+        const { pathname, hostname } = new URL(url)
+        const last = pathname.split('/').filter(Boolean).at(-1)
+        return last ? decodeURIComponent(last) : hostname
+    } catch {
+        return url
+    }
+}
+
 export const assignmentService = {
     async list(): Promise<AssignmentListItem[]> {
         const { $api } = useNuxtApp()
@@ -88,7 +98,10 @@ export const assignmentService = {
                 description: payload.description,
                 instructions: payload.instructions,
                 points: payload.points,
-                attachments: payload.attachments,
+                attachments: payload.attachments?.map((a) => ({
+                    filename: deriveFilename(a.path),
+                    path: a.path,
+                })),
             },
         })
         return assignmentSchema.parse(response)

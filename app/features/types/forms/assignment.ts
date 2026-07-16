@@ -1,7 +1,6 @@
 import z from 'zod'
 
 export const attachmentSchema = z.object({
-    filename: z.string().min(1, 'Filename is required'),
     path: z.string().url('Must be a valid URL'),
 })
 

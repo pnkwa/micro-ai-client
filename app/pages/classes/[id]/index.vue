@@ -227,7 +227,7 @@ const studentInitials = (s: StudentRosterItem) =>
                     v-else
                     class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center"
                 >
-                    <FileText class="tw:w-8 tw:h-8 tw:text-navy-30 tw:mx-auto tw:mb-2" />
+                    <FileText class="tw:w-8 tw:h-8 tw:text-navy-60 tw:mx-auto tw:mb-2" />
                     <p class="tw:text-sm tw:text-navy-60">No assignments yet</p>
                 </div>
             </template>
@@ -291,8 +291,12 @@ const studentInitials = (s: StudentRosterItem) =>
         <div v-else class="tw:text-center tw:py-16 tw:text-navy-60">Class not found.</div>
 
         <McDialog v-model:open="isCreateDialogOpen">
-            <McDialogContent class="tw:sm:max-w-lg">
-                <CreateAssignment @save="handleCreate" @cancel="isCreateDialogOpen = false" />
+            <McDialogContent class="tw:max-w-lg tw:sm:max-w-2xl">
+                <CreateAssignment
+                    :default-class-id="classId"
+                    @save="handleCreate"
+                    @cancel="isCreateDialogOpen = false"
+                />
             </McDialogContent>
         </McDialog>
 
