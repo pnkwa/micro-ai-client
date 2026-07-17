@@ -162,14 +162,25 @@ const onSubmit = handleSubmit((v) => {
 
 <template>
     <form
-        class="tw:mt-3 tw:flex tw:flex-col tw:gap-3 tw:rounded-lg tw:border tw:border-navy-20 tw:p-4 tw:bg-navy-10/20 tw:sm:p-6"
+        class="tw:mt-3 tw:flex tw:flex-col tw:gap-3 tw:rounded-lg tw:border tw:p-4 tw:sm:p-6"
+        :class="
+            lockType
+                ? 'tw:border-warning/40 tw:bg-warning/5'
+                : 'tw:border-primary/40 tw:bg-primary/5'
+        "
         @submit.prevent="onSubmit"
     >
         <div
             v-if="heading"
-            class="tw:flex tw:items-center tw:gap-2 tw:border-b tw:border-navy-20 tw:pb-2 tw:text-sm tw:font-semibold tw:text-navy-100"
+            class="tw:flex tw:items-center tw:gap-2 tw:border-b tw:pb-2 tw:text-sm tw:font-semibold"
+            :class="
+                lockType
+                    ? 'tw:border-warning/30 tw:text-warning'
+                    : 'tw:border-primary/30 tw:text-primary'
+            "
         >
-            <Pencil v-if="lockType" class="tw:size-4 tw:text-navy-60" />
+            <Pencil v-if="lockType" class="tw:size-4" />
+            <Plus v-else class="tw:size-4" />
             {{ heading }}
         </div>
 

@@ -157,8 +157,8 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                 <div
                     v-for="(q, qIndex) in ex.questions"
                     :key="q.id"
-                    class="tw:text-sm tw:rounded-md tw:p-2 tw:transition-colors"
-                    :class="editingQuestionId !== q.id && 'tw:hover:bg-navy-10/30'"
+                    class="tw:text-sm tw:rounded-md tw:transition-colors"
+                    :class="editingQuestionId !== q.id && 'tw:p-2 tw:hover:bg-navy-10/30'"
                 >
                     <QuestionForm
                         v-if="editingQuestionId === q.id"
