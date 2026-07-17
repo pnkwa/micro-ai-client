@@ -178,7 +178,6 @@ const studentInitials = (s: StudentRosterItem) =>
                 </button>
             </div>
 
-            <!-- Assignments tab -->
             <template v-if="activeTab === 'assignments'">
                 <div class="tw:flex tw:justify-between tw:mb-4">
                     <span class="tw:text-sm tw:text-navy-60">
@@ -230,7 +229,6 @@ const studentInitials = (s: StudentRosterItem) =>
                 </div>
             </template>
 
-            <!-- Students tab (real API) -->
             <template v-else>
                 <div
                     class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:overflow-hidden"
