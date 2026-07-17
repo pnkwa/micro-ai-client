@@ -11,7 +11,7 @@ const baseAssignmentSchema = z.object({
     status: z.enum(['active', 'closed']),
     description: z.string().optional(),
     instructions: z.string().optional(),
-    points: z.number().min(0).int().optional(),
+    points: z.coerce.number().min(0).int().optional(),
     attachments: z.array(attachmentSchema).optional(),
 })
 
