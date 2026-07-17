@@ -115,9 +115,7 @@ const handleDelete = async (id: number) => {
         toast.success('Class deleted')
         router.push('/classes')
     } catch (e) {
-        toast.error(
-            (e as { data?: { message?: string } })?.data?.message ?? 'Failed to delete class',
-        )
+        toast.error(apiErrorMessage(e, 'Failed to delete class'))
     }
 }
 

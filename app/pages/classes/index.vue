@@ -82,9 +82,7 @@ const handleDelete = async (id: number) => {
         isEditDialogOpen.value = false
         toast.success('Class deleted')
     } catch (e) {
-        toast.error(
-            (e as { data?: { message?: string } })?.data?.message ?? 'Failed to delete class',
-        )
+        toast.error(apiErrorMessage(e, 'Failed to delete class'))
     }
 }
 </script>
