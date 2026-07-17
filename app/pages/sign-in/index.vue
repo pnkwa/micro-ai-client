@@ -8,19 +8,21 @@ definePageMeta({
     layout: false,
 })
 
-const { signIn, signInWithCMU } = useAuth()
+const auth = useAuth()
 const router = useRouter()
 
 const error = ref('')
 const loading = ref(false)
 
+const landingRoute = () => (auth.user?.user_type === 'staff' ? '/dashboard' : '/')
+
 const handleSignIn = async (values: SignInFormData) => {
     error.value = ''
     loading.value = true
     try {
-        const ok = await signIn(values)
+        const ok = await auth.signIn(values)
         if (ok) {
-            router.push('/dashboard')
+            router.push(landingRoute())
         } else {
             toast.error('Invalid username or password. Please try again.')
         }
@@ -30,8 +32,8 @@ const handleSignIn = async (values: SignInFormData) => {
 }
 
 const handleSignInWithCmu = () => {
-    signInWithCMU()
-    router.push('/')
+    auth.signInWithCMU()
+    router.push(landingRoute())
 }
 </script>
 
