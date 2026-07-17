@@ -7,8 +7,17 @@ import classesData from '~/data/classes.json'
 const router = useRouter()
 const breadcrumb = useBreadcrumb()
 const auth = useAuth()
+const { $dayjs } = useNuxtApp()
 
 breadcrumb.setBreadcrumbs([{ label: 'Welcome' }])
+
+const greeting = computed(() => {
+    const hour = new Date().getHours()
+    if (hour < 12) return 'Good morning'
+    if (hour < 18) return 'Good afternoon'
+    return 'Good evening'
+})
+const today = computed(() => $dayjs().format('dddd, MMMM D'))
 
 const isInstructor = computed(() => auth.user?.user_type === 'staff')
 const userName = computed(() =>
@@ -86,7 +95,7 @@ const studentActions = [
 
 <template>
     <div
-        class="tw:min-h-[calc(100vh-80px)] tw:flex tw:items-center tw:px-4 md:tw:px-6 tw:py-8 md:tw:py-12 tw:bg-linear-to-r tw:from-primary-disable-bg tw:to-white"
+        class="tw:min-h-[calc(100vh-80px)] tw:flex tw:items-center tw:px-4 md:tw:px-6 tw:py-8 md:tw:py-12"
     >
         <div
             class="tw:max-w-6xl tw:mx-auto tw:w-full tw:flex tw:flex-col tw:md:flex-row tw:gap-10 md:tw:gap-12 tw:items-center"
@@ -105,12 +114,15 @@ const studentActions = [
                     {{ isInstructor ? 'Instructor' : 'Student' }}
                 </McBadge>
 
-                <h1
-                    class="tw:text-3xl md:tw:text-4xl lg:tw:text-5xl tw:font-extrabold tw:text-navy tw:leading-tight"
-                >
-                    Welcome,
-                    <span class="tw:text-primary tw:block">{{ userName }}</span>
-                </h1>
+                <div class="tw:flex tw:flex-col tw:gap-1">
+                    <p class="tw:text-sm tw:font-medium tw:text-navy-50">{{ today }}</p>
+                    <h1
+                        class="tw:text-3xl md:tw:text-4xl lg:tw:text-5xl tw:font-extrabold tw:text-navy tw:leading-tight"
+                    >
+                        {{ greeting }},
+                        <span class="tw:text-primary tw:block">{{ userName }}</span>
+                    </h1>
+                </div>
 
                 <p class="tw:text-base lg:tw:text-lg tw:text-navy-60 tw:max-w-lg">
                     {{
