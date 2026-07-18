@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { ChartPie, GraduationCap, FileText, View, LogIn } from 'lucide-vue-next'
+import { ChartPie, GraduationCap, View, LogIn } from 'lucide-vue-next'
 import LandingPageSvg from '~/assets/svg/landing-page.svg?component'
 import { useBreadcrumb } from '#imports'
-import classesData from '~/data/classes.json'
 
 const router = useRouter()
 const breadcrumb = useBreadcrumb()
@@ -27,34 +26,7 @@ const userName = computed(() =>
             : auth.user.email
         : 'User',
 )
-const hasClass = computed(() => !!auth.user)
-
-const joinCode = ref('')
-const joinError = ref('')
-const joinSuccess = ref<{ name: string; semester: string } | null>(null)
-
-const handleJoin = () => {
-    joinError.value = ''
-    const code = joinCode.value.trim().toUpperCase()
-    const matched = (
-        classesData.classes as {
-            id: number
-            name: string
-            semester: string
-            status: string
-            code: string
-        }[]
-    ).find((c) => c.code === code)
-    if (!matched) {
-        joinError.value = 'Invalid class code. Please try again.'
-        return
-    }
-    if (matched.status === 'closed') {
-        joinError.value = 'This class is no longer accepting new students.'
-        return
-    }
-    joinSuccess.value = { name: matched.name, semester: matched.semester }
-}
+const isSignedIn = computed(() => !!auth.user)
 
 const instructorActions = [
     {
@@ -79,10 +51,10 @@ const instructorActions = [
 
 const studentActions = [
     {
-        label: 'Assignments',
-        icon: FileText,
-        to: '/assignments',
-        description: 'View & submit work',
+        label: 'My Classes',
+        icon: GraduationCap,
+        to: '/classes',
+        description: 'Classes & assignments',
     },
     {
         label: 'Image Detection',
@@ -128,11 +100,11 @@ const studentActions = [
                     {{
                         isInstructor
                             ? 'Manage classes, monitor student progress, and leverage AI image detection.'
-                            : 'Submit assignments, join classes, and explore AI microscope analysis.'
+                            : 'Submit assignments and explore AI microscope analysis.'
                     }}
                 </p>
 
-                <template v-if="hasClass && !joinSuccess">
+                <template v-if="isSignedIn">
                     <div>
                         <p
                             class="tw:text-xs tw:font-semibold tw:uppercase tw:tracking-widest tw:text-navy-60 tw:mb-3"
@@ -168,44 +140,18 @@ const studentActions = [
                     </div>
                 </template>
 
-                <template v-else-if="!hasClass && !joinSuccess">
+                <template v-else>
                     <div class="tw:flex tw:flex-col tw:gap-3 tw:w-full tw:max-w-sm">
                         <p class="tw:text-sm tw:font-medium tw:text-navy-60">
-                            Enter the class code provided by your instructor to get started.
+                            Sign in with your faculty account to see your classes and assignments.
                         </p>
-                        <input
-                            v-model="joinCode"
-                            class="tw:py-2 tw:text-lg tw:font-bold tw:text-center tw:tracking-widest tw:uppercase tw:border-2 tw:border-navy-10 tw:rounded-xl tw:bg-white tw:outline-none tw:transition-[border-color] tw:duration-200 tw:focus:border-primary tw:focus:[box-shadow:0_0_0_3px_rgba(36,148,134,0.15)] tw:placeholder:font-normal tw:placeholder:tracking-normal tw:placeholder:normal-case tw:placeholder:text-navy-60"
-                            placeholder="e.g. MICRO01"
-                            maxlength="10"
-                            autocomplete="off"
-                            spellcheck="false"
-                            @keydown.enter="handleJoin"
-                        />
-                        <p v-if="joinError" class="tw:text-sm tw:text-red-500">
-                            {{ joinError }}
-                        </p>
-                        <McButton size="lg" class="tw:gap-2" @click="handleJoin">
-                            <LogIn class="tw:w-5 tw:h-5" />
-                            Join Class
-                        </McButton>
-                    </div>
-                </template>
-
-                <template v-else>
-                    <div
-                        class="tw:flex tw:flex-col tw:gap-2 tw:p-5 tw:bg-white tw:border tw:border-primary/20 tw:rounded-2xl tw:max-w-sm"
-                    >
-                        <p class="tw:text-lg tw:font-bold tw:text-primary">You're enrolled!</p>
-                        <p class="tw:text-sm tw:font-medium tw:text-navy">
-                            {{ joinSuccess?.name }}
-                        </p>
-                        <p class="tw:text-sm tw:text-navy-60">{{ joinSuccess?.semester }}</p>
                         <McButton
-                            class="tw:mt-2 tw:self-start"
-                            @click="router.push('/assignments')"
+                            size="lg"
+                            class="tw:gap-2 tw:self-start"
+                            @click="router.push('/sign-in')"
                         >
-                            Go to Assignments
+                            <LogIn class="tw:w-5 tw:h-5" />
+                            Sign in
                         </McButton>
                     </div>
                 </template>

@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { User, Mail, Cpu, BookOpen, FileUp, Award } from 'lucide-vue-next'
+import { Mail, Cpu, BookOpen, FileUp, Award } from 'lucide-vue-next'
 
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([{ label: 'Settings', to: '/settings' }])
 
-const activeTab = ref('profile')
+const activeTab = ref('email')
 
 const tabs = [
-    { id: 'profile', label: 'Profile', icon: User },
     { id: 'email', label: 'Email Config', icon: Mail },
     { id: 'ai', label: 'AI Config', icon: Cpu },
     { id: 'class-rules', label: 'Class Rules', icon: BookOpen },
@@ -15,15 +14,6 @@ const tabs = [
     { id: 'scoring', label: 'Scoring Rules', icon: Award },
 ]
 
-// Profile settings
-const profileForm = ref({
-    name: 'Dr. Kwa',
-    email: 'dr.kwa@uni.edu',
-    department: 'Microbiology',
-    title: 'Professor',
-})
-
-// Email configuration
 const emailConfig = ref({
     smtpServer: 'smtp.uni.edu',
     smtpPort: '587',
@@ -35,7 +25,6 @@ const emailConfig = ref({
     resubmissionNotify: true,
 })
 
-// AI configuration
 const aiConfig = ref({
     modelVersion: 'v2.1.0',
     confidenceThreshold: 0.75,
@@ -45,7 +34,6 @@ const aiConfig = ref({
     processingPriority: 'normal',
 })
 
-// Class rules
 const classRules = ref({
     maxStudentsPerClass: 250,
     defaultClassStatus: 'draft',
@@ -118,43 +106,6 @@ const classStatusOptions = [
             </div>
 
             <div class="settings-content">
-                <!-- Profile Tab -->
-                <div v-if="activeTab === 'profile'" class="settings-panel">
-                    <h2 class="panel-title">Profile Information</h2>
-                    <p class="panel-description">Update your personal information</p>
-
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label class="form-label">Full Name</label>
-                            <McInput v-model="profileForm.name" placeholder="Enter your name" />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Email</label>
-                            <McInput
-                                v-model="profileForm.email"
-                                type="email"
-                                placeholder="Enter your email"
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Department</label>
-                            <McInput
-                                v-model="profileForm.department"
-                                placeholder="Enter department"
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Title</label>
-                            <McInput v-model="profileForm.title" placeholder="Enter title" />
-                        </div>
-                    </div>
-
-                    <div class="panel-actions">
-                        <McButton>Save Changes</McButton>
-                    </div>
-                </div>
-
-                <!-- Email Config Tab -->
                 <div v-if="activeTab === 'email'" class="settings-panel">
                     <h2 class="panel-title">Email Configuration</h2>
                     <p class="panel-description">
@@ -246,7 +197,6 @@ const classStatusOptions = [
                     </div>
                 </div>
 
-                <!-- AI Config Tab -->
                 <div v-if="activeTab === 'ai'" class="settings-panel">
                     <h2 class="panel-title">AI Configuration</h2>
                     <p class="panel-description">Configure AI model and detection settings</p>

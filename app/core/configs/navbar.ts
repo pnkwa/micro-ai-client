@@ -1,11 +1,11 @@
-import { ChartPie, GraduationCap, FileText, View, Settings } from 'lucide-vue-next'
+import { ChartPie, GraduationCap, View, Settings } from 'lucide-vue-next'
 
 type MenuRole = 'instructor' | 'all' | 'student'
 
 interface MenuItem {
     title: string
     url: string
-    icon: typeof ChartPie | typeof GraduationCap | typeof FileText | typeof View | typeof Settings
+    icon: typeof ChartPie | typeof GraduationCap | typeof View | typeof Settings
     subMenu?: MenuItem[]
     role: MenuRole
 }
@@ -24,9 +24,9 @@ export const menuItems: MenuItem[] = [
         role: 'instructor',
     },
     {
-        title: 'Assignments',
-        url: '/assignments',
-        icon: FileText,
+        title: 'My Classes',
+        url: '/classes',
+        icon: GraduationCap,
         role: 'student',
     },
     {

@@ -1,16 +1,29 @@
 <script setup lang="ts">
-import { FileText, Users, Plus, ChevronLeft } from 'lucide-vue-next'
+import { h } from 'vue'
+import { FileText, Users, Plus, ChevronLeft, UserPlus, Upload } from 'lucide-vue-next'
+import type { ColumnDef } from '@tanstack/vue-table'
 import { toast } from 'vue-sonner'
 import CreateAssignment from '~/features/components/forms/CreateAssignment.vue'
 import EditClass from '~/features/components/forms/EditClass.vue'
+import AddStudent from '~/features/components/forms/AddStudent.vue'
+import ImportStudentsCsv from '~/features/components/forms/ImportStudentsCsv.vue'
 import type { CreateAssignmentFormData } from '~/features/types/forms/assignment'
 import type { EditClassFormData } from '~/features/types/forms/class'
-import { classService, type ClassItem, type StudentRosterItem } from '~/services/classService'
+import type { EnrollStudentFormData } from '~/features/types/forms/student'
+import {
+    classService,
+    type ClassItem,
+    type StudentRosterItem,
+    type EnrollStudentInput,
+} from '~/services/classService'
 import { assignmentService, type AssignmentListItem } from '~/services/assignmentService'
 
 const route = useRoute()
 const router = useRouter()
 const { $dayjs } = useNuxtApp()
+const authStore = useAuth()
+
+const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
 
 const classId = computed(() => Number(route.params.id))
 
@@ -58,7 +71,7 @@ await Promise.all([loadClass(), loadAssignments()])
 
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([
-    { label: 'Classes', to: '/classes' },
+    isStudent.value ? { label: 'Home', to: '/' } : { label: 'Classes', to: '/classes' },
     { label: classItem.value?.name ?? 'Class' },
 ])
 
@@ -73,6 +86,8 @@ const onTabChange = async (tab: 'assignments' | 'students') => {
 
 const isCreateDialogOpen = ref(false)
 const isEditDialogOpen = ref(false)
+const isAddStudentOpen = ref(false)
+const isImportCsvOpen = ref(false)
 
 const editFormValues = computed<EditClassFormData>(() => ({
     id: classItem.value?.id ?? 0,
@@ -119,10 +134,92 @@ const handleDelete = async (id: number) => {
     }
 }
 
+const enrollAndRefresh = async (students: EnrollStudentInput[], successMsg: string) => {
+    try {
+        await classService.enroll(classId.value, students)
+        await loadStudents()
+        toast.success(successMsg)
+        return true
+    } catch (e) {
+        toast.error(apiErrorMessage(e, 'Failed to enrol students'))
+        return false
+    }
+}
+
+const handleAddStudent = async (values: EnrollStudentFormData) => {
+    if (await enrollAndRefresh([values], `Enrolled ${values.firstname} ${values.lastname}`)) {
+        isAddStudentOpen.value = false
+    }
+}
+
+const handleImportCsv = async (students: EnrollStudentInput[]) => {
+    const label = `Enrolled ${students.length} student${students.length === 1 ? '' : 's'}`
+    if (await enrollAndRefresh(students, label)) {
+        isImportCsvOpen.value = false
+    }
+}
+
 const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 
-const studentInitials = (s: StudentRosterItem) =>
-    `${s.user.firstname[0] ?? ''}${s.user.lastname[0] ?? ''}`.toUpperCase()
+const studentSearch = ref('')
+
+const filteredStudents = computed(() => {
+    const q = studentSearch.value.trim().toLowerCase()
+    if (!q) return students.value
+    return students.value.filter((s) =>
+        [s.student_id, s.user.firstname, s.user.lastname, s.user.email]
+            .join(' ')
+            .toLowerCase()
+            .includes(q),
+    )
+})
+
+const LAZY_STEP = 15
+const visibleCount = ref(LAZY_STEP)
+const visibleStudents = computed(() => filteredStudents.value.slice(0, visibleCount.value))
+const hasMoreStudents = computed(() => visibleCount.value < filteredStudents.value.length)
+
+const onStudentSearch = () => {
+    visibleCount.value = LAZY_STEP
+}
+
+const studentScroll = useTemplateRef<HTMLElement>('studentScroll')
+const { top: studentScrollTop } = useElementBounding(studentScroll)
+const { height: windowHeight } = useWindowSize()
+const tableMaxHeight = computed(
+    () => `${Math.max(240, Math.round(windowHeight.value - studentScrollTop.value - 24))}px`,
+)
+
+const loadMoreEl = useTemplateRef<HTMLElement>('loadMoreEl')
+useIntersectionObserver(
+    loadMoreEl,
+    (entries) => {
+        if (entries[0]?.isIntersecting && hasMoreStudents.value) {
+            visibleCount.value = Math.min(
+                visibleCount.value + LAZY_STEP,
+                filteredStudents.value.length,
+            )
+        }
+    },
+    { root: studentScroll },
+)
+
+const stickyHead = 'tw:text-left tw:sticky tw:top-0 tw:z-10 tw:bg-white tw:text-navy-100'
+const leftHead = (label: string) => () => h('div', { class: 'tw:text-left' }, label)
+const studentColumns: ColumnDef<StudentRosterItem>[] = [
+    {
+        accessorKey: 'no',
+        header: () => h('div', { class: 'tw:text-left tw:pl-4' }, 'No.'),
+        meta: { headerClass: stickyHead },
+    },
+    {
+        accessorKey: 'student_id',
+        header: leftHead('Student ID'),
+        meta: { headerClass: stickyHead },
+    },
+    { accessorKey: 'name', header: leftHead('Name'), meta: { headerClass: stickyHead } },
+    { accessorKey: 'email', header: leftHead('Email'), meta: { headerClass: stickyHead } },
+]
 </script>
 
 <template>
@@ -134,7 +231,7 @@ const studentInitials = (s: StudentRosterItem) =>
                 <div class="tw:flex tw:items-start tw:gap-3">
                     <button
                         class="tw:flex tw:items-center tw:gap-1.5 tw:p-1 tw:text-navy-60 tw:hover:text-primary tw:hover:bg-primary/20 tw:transition-colors tw:bg-navy-10 tw:rounded-md"
-                        @click="router.push('/classes')"
+                        @click="router.push(isStudent ? '/' : '/classes')"
                     >
                         <ChevronLeft class="tw:w-6 tw:h-6" />
                     </button>
@@ -153,37 +250,33 @@ const studentInitials = (s: StudentRosterItem) =>
                     <McBadge :variant="classItem.status === 'active' ? 'default' : 'outline'">
                         {{ classItem.status === 'active' ? 'Active' : 'Closed' }}
                     </McBadge>
-                    <McButton variant="outline" size="sm" @click="isEditDialogOpen = true">
+                    <McButton
+                        v-if="!isStudent"
+                        variant="outline"
+                        size="sm"
+                        @click="isEditDialogOpen = true"
+                    >
                         Edit Class
                     </McButton>
                 </div>
             </div>
 
-            <div class="tw:flex tw:border-b tw:border-navy-10 tw:mb-6">
-                <button
-                    v-for="tab in [
-                        { value: 'assignments', label: 'Assignments' },
-                        { value: 'students', label: 'Students' },
-                    ]"
-                    :key="tab.value"
-                    class="tw:px-4 tw:py-2.5 tw:text-sm tw:font-medium tw:border-b-2 tw:-mb-px tw:transition-colors"
-                    :class="
-                        activeTab === tab.value
-                            ? 'tw:border-primary tw:text-primary'
-                            : 'tw:border-transparent tw:text-navy-60 tw:hover:text-navy-100'
-                    "
-                    @click="onTabChange(tab.value as 'assignments' | 'students')"
-                >
-                    {{ tab.label }}
-                </button>
-            </div>
+            <McTabs
+                v-if="!isStudent"
+                :model-value="activeTab"
+                :tabs="[
+                    { value: 'assignments', label: 'Assignments' },
+                    { value: 'students', label: 'Students' },
+                ]"
+                @update:model-value="onTabChange($event as 'assignments' | 'students')"
+            />
 
             <template v-if="activeTab === 'assignments'">
                 <div class="tw:flex tw:justify-between tw:mb-4">
                     <span class="tw:text-sm tw:text-navy-60">
                         {{ assignments.length }} assignments
                     </span>
-                    <McButton @click="isCreateDialogOpen = true">
+                    <McButton v-if="!isStudent" @click="isCreateDialogOpen = true">
                         <Plus class="tw:w-4 tw:h-4 tw:mr-1" />
                         New Assignment
                     </McButton>
@@ -214,9 +307,19 @@ const studentInitials = (s: StudentRosterItem) =>
                                 </p>
                             </div>
                         </div>
-                        <McBadge :variant="assignment.status === 'active' ? 'default' : 'outline'">
-                            {{ assignment.status }}
-                        </McBadge>
+                        <div class="tw:flex tw:items-center tw:gap-4">
+                            <span
+                                v-if="assignment.points != null"
+                                class="tw:text-xs tw:font-semibold tw:text-navy-70"
+                            >
+                                {{ assignment.points }} points
+                            </span>
+                            <McBadge
+                                :variant="assignment.status === 'active' ? 'default' : 'outline'"
+                            >
+                                {{ assignment.status === 'active' ? 'Active' : 'Closed' }}
+                            </McBadge>
+                        </div>
                     </div>
                 </div>
 
@@ -231,53 +334,108 @@ const studentInitials = (s: StudentRosterItem) =>
 
             <template v-else>
                 <div
+                    class="tw:flex tw:flex-col tw:gap-3 tw:sm:flex-row tw:sm:items-center tw:sm:justify-between tw:mb-4"
+                >
+                    <div class="tw:flex tw:items-center tw:gap-2 tw:shrink-0">
+                        <Users class="tw:w-4 tw:h-4 tw:text-navy-60" />
+                        <span class="tw:text-sm tw:font-semibold tw:text-navy-100">
+                            {{ students.length }} Enrolled Students
+                        </span>
+                    </div>
+                    <div
+                        class="tw:flex tw:flex-col tw:gap-2 tw:sm:flex-row tw:sm:items-center tw:sm:gap-2"
+                    >
+                        <McInput
+                            v-model="studentSearch"
+                            icon-prepend="Search"
+                            placeholder="Search by name, email, or student ID"
+                            class="tw:w-full tw:sm:w-64"
+                            @update:model-value="onStudentSearch"
+                        />
+                        <div class="tw:flex tw:gap-2 tw:shrink-0">
+                            <McButton
+                                variant="outline"
+                                size="sm"
+                                class="tw:flex-1 tw:sm:flex-none"
+                                @click="isImportCsvOpen = true"
+                            >
+                                <Upload class="tw:w-4 tw:h-4 tw:mr-1" />
+                                Import CSV
+                            </McButton>
+                            <McButton
+                                size="sm"
+                                class="tw:flex-1 tw:sm:flex-none"
+                                @click="isAddStudentOpen = true"
+                            >
+                                <UserPlus class="tw:w-4 tw:h-4 tw:mr-1" />
+                                Add Student
+                            </McButton>
+                        </div>
+                    </div>
+                </div>
+
+                <div
+                    v-if="isLoadingStudents"
+                    class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
+                >
+                    Loading students…
+                </div>
+
+                <div
+                    v-else
                     class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:overflow-hidden"
                 >
                     <div
-                        class="tw:flex tw:items-center tw:justify-between tw:px-6 tw:py-4 tw:border-b tw:border-navy-10"
+                        ref="studentScroll"
+                        class="tw:overflow-y-auto tw:[&>div]:overflow-visible tw:**:data-[slot=table-container]:overflow-visible"
+                        :style="{ maxHeight: tableMaxHeight }"
                     >
-                        <div class="tw:flex tw:items-center tw:gap-2">
-                            <Users class="tw:w-4 tw:h-4 tw:text-navy-60" />
-                            <span class="tw:text-sm tw:font-semibold tw:text-navy-100">
-                                {{ students.length }} Enrolled Students
-                            </span>
-                        </div>
-                        <span class="tw:text-xs tw:text-navy-40">{{ classItem.semester }}</span>
-                    </div>
-
-                    <div
-                        v-if="isLoadingStudents"
-                        class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
-                    >
-                        Loading students…
-                    </div>
-
-                    <div v-else class="tw:divide-y tw:divide-navy-10">
-                        <div
-                            v-for="student in students"
-                            :key="student.student_id"
-                            class="tw:flex tw:items-center tw:gap-3 tw:px-6 tw:py-3"
+                        <McDataTable
+                            v-if="filteredStudents.length > 0"
+                            :columns="studentColumns"
+                            :data="visibleStudents"
+                            :total="filteredStudents.length"
+                            server-side
                         >
-                            <div
-                                class="tw:w-8 tw:h-8 tw:rounded-full tw:bg-primary/10 tw:flex tw:items-center tw:justify-center tw:text-primary tw:text-xs tw:font-bold tw:shrink-0"
-                            >
-                                {{ studentInitials(student) }}
-                            </div>
-                            <div>
-                                <p class="tw:text-sm tw:font-medium tw:text-navy-100">
-                                    {{ student.user.firstname }} {{ student.user.lastname }}
-                                </p>
-                                <p class="tw:text-xs tw:text-navy-50">
-                                    {{ student.user.email }} · {{ student.student_id }}
-                                </p>
-                            </div>
+                            <template #body-no="{ row }">
+                                <div class="tw:text-left tw:text-sm tw:text-navy-40 tw:pl-4">
+                                    {{ row.index + 1 }}
+                                </div>
+                            </template>
+                            <template #body-student_id="{ row }">
+                                <div class="tw:text-left tw:text-sm tw:text-navy-60">
+                                    {{ row.original.student_id }}
+                                </div>
+                            </template>
+                            <template #body-name="{ row }">
+                                <div
+                                    class="tw:text-left tw:text-sm tw:font-medium tw:text-navy-100"
+                                >
+                                    {{ row.original.user.firstname }}
+                                    {{ row.original.user.lastname }}
+                                </div>
+                            </template>
+                            <template #body-email="{ row }">
+                                <div class="tw:text-left tw:text-sm tw:text-navy-60">
+                                    {{ row.original.user.email }}
+                                </div>
+                            </template>
+                        </McDataTable>
+
+                        <div v-else class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-50">
+                            {{
+                                students.length === 0
+                                    ? 'No students enrolled'
+                                    : 'No students match your search'
+                            }}
                         </div>
 
                         <div
-                            v-if="students.length === 0"
-                            class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-50"
+                            v-if="hasMoreStudents"
+                            ref="loadMoreEl"
+                            class="tw:py-3 tw:text-center tw:text-xs tw:text-navy-40"
                         >
-                            No students enrolled
+                            Loading more…
                         </div>
                     </div>
                 </div>
@@ -304,6 +462,18 @@ const studentInitials = (s: StudentRosterItem) =>
                     @cancel="isEditDialogOpen = false"
                     @delete="handleDelete"
                 />
+            </McDialogContent>
+        </McDialog>
+
+        <McDialog v-model:open="isAddStudentOpen">
+            <McDialogContent class="tw:sm:max-w-md">
+                <AddStudent @save="handleAddStudent" @cancel="isAddStudentOpen = false" />
+            </McDialogContent>
+        </McDialog>
+
+        <McDialog v-model:open="isImportCsvOpen">
+            <McDialogContent class="tw:sm:max-w-md">
+                <ImportStudentsCsv @save="handleImportCsv" @cancel="isImportCsvOpen = false" />
             </McDialogContent>
         </McDialog>
     </div>

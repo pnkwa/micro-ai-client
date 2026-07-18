@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, FileText, Send } from 'lucide-vue-next'
+import { ArrowLeft, FileText } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { assignmentService, type Assignment } from '~/services/assignmentService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
@@ -37,7 +37,7 @@ const loadClass = async () => {
     try {
         classItem.value = await classService.getById(classId.value)
     } catch {
-        // breadcrumb fallback only — non-critical
+        toast.error('Failed to load class details')
     }
 }
 
@@ -64,7 +64,17 @@ breadcrumb.setBreadcrumbs([
 const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
 
 const activeTab = ref<'detail' | 'exercises' | 'submissions'>('detail')
-const isSubmitDialogOpen = ref(false)
+
+const tabs = computed(() => {
+    const base = [
+        { value: 'detail', label: 'Detail' },
+        { value: 'exercises', label: `Exercises (${assignment.value?.exercises.length ?? 0})` },
+    ]
+    if (!isStudent.value) {
+        base.push({ value: 'submissions', label: `Submissions (${submissions.value.length})` })
+    }
+    return base
+})
 
 const onTabChange = async (tab: 'detail' | 'exercises' | 'submissions') => {
     activeTab.value = tab
@@ -107,27 +117,14 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                         </div>
                     </div>
                 </div>
-                <div class="tw:flex tw:items-center tw:gap-2">
-                    <McBadge :variant="assignment.status === 'active' ? 'default' : 'outline'">
-                        {{ assignment.status === 'active' ? 'Active' : 'Closed' }}
-                    </McBadge>
-                    <McButton
-                        v-if="assignment.status === 'active' && isStudent"
-                        @click="isSubmitDialogOpen = true"
-                    >
-                        <Send class="tw:w-4 tw:h-4 tw:mr-1" />
-                        Submit
-                    </McButton>
-                </div>
+                <McBadge :variant="assignment.status === 'active' ? 'default' : 'outline'">
+                    {{ assignment.status === 'active' ? 'Active' : 'Closed' }}
+                </McBadge>
             </div>
 
             <McTabs
                 :model-value="activeTab"
-                :tabs="[
-                    { value: 'detail', label: 'Detail' },
-                    { value: 'exercises', label: `Exercises (${assignment.exercises.length})` },
-                    { value: 'submissions', label: `Submissions (${submissions.length})` },
-                ]"
+                :tabs="tabs"
                 @update:model-value="onTabChange($event as 'detail' | 'exercises' | 'submissions')"
             />
 
@@ -154,13 +151,5 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
         </template>
 
         <div v-else class="tw:text-center tw:py-16 tw:text-navy-60">Assignment not found.</div>
-
-        <McDialog v-model:open="isSubmitDialogOpen">
-            <McDialogContent class="tw:sm:max-w-xl">
-                <div class="tw:p-6 tw:text-center tw:text-navy-60 tw:text-sm">
-                    Submit assignment — coming soon
-                </div>
-            </McDialogContent>
-        </McDialog>
     </div>
 </template>

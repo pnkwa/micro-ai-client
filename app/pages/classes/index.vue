@@ -7,8 +7,11 @@ import type { CreateClassFormData, EditClassFormData } from '~/features/types/fo
 import { classService, type ClassItem } from '~/services/classService'
 
 const router = useRouter()
+const authStore = useAuth()
+const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
+
 const breadcrumb = useBreadcrumb()
-breadcrumb.setBreadcrumbs([{ label: 'Classes', to: '/classes' }])
+breadcrumb.setBreadcrumbs([{ label: isStudent.value ? 'My Classes' : 'Classes', to: '/classes' }])
 
 const classes = ref<ClassItem[]>([])
 const isLoading = ref(false)
@@ -19,7 +22,10 @@ const selectedClass = ref<ClassItem | null>(null)
 const loadClasses = async () => {
     isLoading.value = true
     try {
-        classes.value = await classService.list()
+        classes.value =
+            isStudent.value && authStore.user
+                ? await classService.listEnrolled(authStore.user.id)
+                : await classService.list()
     } catch {
         toast.error('Failed to load classes')
     } finally {
@@ -91,16 +97,37 @@ const handleDelete = async (id: number) => {
     <div>
         <div class="tw:flex tw:justify-between tw:items-center tw:mb-6">
             <div>
-                <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:mb-1">Classes</h1>
-                <p class="tw:text-sm tw:text-navy-60">Manage your courses and sections</p>
+                <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:mb-1">
+                    {{ isStudent ? 'My Classes' : 'Classes' }}
+                </h1>
+                <p class="tw:text-sm tw:text-navy-60">
+                    {{
+                        isStudent
+                            ? 'Classes you are enrolled in'
+                            : 'Manage your courses and sections'
+                    }}
+                </p>
             </div>
-            <McButton @click="isCreateDialogOpen = true">
+            <McButton v-if="!isStudent" @click="isCreateDialogOpen = true">
                 <Plus class="tw:w-4 tw:h-4 tw:mr-1" />
                 New Class
             </McButton>
         </div>
 
         <div v-if="isLoading" class="tw:text-center tw:py-16 tw:text-navy-60">Loading…</div>
+
+        <div
+            v-else-if="classes.length === 0"
+            class="tw:bg-white tw:border tw:border-dashed tw:border-navy-20 tw:rounded-lg tw:py-16 tw:text-center"
+        >
+            <p class="tw:text-sm tw:text-navy-60">
+                {{
+                    isStudent
+                        ? 'You are not enrolled in any classes yet.'
+                        : 'No classes yet. Create your first class to get started.'
+                }}
+            </p>
+        </div>
 
         <div v-else class="tw:grid tw:grid-cols-1 tw:md:grid-cols-2 tw:lg:grid-cols-4 tw:gap-4">
             <div
@@ -122,7 +149,10 @@ const handleDelete = async (id: number) => {
                     <p class="tw:text-xs tw:text-navy-40 tw:mt-0.5">{{ classItem.code }}</p>
                 </div>
 
-                <div class="tw:flex tw:justify-end tw:items-center tw:px-4 tw:py-3 tw:border-t">
+                <div
+                    v-if="!isStudent"
+                    class="tw:flex tw:justify-end tw:items-center tw:px-4 tw:py-3 tw:border-t"
+                >
                     <button
                         class="tw:p-1.5 tw:rounded tw:text-navy-50 tw:hover:bg-navy-10 tw:hover:text-primary tw:transition-colors"
                         @click.stop="openEditDialog(classItem)"

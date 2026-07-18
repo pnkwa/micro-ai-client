@@ -18,9 +18,10 @@ const router = useRouter()
 const authStore = useAuth()
 const { open, isMobile } = useSidebar()
 
+const isInstructor = computed(() => authStore.user?.user_type === 'staff')
+
 const filteredMenuItems = computed(() => {
-    const userType = authStore.user?.user_type
-    if (userType === 'staff') {
+    if (isInstructor.value) {
         return menuItems.filter((item) => item.role === 'instructor' || item.role === 'all')
     }
     return menuItems.filter((item) => item.role === 'student' || item.role === 'all')
@@ -61,7 +62,6 @@ const handleSignOut = () => {
 
         <SidebarFooter>
             <SidebarMenu>
-                <!-- Logged in: user card + logout -->
                 <SidebarMenuItem
                     v-if="authStore.isSignedIn"
                     class="tw:flex tw:flex-col tw:gap-1 tw:items-center"
@@ -89,7 +89,6 @@ const handleSignOut = () => {
                     </SidebarMenuButton>
                 </SidebarMenuItem>
 
-                <!-- Not logged in: sign in button -->
                 <SidebarMenuItem v-else>
                     <SidebarMenuButton tooltip="Sign in" @click="handleSignIn">
                         <LogIn class="tw:w-4 tw:h-4 tw:shrink-0" />
