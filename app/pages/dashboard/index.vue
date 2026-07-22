@@ -19,6 +19,9 @@ import { submissionService, type SubmissionView } from '~/services/submissionSer
 import { assignmentService, type AssignmentListItem } from '~/services/assignmentService'
 import type { ColumnDef } from '@tanstack/vue-table'
 
+// Instructor-only: renders data across the whole class roster.
+definePageMeta({ role: 'instructor' })
+
 dayjs.extend(relativeTime)
 
 const breadcrumb = useBreadcrumb()
@@ -65,7 +68,7 @@ try {
     await loadAllStudents()
     await loadAssignments()
 } catch {
-    // auth failure or network error — show empty state, don't 500
+    // auth failure or network error: show empty state, don't 500
 } finally {
     isLoading.value = false
 }
@@ -324,23 +327,14 @@ const formatSubmittedAt = (dateString: string) => dayjs(dateString).fromNow()
                     <h3 class="tw:text-[1rem] tw:font-semibold">Recent Submissions</h3>
                 </div>
 
-                <McDataTable :columns="columns" :data="filteredSubmissions" class="tw-mt-4">
+                <!-- No class here: McDataTable has a fragment root, so Vue drops any class
+                     passed to it (it warned about exactly that). Spacing lives on the card. -->
+                <McDataTable :columns="columns" :data="filteredSubmissions">
                     <template #body-studentName="{ row }">
-                        <div class="tw:flex tw:items-center tw:gap-6">
-                            <div
-                                class="tw:w-9 tw:h-9 tw:rounded-full tw:bg-navy-10 tw:flex tw:items-center tw:justify-center"
-                            >
-                                <Users class="avatar-icon" />
-                            </div>
-                            <div class="tw:flex tw:flex-col tw:items-start">
-                                <p class="tw:text-sm tw:font-medium tw:text-navy-100">
-                                    {{ row.original.studentName }}
-                                </p>
-                                <p class="tw:text-xs tw:text-navy-50">
-                                    {{ row.original.studentId }}
-                                </p>
-                            </div>
-                        </div>
+                        <McStudentIdentity
+                            :name="row.original.studentName"
+                            :student-id="row.original.studentId"
+                        />
                     </template>
                     <template #body-className="{ row }">
                         <span class="tw:text-sm tw:text-navy-80">
@@ -416,12 +410,6 @@ const formatSubmittedAt = (dateString: string) => dayjs(dateString).fromNow()
 }
 
 .summary-icon {
-    width: 18px;
-    height: 18px;
-    color: var(--color-navy-50);
-}
-
-.avatar-icon {
     width: 18px;
     height: 18px;
     color: var(--color-navy-50);

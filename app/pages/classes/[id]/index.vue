@@ -17,6 +17,11 @@ import {
     type EnrollStudentInput,
 } from '~/services/classService'
 import { assignmentService, type AssignmentListItem } from '~/services/assignmentService'
+import { submissionService, type SubmissionView } from '~/services/submissionService'
+import {
+    studentAssignmentStatus,
+    indexSubmissionsByAssignment,
+} from '~/core/helpers/studentAssignmentStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -67,13 +72,37 @@ const loadAssignments = async () => {
     }
 }
 
-await Promise.all([loadClass(), loadAssignments()])
+// This student's own submissions, keyed by assignment, so every row in the list can show
+// where they stand. One request covers the whole page: GET /submissions ignores its filters
+// for a student and returns all of their rows. Instructors don't need it — their pill is the
+// assignment's own Active/Closed.
+const mySubmissions = ref<Map<number, SubmissionView>>(new Map())
+
+const loadMySubmissions = async () => {
+    try {
+        mySubmissions.value = indexSubmissionsByAssignment(await submissionService.list())
+    } catch {
+        // Leave it empty rather than blocking the page: every row then falls back to the
+        // due-date-only reading (New/Overdue), which is the right answer for the common
+        // case of a student who hasn't submitted anything here.
+        mySubmissions.value = new Map()
+    }
+}
+
+await Promise.all([
+    loadClass(),
+    loadAssignments(),
+    ...(isStudent.value ? [loadMySubmissions()] : []),
+])
 
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([
     isStudent.value ? { label: 'Home', to: '/' } : { label: 'Classes', to: '/classes' },
     { label: classItem.value?.name ?? 'Class' },
 ])
+
+const assignmentStatus = (assignment: AssignmentListItem) =>
+    studentAssignmentStatus(assignment, mySubmissions.value.get(assignment.id))
 
 const activeTab = ref<'assignments' | 'students'>('assignments')
 
@@ -308,13 +337,16 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                             </div>
                         </div>
                         <div class="tw:flex tw:items-center tw:gap-4">
-                            <span
-                                v-if="assignment.points != null"
-                                class="tw:text-xs tw:font-semibold tw:text-navy-70"
-                            >
-                                {{ assignment.points }} points
-                            </span>
+                            <!-- Students get their own standing on the work; instructors get
+                                 the assignment's own state, which is what they author. -->
                             <McBadge
+                                v-if="isStudent"
+                                :variant="assignmentStatus(assignment).variant"
+                            >
+                                {{ assignmentStatus(assignment).label }}
+                            </McBadge>
+                            <McBadge
+                                v-else
                                 :variant="assignment.status === 'active' ? 'default' : 'outline'"
                             >
                                 {{ assignment.status === 'active' ? 'Active' : 'Closed' }}

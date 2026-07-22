@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { ButtonVariants } from '~/core/components/ui/button'
+
 withDefaults(
     defineProps<{
         open: boolean
@@ -7,6 +9,12 @@ withDefaults(
         confirmLabel?: string
         cancelLabel?: string
         loading?: boolean
+        /**
+         * Deletion is what this dialog was built for, so red stays the default. Set it for a
+         * confirmation that is serious but not destructive (releasing an assignment), where
+         * red would misread as "this removes something".
+         */
+        confirmVariant?: ButtonVariants['variant']
     }>(),
     {
         title: 'Are you sure?',
@@ -14,6 +22,7 @@ withDefaults(
         confirmLabel: 'Delete',
         cancelLabel: 'Cancel',
         loading: false,
+        confirmVariant: 'destructive',
     },
 )
 
@@ -35,7 +44,7 @@ const emit = defineEmits<{
                     {{ cancelLabel }}
                 </McButton>
                 <McButton
-                    variant="destructive"
+                    :variant="confirmVariant"
                     type="button"
                     :loading="loading"
                     @click="emit('confirm')"

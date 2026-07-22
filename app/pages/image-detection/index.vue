@@ -9,43 +9,9 @@ import {
     FlipHorizontal,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import { detectionService, DEFAULT_MODEL, type DetectionStep } from '~/services/detectionService'
+import { detectionService, type DetectionStep, type ModelSpec } from '~/services/detectionService'
 
 type ViewerMode = 'empty' | 'camera' | 'preview'
-// Detection may have single to many steps
-// e.g. Segmentation -> Classification
-const STEP_COLORS = [
-    {
-        bg: 'tw:bg-primary/8',
-        text: 'tw:text-primary',
-        bar: 'tw:bg-primary',
-        dot: 'tw:bg-primary',
-    },
-    {
-        bg: 'tw:bg-emerald-50',
-        text: 'tw:text-emerald-700',
-        bar: 'tw:bg-emerald-500',
-        dot: 'tw:bg-emerald-500',
-    },
-    {
-        bg: 'tw:bg-amber-50',
-        text: 'tw:text-amber-700',
-        bar: 'tw:bg-amber-500',
-        dot: 'tw:bg-amber-500',
-    },
-    {
-        bg: 'tw:bg-violet-50',
-        text: 'tw:text-violet-700',
-        bar: 'tw:bg-violet-500',
-        dot: 'tw:bg-violet-500',
-    },
-    {
-        bg: 'tw:bg-rose-50',
-        text: 'tw:text-rose-700',
-        bar: 'tw:bg-rose-500',
-        dot: 'tw:bg-rose-500',
-    },
-]
 
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([{ label: 'Image Detection', to: '/image-detection' }])
@@ -61,13 +27,44 @@ const isAnalyzing = ref(false)
 const hasResults = ref(false)
 const detectionSteps = ref<DetectionStep[]>([])
 
-const detectionResults = computed(() =>
-    detectionSteps.value.map((step, i) => ({
-        label: step.predicted_class,
-        confidence: Math.round(step.confidence * 100),
-        colors: STEP_COLORS[i % STEP_COLORS.length]!,
-    })),
+// Model picker (FE-ADR-007): never hardcode a model name. Split in two because chaining
+// (ML-ADR-003) combines two independently-choosable models, not one: a classify/detect
+// model that runs first, and a segment model optionally chained behind it. Debug page, so
+// the segment choice is wired through for real (DetectionsService.buildJob's segmentModel
+// override) rather than just mirroring the server's automatic default.
+const NONE_SEGMENT = '__none__'
+const models = ref<ModelSpec[]>([])
+const primaryModelOptions = computed(() =>
+    models.value
+        .filter((m) => m.task === 'classify' || m.task === 'detect')
+        .map((m) => ({ value: m.name, label: m.displayName })),
 )
+const segmentModelOptions = computed(() => [
+    { value: NONE_SEGMENT, label: 'None (skip segmentation)' },
+    ...models.value
+        .filter((m) => m.task === 'segment')
+        .map((m) => ({ value: m.name, label: m.displayName })),
+])
+
+const selectedModel = ref('')
+const selectedSegmentModel = ref('')
+const selectedModelSpec = computed(() => models.value.find((m) => m.name === selectedModel.value))
+const selectedSegmentSpec = computed(() =>
+    models.value.find((m) => m.name === selectedSegmentModel.value),
+)
+// Only a detector chains anything; the classifier and the segmenter itself run alone
+// regardless of what's picked in the second dropdown (DetectionsService.buildJob).
+const canChain = computed(() => selectedModelSpec.value?.task === 'detect')
+
+try {
+    models.value = await detectionService.listModels()
+    selectedModel.value =
+        models.value.find((m) => m.name === 'best__rtdetr_v2')?.name ?? models.value[0]?.name ?? ''
+    selectedSegmentModel.value =
+        models.value.find((m) => m.task === 'segment')?.name ?? NONE_SEGMENT
+} catch {
+    toast.error('Failed to load models')
+}
 
 const topResult = computed(() => detectionSteps.value[0] ?? null)
 
@@ -117,15 +114,21 @@ const clearImage = () => {
 }
 
 const runDetection = async () => {
-    if (!currentFile.value) return
+    if (!currentFile.value || !selectedModel.value) return
     isAnalyzing.value = true
     hasResults.value = false
     detectionSteps.value = []
     try {
+        const segmentModel = !canChain.value
+            ? undefined
+            : selectedSegmentModel.value === NONE_SEGMENT
+              ? null
+              : selectedSegmentModel.value
         const result = await detectionService.run(
             currentFile.value,
-            DEFAULT_MODEL,
+            selectedModel.value,
             currentSource.value,
+            segmentModel,
         )
         detectionSteps.value = result.steps
         hasResults.value = result.steps.length > 0
@@ -151,7 +154,10 @@ onUnmounted(() => {
         </div>
 
         <div class="tw:h-full">
-            <div
+            <!-- Scopes the overlay's filter state across both columns: the image is on the
+                 left, the controls that drive it are in the CONTROLS panel on the right. -->
+            <McDetectionFilterScope
+                :steps="detectionSteps"
                 class="tw:h-200 tw:flex tw:flex-col tw:lg:flex-row tw:divide-y tw:lg:divide-y-0 tw:lg:divide-x tw:divide-slate-100 tw:flex-1"
             >
                 <div class="tw:flex-1 tw:p-5 tw:md:p-6 tw:flex tw:flex-col tw:overflow-hidden">
@@ -258,6 +264,13 @@ onUnmounted(() => {
                             </div>
                         </div>
 
+                        <template v-else-if="mode === 'preview' && hasResults">
+                            <McAnnotatedImage
+                                :src="imageUrl!"
+                                class="tw:absolute tw:inset-0 tw:h-full tw:w-full"
+                            />
+                        </template>
+
                         <template v-else-if="mode === 'preview'">
                             <img
                                 :src="imageUrl!"
@@ -352,13 +365,71 @@ onUnmounted(() => {
                         Clear Image
                     </McButton>
 
+                    <div v-if="hasResults" class="tw:pt-3 tw:border-t tw:border-slate-200">
+                        <McDetectionFilters />
+                    </div>
+
                     <div class="tw:flex-1"></div>
 
                     <!-- Run Detection CTA -->
-                    <div class="tw:pt-3 tw:border-t tw:border-slate-200">
+                    <div
+                        class="tw:pt-3 tw:border-t tw:border-slate-200 tw:flex tw:flex-col tw:gap-2"
+                    >
+                        <div>
+                            <label
+                                class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em] tw:mb-1 tw:block"
+                            >
+                                Classification / Detection
+                            </label>
+                            <McSelect
+                                v-model="selectedModel"
+                                :options="primaryModelOptions"
+                                option-value="value"
+                                option-label="label"
+                                placeholder="Select a model"
+                                :disabled="isAnalyzing"
+                                class="tw:bg-white"
+                            />
+                            <p
+                                v-if="selectedModelSpec"
+                                class="tw:text-[10px] tw:text-slate-400 tw:mt-1 tw:leading-relaxed"
+                            >
+                                {{ selectedModelSpec.description }}
+                            </p>
+                        </div>
+
+                        <div>
+                            <label
+                                class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em] tw:mb-1 tw:block"
+                            >
+                                Segmentation
+                            </label>
+                            <McSelect
+                                v-model="selectedSegmentModel"
+                                :options="segmentModelOptions"
+                                option-value="value"
+                                option-label="label"
+                                placeholder="Select a segmenter"
+                                :disabled="isAnalyzing || !canChain"
+                                class="tw:bg-white"
+                            />
+                            <p
+                                v-if="!canChain"
+                                class="tw:text-[10px] tw:text-slate-400 tw:mt-1 tw:leading-relaxed"
+                            >
+                                Only a detector chains a segmenter; the selected model runs alone.
+                            </p>
+                            <p
+                                v-else-if="selectedSegmentSpec"
+                                class="tw:text-[10px] tw:text-slate-400 tw:mt-1 tw:leading-relaxed"
+                            >
+                                {{ selectedSegmentSpec.description }}
+                            </p>
+                        </div>
+
                         <McButton
                             class="tw:w-full tw:gap-2 tw:text-sm tw:font-bold tw:shadow-md tw:shadow-primary/20 tw:transition-all hover:tw:shadow-lg hover:tw:shadow-primary/25 disabled:tw:shadow-none"
-                            :disabled="!currentFile || isAnalyzing"
+                            :disabled="!currentFile || !selectedModel || isAnalyzing"
                             @click="runDetection"
                         >
                             <Loader2 v-if="isAnalyzing" class="tw:w-4 tw:h-4 tw:animate-spin" />
@@ -376,7 +447,7 @@ onUnmounted(() => {
                         </p>
                     </div>
                 </div>
-            </div>
+            </McDetectionFilterScope>
 
             <div class="tw:grid tw:grid-cols-1 tw:lg:grid-cols-3 tw:gap-4 tw:mt-4">
                 <!-- Detection summary -->
@@ -396,8 +467,8 @@ onUnmounted(() => {
                                 <span
                                     class="tw:text-[10px] tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest tw:bg-slate-100 tw:px-2 tw:py-0.5 tw:rounded-full"
                                 >
-                                    {{ detectionResults.length }} class{{
-                                        detectionResults.length === 1 ? '' : 'es'
+                                    {{ detectionSteps.length }} class{{
+                                        detectionSteps.length === 1 ? '' : 'es'
                                     }}
                                     found
                                 </span>
@@ -406,54 +477,12 @@ onUnmounted(() => {
                             <div
                                 class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:lg:grid-cols-3 tw:gap-3"
                             >
-                                <div
-                                    v-for="result in detectionResults"
-                                    :key="result.label"
-                                    class="tw:group tw:relative tw:rounded-xl tw:p-4 tw:border tw:border-slate-100 tw:overflow-hidden tw:transition-shadow hover:tw:shadow-md"
-                                    :class="result.colors.bg"
-                                >
-                                    <div class="tw:flex tw:items-start tw:justify-between tw:mb-4">
-                                        <div class="tw:flex tw:items-center tw:gap-2">
-                                            <span
-                                                class="tw:w-2.5 tw:h-2.5 tw:rounded-full tw:shrink-0 tw:shadow-sm"
-                                                :class="result.colors.dot"
-                                            ></span>
-                                            <span
-                                                class="tw:text-xs tw:font-semibold tw:text-slate-600"
-                                            >
-                                                {{ result.label }}
-                                            </span>
-                                        </div>
-                                        <span
-                                            class="tw:text-2xl tw:font-black tw:leading-none tw:tabular-nums"
-                                            :class="result.colors.text"
-                                        >
-                                            {{ result.confidence }}%
-                                        </span>
-                                    </div>
-
-                                    <div>
-                                        <div
-                                            class="tw:flex tw:items-center tw:justify-between tw:text-[10px] tw:mb-1.5"
-                                        >
-                                            <span class="tw:text-slate-400 tw:font-medium">
-                                                Confidence
-                                            </span>
-                                            <span class="tw:font-bold" :class="result.colors.text">
-                                                {{ result.confidence }}%
-                                            </span>
-                                        </div>
-                                        <div
-                                            class="tw:w-full tw:bg-white/80 tw:rounded-full tw:h-1.5 tw:overflow-hidden"
-                                        >
-                                            <div
-                                                class="tw:h-full tw:rounded-full tw:transition-all tw:duration-700 tw:delay-200"
-                                                :class="result.colors.bar"
-                                                :style="`width:${result.confidence}%`"
-                                            ></div>
-                                        </div>
-                                    </div>
-                                </div>
+                                <McConfidenceBar
+                                    v-for="step in detectionSteps"
+                                    :key="step.id"
+                                    :label="step.predicted_class"
+                                    :confidence="step.confidence"
+                                />
                             </div>
                         </div>
 
@@ -486,7 +515,7 @@ onUnmounted(() => {
                                     </span>
                                     .
                                     <template v-if="detectionSteps.length > 1">
-                                        Additional classes were also detected — review all results
+                                        Additional classes were also detected. Review all results
                                         below before grading.
                                     </template>
                                 </p>

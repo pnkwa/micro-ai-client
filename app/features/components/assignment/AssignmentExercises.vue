@@ -5,9 +5,17 @@ import { assignmentService, type Assignment } from '~/services/assignmentService
 import ExerciseForm from '~/features/components/assignment/ExerciseForm.vue'
 import QuestionForm from '~/features/components/assignment/QuestionForm.vue'
 
+// Instructor authoring view only. Students never render this component: their side of the
+// assignment is StudentExerciseForm, which the page mounts directly.
 const props = defineProps<{
     assignment: Assignment
-    isStudent: boolean
+    /**
+     * Assignment-level, derived by the parent from every exercise's own flag. Release is
+     * authored per exercise on the server but is only ever offered for the assignment as a
+     * whole, so a half-released assignment reads as not released and every editing control
+     * below keys off this one value rather than `ex.released`.
+     */
+    released: boolean
 }>()
 
 const emit = defineEmits<{ reload: [] }>()
@@ -125,7 +133,9 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                         {{ exIndex + 1 }}
                     </span>
                     <div>
-                        <p class="tw:font-semibold tw:text-lg tw:text-navy-100">{{ ex.title }}</p>
+                        <p class="tw:font-semibold tw:text-lg tw:text-navy-100">
+                            {{ ex.title }}
+                        </p>
                         <p v-if="ex.instructions" class="tw:text-xs tw:text-navy-60 tw:mt-0.5">
                             {{ ex.instructions }}
                         </p>
@@ -135,7 +145,7 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                         </p>
                     </div>
                 </div>
-                <div v-if="!isStudent" class="tw:flex tw:gap-1 tw:shrink-0">
+                <div v-if="!released" class="tw:flex tw:items-center tw:gap-3 tw:shrink-0">
                     <button
                         class="tw:rounded tw:px-2 tw:py-1 tw:text-xs tw:text-navy-60 tw:transition-colors tw:cursor-pointer tw:hover:bg-navy-10 tw:hover:text-primary"
                         @click="editingExerciseId = ex.id"
@@ -197,7 +207,7 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                                     </div>
                                 </div>
                                 <div
-                                    v-if="!isStudent"
+                                    v-if="!released"
                                     class="tw:flex tw:gap-1 tw:shrink-0 tw:opacity-0 tw:transition-opacity tw:group-hover:opacity-100"
                                 >
                                     <button
@@ -282,7 +292,7 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                     @cancel="addingQuestionExerciseId = null"
                 />
                 <button
-                    v-else-if="!isStudent"
+                    v-else-if="!released"
                     class="tw:w-full tw:my-2 tw:flex tw:items-center tw:gap-1 tw:self-start tw:rounded tw:p-4 tw:text-xs tw:font-medium tw:text-primary tw:transition-colors tw:cursor-pointer tw:hover:bg-primary/10"
                     @click="addingQuestionExerciseId = ex.id"
                 >
@@ -292,7 +302,10 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
             </div>
         </div>
 
-        <template v-if="!isStudent">
+        <!-- Adding is off once released, and not only because the existing content is frozen:
+             a new exercise is created as a draft, which would put the assignment back into the
+             half-released state this UI exists to eliminate. -->
+        <template v-if="!released">
             <div
                 v-if="showAddExercise"
                 class="tw:bg-white tw:border tw:border-gray-200 tw:rounded-md tw:p-4"
@@ -314,7 +327,7 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
         </template>
 
         <p
-            v-if="assignment.exercises.length === 0 && isStudent"
+            v-if="assignment.exercises.length === 0 && released"
             class="tw:text-sm tw:text-navy-50 tw:py-8 tw:text-center"
         >
             No exercises yet.

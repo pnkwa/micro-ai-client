@@ -107,7 +107,7 @@ const onSignInWithCmu = () => {
                     </div>
 
                     <!-- No @click: the form's @submit already calls onSignIn, and having both
-                         fired it twice per press — two login requests. -->
+                         fired it twice per press, causing two login requests. -->
                     <McButton type="submit" class="tw:w-full tw:mt-2" :loading="props.loading">
                         {{ props.loading ? 'Signing in…' : 'Sign in' }}
                     </McButton>

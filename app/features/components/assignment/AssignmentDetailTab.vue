@@ -4,7 +4,11 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import type { z } from 'zod'
 import { toast } from 'vue-sonner'
-import { assignmentService, type Assignment } from '~/services/assignmentService'
+import {
+    assignmentService,
+    assignmentTotalPoints,
+    type Assignment,
+} from '~/services/assignmentService'
 import { createAssignmentFormSchema } from '~/features/types/forms/assignment'
 
 const props = defineProps<{
@@ -28,13 +32,14 @@ const statusOptions = [
 const isEditing = ref(false)
 const isSaving = ref(false)
 
+const totalPoints = computed(() => assignmentTotalPoints(props.assignment))
+
 const currentValues = (): EditValues => ({
     name: props.assignment.name,
     dueDate: $dayjs(props.assignment.due_date).format('YYYY-MM-DD'),
     status: props.assignment.status,
     description: props.assignment.description ?? '',
     instructions: props.assignment.instructions ?? '',
-    points: props.assignment.points ?? undefined,
 })
 
 const { handleSubmit, resetForm, errors } = useForm<EditValues>({
@@ -56,7 +61,6 @@ const onSave = handleSubmit(async (values) => {
             status: values.status,
             description: values.description || undefined,
             instructions: values.instructions || undefined,
-            points: values.points,
         })
         emit('reload')
         isEditing.value = false
@@ -94,27 +98,16 @@ const onSave = handleSubmit(async (values) => {
             />
         </div>
 
-        <div class="tw:grid tw:grid-cols-2 tw:gap-4">
-            <div class="tw:flex tw:flex-col tw:gap-2">
-                <label class="tw:text-sm tw:font-medium">
-                    Due Date
-                    <span class="tw:text-red-500">*</span>
-                </label>
-                <McDatePicker
-                    name="dueDate"
-                    placeholder="Select a date"
-                    class="tw:bg-white/50 tw:rounded-md"
-                />
-            </div>
-            <div class="tw:flex tw:flex-col tw:gap-2">
-                <label class="tw:text-sm tw:font-medium">Points</label>
-                <McInput
-                    name="points"
-                    type="number"
-                    placeholder="e.g., 100"
-                    class="tw:bg-white/50 tw:rounded-md"
-                />
-            </div>
+        <div class="tw:flex tw:flex-col tw:gap-2">
+            <label class="tw:text-sm tw:font-medium">
+                Due Date
+                <span class="tw:text-red-500">*</span>
+            </label>
+            <McDatePicker
+                name="dueDate"
+                placeholder="Select a date"
+                class="tw:bg-white/50 tw:rounded-md"
+            />
         </div>
 
         <div class="tw:flex tw:flex-col tw:gap-2">
@@ -178,13 +171,14 @@ const onSave = handleSubmit(async (values) => {
                 </div>
             </div>
             <div
-                v-if="assignment.points"
                 class="tw:flex tw:items-center tw:gap-4 tw:p-4 tw:bg-white/50 tw:rounded-md tw:rounded-md tw:border tw:border-gray-200"
             >
                 <Trophy class="tw:w-5 tw:h-5 tw:text-navy-60" />
                 <div>
-                    <p class="tw:text-sm tw:text-navy-60">Points</p>
-                    <p class="tw:text-base tw:font-medium">{{ assignment.points }} pts</p>
+                    <p class="tw:text-sm tw:text-navy-60">Total Points</p>
+                    <p class="tw:text-base tw:font-medium">
+                        {{ totalPoints }} pt{{ totalPoints === 1 ? '' : 's' }}
+                    </p>
                 </div>
             </div>
         </div>

@@ -1,0 +1,158 @@
+<script setup lang="ts">
+import type { GradingAnswer } from '~/services/submissionService'
+
+/**
+ * One answer on a submission: the question, what the student put, and how it was marked.
+ * Shared by the instructor's grading page and the student's feedback page.
+ *
+ * DEFAULTS TO THE STUDENT'S VIEW ON PURPOSE. Everything an instructor gets and a student
+ * must not (the mark buttons, the editable score, the answer key, the feedback editor)
+ * is opt-in, either a slot the grading page fills or a prop it sets. A forgotten slot
+ * therefore renders less, not more; the earlier single-page version defaulted the other
+ * way and leaked grader-only text to students twice before it was caught.
+ */
+const props = defineProps<{
+    answer: GradingAnswer
+    /** "1.4": exercise.question, matching the authoring view. */
+    label: string
+    /** Object URL for an image_detection answer's submitted photo. */
+    imageUrl?: string
+    /** Tint for the response box (correct/incorrect/neutral). */
+    tintClass?: string
+    /** Emphasises the card border, e.g. an answer the grader still has to mark. */
+    highlight?: boolean
+    /** Reveals `accepted_answers`. Never set this on a student-facing page. */
+    showAnswerKey?: boolean
+}>()
+
+const slots = defineSlots<{
+    /** Replaces the read-only points readout (the grading page puts its input here). */
+    points?: () => unknown
+    /** Correct/Incorrect controls, pinned in the response box's corner. */
+    marks?: () => unknown
+    /** Grader-only notes rendered under the response box. */
+    notes?: () => unknown
+    /** Replaces the read-only instructor comment (the grading page puts its editor here). */
+    footer?: () => unknown
+}>()
+
+const answerLabel = (options: string[]): string => (options.length ? options.join(', ') : '—')
+
+const isImage = computed(() => props.answer.question.type === 'image_detection')
+
+// The mark buttons are absolutely positioned in the box's corner, so the content has to
+// keep clear of them: a one-line text answer reserves a gutter beside them, an image
+// answer is far too wide for that and starts below instead. Keyed off the slot actually
+// being filled rather than a separate prop, so the two can never disagree.
+const clearanceClass = computed(() => {
+    if (!slots.marks) return ''
+    return isImage.value ? 'tw:pt-14' : 'tw:pr-20'
+})
+</script>
+
+<template>
+    <div
+        class="tw:bg-white tw:border tw:rounded-xl tw:p-6 tw:flex tw:flex-col tw:gap-4 tw:transition-colors"
+        :class="highlight ? 'tw:border-warning/40' : 'tw:border-navy-10'"
+    >
+        <div class="tw:flex tw:items-start tw:justify-between tw:gap-4">
+            <div class="tw:min-w-0 tw:flex tw:items-start tw:gap-2.5">
+                <span
+                    class="tw:shrink-0 tw:text-sm tw:font-semibold tw:text-navy-60 tw:tabular-nums"
+                >
+                    {{ label }}
+                </span>
+                <p class="tw:text-base tw:font-medium tw:text-navy-100">
+                    {{ answer.question.prompt }}
+                </p>
+            </div>
+            <slot name="points">
+                <span
+                    class="tw:shrink-0 tw:text-sm tw:font-semibold tw:text-navy-70 tw:tabular-nums"
+                >
+                    {{ answer.points_awarded ?? '—' }} / {{ answer.question.points }} pt
+                </span>
+            </slot>
+        </div>
+
+        <!-- Response box: the answer, with the Correct/Incorrect pair pinned in its
+             corner, the Google Forms "quiz" review pattern. -->
+        <div
+            class="tw:relative tw:rounded-lg tw:border tw:p-4 tw:transition-colors"
+            :class="[tintClass, clearanceClass]"
+        >
+            <div
+                v-if="slots.marks"
+                class="tw:absolute tw:top-3 tw:right-3 tw:flex tw:items-center tw:gap-1.5"
+            >
+                <slot name="marks" />
+            </div>
+
+            <McDetectionFilterScope
+                v-if="isImage"
+                :steps="answer.detection?.steps ?? []"
+                class="tw:flex tw:flex-col tw:gap-4 tw:lg:flex-row tw:lg:items-start"
+            >
+                <McAnnotatedImage
+                    v-if="imageUrl"
+                    :src="imageUrl"
+                    class="tw:w-full tw:lg:min-w-0 tw:lg:flex-1"
+                />
+                <div
+                    v-if="answer.detection"
+                    class="tw:w-full tw:lg:w-64 tw:lg:shrink-0 tw:flex tw:flex-col tw:gap-2"
+                >
+                    <span class="tw:text-xs tw:text-navy-50">
+                        Model:
+                        <span class="tw:text-sm tw:text-navy-70">{{ answer.detection.model }}</span>
+                    </span>
+                    <McConfidenceBar
+                        v-for="step in answer.detection.steps"
+                        :key="step.id"
+                        :label="step.predicted_class"
+                        :confidence="step.confidence"
+                    />
+                    <p v-if="answer.detection.steps[0]" class="tw:text-[11px] tw:text-navy-40">
+                        Scored from the
+                        <span class="tw:text-sm tw:text-primary">
+                            {{ answer.detection.steps[0].step }}
+                        </span>
+                        step. The other step, if any, doesn't affect the grade.
+                    </p>
+                    <McDetectionFilters class="tw:mt-1 tw:border-t tw:border-navy-15 tw:pt-3" />
+                </div>
+            </McDetectionFilterScope>
+
+            <div v-else class="tw:pr-8 tw:text-sm tw:text-navy-80">
+                <span class="tw:text-navy-40">Answer:</span>
+                {{
+                    answer.question.type === 'fill_in'
+                        ? (answer.response_text ?? '—')
+                        : answerLabel(answer.selected_options)
+                }}
+            </div>
+        </div>
+
+        <slot name="notes" />
+
+        <p
+            v-if="showAnswerKey && answer.question.accepted_answers?.length"
+            class="tw:text-xs tw:text-navy-50"
+        >
+            {{ isImage ? 'Expected' : 'Accepted' }}:
+            {{ answerLabel(answer.question.accepted_answers) }}
+        </p>
+
+        <slot name="footer">
+            <div
+                v-if="answer.comment"
+                class="tw:flex tw:flex-col tw:gap-1 tw:border-t tw:border-navy-10 tw:pt-3"
+            >
+                <span class="tw:text-xs tw:font-medium tw:text-navy-60">Instructor feedback</span>
+                <p class="tw:text-sm tw:text-navy-80 tw:whitespace-pre-line">
+                    {{ answer.comment }}
+                </p>
+            </div>
+        </slot>
+    </div>
+</template>

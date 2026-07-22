@@ -19,7 +19,10 @@ export const useAuth = defineStore('auth', () => {
             user_type: string
             role?: string
         }>(userToken.value.accessToken)
-        return payload
+        // .value, not the ref: useJwt hands back a ComputedRef, and returning it from a
+        // computed leaves a ref nested inside a ref. Pinia unwraps only the outer one, so
+        // consumers reading `auth.jwtUserInfo?.user_type` silently got undefined.
+        return payload.value
     })
 
     const isSignedIn = computed(() => !!userToken.value.accessToken.trim())

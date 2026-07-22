@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { Mail, Cpu, BookOpen, FileUp, Award } from 'lucide-vue-next'
 
+// Instructor-only: renders data across the whole class roster.
+definePageMeta({ role: 'instructor' })
+
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([{ label: 'Settings', to: '/settings' }])
 
