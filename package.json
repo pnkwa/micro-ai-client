@@ -12,6 +12,7 @@
         "lint:check-prettier": "prettier --check .",
         "lint:prettier": "prettier --write --list-different .",
         "lint:fix": "pnpm lint:prettier && pnpm lint:eslint --fix",
+        "typecheck": "nuxt typecheck",
         "prepare": "husky"
     },
     "dependencies": {
