@@ -4,7 +4,7 @@ import { Search } from 'lucide-vue-next'
 import type { ColumnDef, PaginationState } from '@tanstack/vue-table'
 import { assignmentTotalPoints, type Assignment } from '~/services/assignmentService'
 import type { SubmissionView } from '~/services/submissionService'
-import { getStatusVariant } from '~/core/helpers/variants'
+import { submissionBadges } from '~/core/helpers/studentAssignmentStatus'
 
 const props = defineProps<{
     assignment: Assignment
@@ -17,6 +17,11 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, h:mm A')
 
 const searchQuery = ref('')
 const pagination = ref<PaginationState>({ pageIndex: 0, pageSize: 10 })
+
+// Lateness is per submission against this assignment's deadline, so the due date comes from
+// the assignment prop rather than the row (the list rows carry their own assignment relation,
+// but every row here belongs to this one).
+const statusFor = (s: SubmissionView) => submissionBadges(s, props.assignment.due_date)
 
 const studentFullName = (s: SubmissionView) =>
     s.student ? `${s.student.user.firstname} ${s.student.user.lastname}` : s.student_id
@@ -132,9 +137,15 @@ function getScoreColor(score: number) {
             </template>
 
             <template #body-status="{ row }">
-                <McBadge :variant="getStatusVariant(row.original.status)" class="tw:capitalize">
-                    {{ row.original.status }}
-                </McBadge>
+                <div class="tw:flex tw:items-center tw:justify-center tw:gap-1.5">
+                    <McBadge
+                        v-for="b in statusFor(row.original)"
+                        :key="b.label"
+                        :variant="b.variant"
+                    >
+                        {{ b.label }}
+                    </McBadge>
+                </div>
             </template>
 
             <template #body-actions="{ row }">

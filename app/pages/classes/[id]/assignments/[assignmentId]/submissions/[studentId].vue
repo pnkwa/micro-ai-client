@@ -2,7 +2,7 @@
 import { ArrowLeft, Check, X, MessageSquarePlus } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { submissionService, type GradingAnswer } from '~/services/submissionService'
-import { getStatusVariant } from '~/core/helpers/variants'
+import { submissionBadges } from '~/core/helpers/studentAssignmentStatus'
 import { apiErrorMessage } from '~/core/helpers/error'
 import { useSubmissionDetail } from '~/core/composables/useSubmissionDetail'
 
@@ -92,6 +92,14 @@ const allGraded = computed(() =>
         : false,
 )
 
+// Lateness compares against the assignment this submission belongs to, which the detail
+// payload carries alongside it (submissionBaseSchema.assignment).
+const statusBadges = computed(() =>
+    submission.value
+        ? submissionBadges(submission.value, submission.value.assignment?.due_date)
+        : [],
+)
+
 const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY h:mm A')
 
 /**
@@ -154,7 +162,12 @@ const saveGrade = async () => {
     <div class="tw:mx-auto tw:flex tw:w-full tw:max-w-3xl tw:flex-col tw:gap-4">
         <button
             class="tw:flex tw:items-center tw:gap-1.5 tw:text-navy-60 tw:hover:text-primary tw:transition-colors tw:text-sm tw:self-start"
-            @click="router.push(`/classes/${classId}/assignments/${assignmentId}`)"
+            @click="
+                router.push({
+                    path: `/classes/${classId}/assignments/${assignmentId}`,
+                    query: { tab: 'submissions' },
+                })
+            "
         >
             <ArrowLeft class="tw:w-4 tw:h-4" />
             Back to Submissions
@@ -176,11 +189,8 @@ const saveGrade = async () => {
                     <div class="tw:flex tw:items-center tw:gap-2">
                         <span class="tw:font-semibold tw:text-navy-100">{{ studentName }}</span>
                         <span class="tw:text-xs tw:text-navy-40">{{ submission.student_id }}</span>
-                        <McBadge
-                            :variant="getStatusVariant(submission.status)"
-                            class="tw:capitalize"
-                        >
-                            {{ submission.status }}
+                        <McBadge v-for="b in statusBadges" :key="b.label" :variant="b.variant">
+                            {{ b.label }}
                         </McBadge>
                     </div>
                     <p class="tw:text-xs tw:text-navy-50 tw:mt-0.5">
@@ -267,19 +277,6 @@ const saveGrade = async () => {
                         >
                             <X class="tw:size-4" />
                         </button>
-                    </template>
-
-                    <template #notes>
-                        <p
-                            v-if="
-                                answer.question.type === 'image_detection' &&
-                                answer.auto_is_correct === null &&
-                                answer.auto_points === null
-                            "
-                            class="tw:text-xs tw:text-warning tw:font-medium"
-                        >
-                            AI review pending. Grade from the image directly.
-                        </p>
                     </template>
 
                     <template #footer>

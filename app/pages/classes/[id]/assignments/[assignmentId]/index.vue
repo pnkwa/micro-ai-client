@@ -9,7 +9,7 @@ import AssignmentExercises from '~/features/components/assignment/AssignmentExer
 import AssignmentReleaseBar from '~/features/components/assignment/AssignmentReleaseBar.vue'
 import AssignmentSubmissionsTab from '~/features/components/assignment/AssignmentSubmissionsTab.vue'
 import StudentExerciseForm from '~/features/components/assignment/StudentExerciseForm.vue'
-import { studentAssignmentStatus } from '~/core/helpers/studentAssignmentStatus'
+import { studentAssignmentBadges } from '~/core/helpers/studentAssignmentStatus'
 import DeleteAssignmentDialog from '~/features/components/assignment/DeleteAssignmentDialog.vue'
 
 const route = useRoute()
@@ -99,7 +99,11 @@ breadcrumb.setBreadcrumbs([
 
 // Students see no tabs at all: the detail and the answer form are the whole page for them.
 type Tab = 'detail' | 'submissions'
-const activeTab = ref<Tab>('detail')
+
+// The tab lives in the URL so it can be linked to and survives a reload. Grading a
+// submission navigates away and back, and landing on Detail every time made the grader
+// re-find the Submissions tab after every student.
+const activeTab = ref<Tab>(route.query.tab === 'submissions' ? 'submissions' : 'detail')
 
 const tabs = computed(() => [
     { value: 'detail', label: 'Detail' },
@@ -108,6 +112,9 @@ const tabs = computed(() => [
 
 const onTabChange = async (tab: Tab) => {
     activeTab.value = tab
+    // replace, not push: switching tabs shouldn't stack history entries a Back press then
+    // has to walk through. Detail is the default, so it carries no query at all.
+    router.replace({ query: tab === 'detail' ? {} : { tab } })
     if (tab === 'submissions' && submissions.value.length === 0) {
         await loadSubmissions()
     }
@@ -121,12 +128,11 @@ const isReleased = computed(() => {
     return exercises.length > 0 && exercises.every((ex) => ex.released)
 })
 
-// The header pill, from the student's point of view. The rule lives in the helper so this
-// page and the class list can't drift apart on it.
-const studentStatus = computed(() =>
-    assignment.value
-        ? studentAssignmentStatus(assignment.value, mySubmission.value)
-        : { label: 'New' as const, variant: 'default' as const },
+// The header pill(s), from the student's point of view. The rule lives in the helper so this
+// page and the class list can't drift apart on it. Usually one badge; a late-then-graded
+// assignment reads Graded + Late.
+const studentBadges = computed(() =>
+    assignment.value ? studentAssignmentBadges(assignment.value, mySubmission.value) : [],
 )
 
 const isDeleteOpen = ref(false)
@@ -176,9 +182,11 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                      authoring-side badges are instructor-only. An unreleased assignment is
                      invisible to students, so Draft/Released could only ever read "Released"
                      for them anyway. -->
-                <McBadge v-if="isStudent" :variant="studentStatus.variant">
-                    {{ studentStatus.label }}
-                </McBadge>
+                <template v-if="isStudent">
+                    <McBadge v-for="b in studentBadges" :key="b.label" :variant="b.variant">
+                        {{ b.label }}
+                    </McBadge>
+                </template>
                 <div v-else class="tw:flex tw:items-center tw:gap-2">
                     <McBadge :variant="isReleased ? 'info' : 'outline'">
                         {{ isReleased ? 'Released' : 'Draft' }}

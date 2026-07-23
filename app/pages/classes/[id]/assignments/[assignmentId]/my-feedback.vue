@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft } from 'lucide-vue-next'
 import { submissionService } from '~/services/submissionService'
-import { getStatusVariant } from '~/core/helpers/variants'
+import { submissionBadges } from '~/core/helpers/studentAssignmentStatus'
 import { useSubmissionDetail } from '~/core/composables/useSubmissionDetail'
 
 // The student's own result. No submission id in the URL: they shouldn't have to know it,
@@ -61,6 +61,11 @@ watchEffect(() => {
 })
 
 const isGraded = computed(() => submission.value?.status === 'graded')
+const statusBadges = computed(() =>
+    submission.value
+        ? submissionBadges(submission.value, submission.value.assignment?.due_date)
+        : [],
+)
 const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY h:mm A')
 </script>
 
@@ -95,11 +100,8 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY h:mm A
                         <span class="tw:font-semibold tw:text-navy-100">
                             {{ submission.assignment?.name }}
                         </span>
-                        <McBadge
-                            :variant="getStatusVariant(submission.status)"
-                            class="tw:capitalize"
-                        >
-                            {{ submission.status }}
+                        <McBadge v-for="b in statusBadges" :key="b.label" :variant="b.variant">
+                            {{ b.label }}
                         </McBadge>
                     </div>
                     <p class="tw:text-xs tw:text-navy-50 tw:mt-0.5">

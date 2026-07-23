@@ -19,7 +19,7 @@ import {
 import { assignmentService, type AssignmentListItem } from '~/services/assignmentService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import {
-    studentAssignmentStatus,
+    studentAssignmentBadges,
     indexSubmissionsByAssignment,
 } from '~/core/helpers/studentAssignmentStatus'
 
@@ -102,7 +102,7 @@ breadcrumb.setBreadcrumbs([
 ])
 
 const assignmentStatus = (assignment: AssignmentListItem) =>
-    studentAssignmentStatus(assignment, mySubmissions.value.get(assignment.id))
+    studentAssignmentBadges(assignment, mySubmissions.value.get(assignment.id))
 
 const activeTab = ref<'assignments' | 'students'>('assignments')
 
@@ -339,12 +339,15 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                         <div class="tw:flex tw:items-center tw:gap-4">
                             <!-- Students get their own standing on the work; instructors get
                                  the assignment's own state, which is what they author. -->
-                            <McBadge
-                                v-if="isStudent"
-                                :variant="assignmentStatus(assignment).variant"
-                            >
-                                {{ assignmentStatus(assignment).label }}
-                            </McBadge>
+                            <template v-if="isStudent">
+                                <McBadge
+                                    v-for="b in assignmentStatus(assignment)"
+                                    :key="b.label"
+                                    :variant="b.variant"
+                                >
+                                    {{ b.label }}
+                                </McBadge>
+                            </template>
                             <McBadge
                                 v-else
                                 :variant="assignment.status === 'active' ? 'default' : 'outline'"

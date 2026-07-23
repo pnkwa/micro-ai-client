@@ -13,6 +13,11 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { BarChart } from '~/core/components/bar-chart'
 import { getStatusVariant } from '~/core/helpers/variants'
+import {
+    submissionBadges,
+    isLateSubmission,
+    type StatusBadge,
+} from '~/core/helpers/studentAssignmentStatus'
 import { useClassFilterStore } from '~/core/store/useClassFilterStore'
 import { classService, type StudentRosterItem } from '~/services/classService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
@@ -77,10 +82,10 @@ watch(() => classFilterStore.selectedClassId, loadAssignments)
 
 // ---- helpers ----
 
-const isLate = (s: SubmissionView) =>
-    s.status === 'submitted' &&
-    !!s.assignment?.due_date &&
-    new Date(s.submitted_at) > new Date(s.assignment.due_date)
+// Lateness and the badge come from the shared helper, so this table, the submissions tab,
+// the grading header and the student's own pill can't disagree. The instant comparison this
+// replaced (submitted_at > due_date) called every submission made ON the due date late:
+// due_date is stored midnight UTC, so 09:00 local east of Greenwich is already past it.
 
 // ---- computed: scoping ----
 
@@ -118,7 +123,8 @@ const stats = computed(() => [
     },
     {
         label: 'Late Submissions',
-        value: scopedSubmissions.value.filter(isLate).length,
+        value: scopedSubmissions.value.filter((s) => isLateSubmission(s, s.assignment?.due_date))
+            .length,
         icon: Timer,
         type: 'warning',
     },
@@ -206,7 +212,7 @@ interface AssessmentData {
     assignmentId: number
     classId: number | null
     submittedAt: string
-    status: 'graded' | 'submitted' | 'late'
+    status: StatusBadge[]
 }
 
 const columns: ColumnDef<AssessmentData>[] = [
@@ -230,7 +236,7 @@ const filteredSubmissions = computed((): AssessmentData[] =>
         assignmentId: s.assignment_id,
         classId: s.assignment?.class?.id ?? null,
         submittedAt: s.submitted_at,
-        status: isLate(s) ? 'late' : s.status,
+        status: submissionBadges(s, s.assignment?.due_date),
     })),
 )
 
@@ -352,12 +358,15 @@ const formatSubmittedAt = (dateString: string) => dayjs(dateString).fromNow()
                         </span>
                     </template>
                     <template #body-status="{ row }">
-                        <McBadge
-                            :variant="getStatusVariant(row.original.status)"
-                            class="tw:capitalize"
-                        >
-                            {{ row.original.status }}
-                        </McBadge>
+                        <div class="tw:flex tw:items-center tw:justify-center tw:gap-1.5">
+                            <McBadge
+                                v-for="b in row.original.status"
+                                :key="b.label"
+                                :variant="b.variant"
+                            >
+                                {{ b.label }}
+                            </McBadge>
+                        </div>
                     </template>
                     <template #body-actions="{ row }">
                         <NuxtLink

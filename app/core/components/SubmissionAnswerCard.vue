@@ -40,6 +40,9 @@ const answerLabel = (options: string[]): string => (options.length ? options.joi
 
 const isImage = computed(() => props.answer.question.type === 'image_detection')
 
+const detection = computed(() => props.answer.detection ?? null)
+const steps = computed(() => detection.value?.steps ?? [])
+
 // The mark buttons are absolutely positioned in the box's corner, so the content has to
 // keep clear of them: a one-line text answer reserves a gutter beside them, an image
 // answer is far too wide for that and starts below instead. Keyed off the slot actually
@@ -90,7 +93,7 @@ const clearanceClass = computed(() => {
 
             <McDetectionFilterScope
                 v-if="isImage"
-                :steps="answer.detection?.steps ?? []"
+                :steps="steps"
                 class="tw:flex tw:flex-col tw:gap-4 tw:lg:flex-row tw:lg:items-start"
             >
                 <McAnnotatedImage
@@ -99,27 +102,37 @@ const clearanceClass = computed(() => {
                     class="tw:w-full tw:lg:min-w-0 tw:lg:flex-1"
                 />
                 <div
-                    v-if="answer.detection"
+                    v-if="detection"
                     class="tw:w-full tw:lg:w-64 tw:lg:shrink-0 tw:flex tw:flex-col tw:gap-2"
                 >
-                    <span class="tw:text-xs tw:text-navy-50">
-                        Model:
-                        <span class="tw:text-sm tw:text-navy-70">{{ answer.detection.model }}</span>
-                    </span>
-                    <McConfidenceBar
-                        v-for="step in answer.detection.steps"
-                        :key="step.id"
-                        :label="step.predicted_class"
-                        :confidence="step.confidence"
-                    />
-                    <p v-if="answer.detection.steps[0]" class="tw:text-[11px] tw:text-navy-40">
-                        Scored from the
-                        <span class="tw:text-sm tw:text-primary">
-                            {{ answer.detection.steps[0].step }}
+                    <!-- Keyed off steps, not the row: a detection can exist with none (a model
+                         that ran and found nothing), and "Model: x" over an empty panel reads
+                         as though x produced something. -->
+                    <template v-if="steps.length">
+                        <span class="tw:text-xs tw:text-navy-50">
+                            Model:
+                            <span class="tw:text-sm tw:text-navy-70">{{ detection.model }}</span>
                         </span>
-                        step. The other step, if any, doesn't affect the grade.
-                    </p>
-                    <McDetectionFilters class="tw:mt-1 tw:border-t tw:border-navy-15 tw:pt-3" />
+                        <McConfidenceBar
+                            v-for="step in steps"
+                            :key="step.id"
+                            :label="step.predicted_class"
+                            :confidence="step.confidence"
+                        />
+                        <p v-if="steps[0]" class="tw:text-[11px] tw:text-navy-40">
+                            Scored from the
+                            <span class="tw:text-sm tw:text-primary">{{ steps[0].step }}</span>
+                            step. The other step, if any, doesn't affect the grade.
+                        </p>
+                        <McDetectionFilters class="tw:mt-1 tw:border-t tw:border-navy-15 tw:pt-3" />
+                    </template>
+
+                    <div v-else class="tw:flex tw:flex-col tw:gap-1">
+                        <span class="tw:text-xs tw:font-medium tw:text-navy-70">No AI result</span>
+                        <p class="tw:text-[11px] tw:leading-relaxed tw:text-navy-40">
+                            The model found nothing in this image. Grade from the image directly.
+                        </p>
+                    </div>
                 </div>
             </McDetectionFilterScope>
 
