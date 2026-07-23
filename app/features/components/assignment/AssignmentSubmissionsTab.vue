@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { h } from 'vue'
-import { Search, User } from 'lucide-vue-next'
+import { Search } from 'lucide-vue-next'
 import type { ColumnDef, PaginationState } from '@tanstack/vue-table'
-import type { Assignment } from '~/services/assignmentService'
+import { assignmentTotalPoints, type Assignment } from '~/services/assignmentService'
 import type { SubmissionView } from '~/services/submissionService'
-import { getStatusVariant } from '~/core/helpers/variants'
+import { submissionBadges } from '~/core/helpers/studentAssignmentStatus'
 
 const props = defineProps<{
     assignment: Assignment
@@ -17,6 +17,11 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, h:mm A')
 
 const searchQuery = ref('')
 const pagination = ref<PaginationState>({ pageIndex: 0, pageSize: 10 })
+
+// Lateness is per submission against this assignment's deadline, so the due date comes from
+// the assignment prop rather than the row (the list rows carry their own assignment relation,
+// but every row here belongs to this one).
+const statusFor = (s: SubmissionView) => submissionBadges(s, props.assignment.due_date)
 
 const studentFullName = (s: SubmissionView) =>
     s.student ? `${s.student.user.firstname} ${s.student.user.lastname}` : s.student_id
@@ -31,11 +36,21 @@ const resetToFirstPage = () => {
     pagination.value = { ...pagination.value, pageIndex: 0 }
 }
 
+// Total points is derived from the exercises' questions, not assignments.points; see
+// assignmentTotalPoints for why (the stored field is disconnected from the authored content).
+const totalPoints = computed(() => assignmentTotalPoints(props.assignment))
+
+// Drives the progress-bar width/color only; the visible label is the raw fraction below.
 const submissionScore = (s: SubmissionView): number | null => {
     if (s.score === null || s.score === undefined) return null
-    const points = props.assignment.points
-    if (!points) return null
-    return Math.round((s.score / points) * 100)
+    if (!totalPoints.value) return null
+    return Math.round((s.score / totalPoints.value) * 100)
+}
+
+// "3.5/4": raw points earned over the assignment total, not a percentage.
+const scoreFraction = (s: SubmissionView): string | null => {
+    if (s.score === null || s.score === undefined) return null
+    return `${s.score}/${totalPoints.value}`
 }
 
 const columns: ColumnDef<SubmissionView>[] = [
@@ -86,25 +101,14 @@ function getScoreColor(score: number) {
             :total="filteredSubmissions.length"
         >
             <template #body-studentName="{ row }">
-                <div class="tw:flex tw:items-center tw:gap-2.5">
-                    <div
-                        class="tw:w-8 tw:h-8 tw:rounded-full tw:bg-navy-10 tw:border tw:border-navy-20 tw:flex tw:items-center tw:justify-center tw:shrink-0"
-                    >
-                        <User class="tw:w-4 tw:h-4 tw:text-navy-60" />
-                    </div>
-                    <div class="tw:flex tw:flex-col">
-                        <span class="tw:text-sm tw:font-medium tw:text-navy-100">
-                            {{ studentFullName(row.original) }}
-                        </span>
-                        <span class="tw:text-xs tw:text-navy-50">
-                            {{ row.original.student_id }}
-                        </span>
-                    </div>
-                </div>
+                <McStudentIdentity
+                    :name="studentFullName(row.original)"
+                    :student-id="row.original.student_id"
+                />
             </template>
 
             <template #body-submitted_at="{ row }">
-                <span class="tw:text-sm tw:text-slate-500">
+                <span class="tw:text-xs tw:text-navy-50">
                     {{ formatDateTime(row.original.submitted_at) }}
                 </span>
             </template>
@@ -125,7 +129,7 @@ function getScoreColor(score: number) {
                             class="tw:text-xs tw:font-semibold tw:tabular-nums"
                             :class="getScoreColor(submissionScore(row.original)!).text"
                         >
-                            {{ submissionScore(row.original) }}%
+                            {{ scoreFraction(row.original) }}
                         </span>
                     </template>
                     <span v-else class="tw:text-xs tw:text-navy-40">—</span>
@@ -133,22 +137,22 @@ function getScoreColor(score: number) {
             </template>
 
             <template #body-status="{ row }">
-                <McBadge :variant="getStatusVariant(row.original.status)" class="tw:capitalize">
-                    {{ row.original.status }}
-                </McBadge>
+                <div class="tw:flex tw:items-center tw:justify-center tw:gap-1.5">
+                    <McBadge
+                        v-for="b in statusFor(row.original)"
+                        :key="b.label"
+                        :variant="b.variant"
+                    >
+                        {{ b.label }}
+                    </McBadge>
+                </div>
             </template>
 
             <template #body-actions="{ row }">
                 <NuxtLink
                     :to="`/classes/${assignment.class_id}/assignments/${assignment.id}/submissions/${row.original.id}`"
                 >
-                    <McButton
-                        variant="outline"
-                        size="sm"
-                        class="tw:text-xs tw:h-7 tw:border-slate-200 tw:text-primary tw:hover:bg-primary/5 tw:hover:border-primary/30"
-                    >
-                        Review
-                    </McButton>
+                    <McButton variant="outline" size="sm">Review</McButton>
                 </NuxtLink>
             </template>
         </McDataTable>

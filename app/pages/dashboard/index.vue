@@ -13,11 +13,19 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { BarChart } from '~/core/components/bar-chart'
 import { getStatusVariant } from '~/core/helpers/variants'
+import {
+    submissionBadges,
+    isLateSubmission,
+    type StatusBadge,
+} from '~/core/helpers/studentAssignmentStatus'
 import { useClassFilterStore } from '~/core/store/useClassFilterStore'
 import { classService, type StudentRosterItem } from '~/services/classService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { assignmentService, type AssignmentListItem } from '~/services/assignmentService'
 import type { ColumnDef } from '@tanstack/vue-table'
+
+// Instructor-only: renders data across the whole class roster.
+definePageMeta({ role: 'instructor' })
 
 dayjs.extend(relativeTime)
 
@@ -65,7 +73,7 @@ try {
     await loadAllStudents()
     await loadAssignments()
 } catch {
-    // auth failure or network error — show empty state, don't 500
+    // auth failure or network error: show empty state, don't 500
 } finally {
     isLoading.value = false
 }
@@ -74,10 +82,10 @@ watch(() => classFilterStore.selectedClassId, loadAssignments)
 
 // ---- helpers ----
 
-const isLate = (s: SubmissionView) =>
-    s.status === 'submitted' &&
-    !!s.assignment?.due_date &&
-    new Date(s.submitted_at) > new Date(s.assignment.due_date)
+// Lateness and the badge come from the shared helper, so this table, the submissions tab,
+// the grading header and the student's own pill can't disagree. The instant comparison this
+// replaced (submitted_at > due_date) called every submission made ON the due date late:
+// due_date is stored midnight UTC, so 09:00 local east of Greenwich is already past it.
 
 // ---- computed: scoping ----
 
@@ -115,7 +123,8 @@ const stats = computed(() => [
     },
     {
         label: 'Late Submissions',
-        value: scopedSubmissions.value.filter(isLate).length,
+        value: scopedSubmissions.value.filter((s) => isLateSubmission(s, s.assignment?.due_date))
+            .length,
         icon: Timer,
         type: 'warning',
     },
@@ -203,7 +212,7 @@ interface AssessmentData {
     assignmentId: number
     classId: number | null
     submittedAt: string
-    status: 'graded' | 'submitted' | 'late'
+    status: StatusBadge[]
 }
 
 const columns: ColumnDef<AssessmentData>[] = [
@@ -227,7 +236,7 @@ const filteredSubmissions = computed((): AssessmentData[] =>
         assignmentId: s.assignment_id,
         classId: s.assignment?.class?.id ?? null,
         submittedAt: s.submitted_at,
-        status: isLate(s) ? 'late' : s.status,
+        status: submissionBadges(s, s.assignment?.due_date),
     })),
 )
 
@@ -324,23 +333,14 @@ const formatSubmittedAt = (dateString: string) => dayjs(dateString).fromNow()
                     <h3 class="tw:text-[1rem] tw:font-semibold">Recent Submissions</h3>
                 </div>
 
-                <McDataTable :columns="columns" :data="filteredSubmissions" class="tw-mt-4">
+                <!-- No class here: McDataTable has a fragment root, so Vue drops any class
+                     passed to it (it warned about exactly that). Spacing lives on the card. -->
+                <McDataTable :columns="columns" :data="filteredSubmissions">
                     <template #body-studentName="{ row }">
-                        <div class="tw:flex tw:items-center tw:gap-6">
-                            <div
-                                class="tw:w-9 tw:h-9 tw:rounded-full tw:bg-navy-10 tw:flex tw:items-center tw:justify-center"
-                            >
-                                <Users class="avatar-icon" />
-                            </div>
-                            <div class="tw:flex tw:flex-col tw:items-start">
-                                <p class="tw:text-sm tw:font-medium tw:text-navy-100">
-                                    {{ row.original.studentName }}
-                                </p>
-                                <p class="tw:text-xs tw:text-navy-50">
-                                    {{ row.original.studentId }}
-                                </p>
-                            </div>
-                        </div>
+                        <McStudentIdentity
+                            :name="row.original.studentName"
+                            :student-id="row.original.studentId"
+                        />
                     </template>
                     <template #body-className="{ row }">
                         <span class="tw:text-sm tw:text-navy-80">
@@ -358,12 +358,15 @@ const formatSubmittedAt = (dateString: string) => dayjs(dateString).fromNow()
                         </span>
                     </template>
                     <template #body-status="{ row }">
-                        <McBadge
-                            :variant="getStatusVariant(row.original.status)"
-                            class="tw:capitalize"
-                        >
-                            {{ row.original.status }}
-                        </McBadge>
+                        <div class="tw:flex tw:items-center tw:justify-center tw:gap-1.5">
+                            <McBadge
+                                v-for="b in row.original.status"
+                                :key="b.label"
+                                :variant="b.variant"
+                            >
+                                {{ b.label }}
+                            </McBadge>
+                        </div>
                     </template>
                     <template #body-actions="{ row }">
                         <NuxtLink
@@ -416,12 +419,6 @@ const formatSubmittedAt = (dateString: string) => dayjs(dateString).fromNow()
 }
 
 .summary-icon {
-    width: 18px;
-    height: 18px;
-    color: var(--color-navy-50);
-}
-
-.avatar-icon {
     width: 18px;
     height: 18px;
     color: var(--color-navy-50);

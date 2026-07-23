@@ -1,420 +1,320 @@
 <script setup lang="ts">
-import { Button as McButton } from '~/core/components/ui/button'
-// ...existing code...
-import { Input } from '~/core/components/ui/input'
-import { Select } from '~/core/components/ui/select'
-import { Textarea } from '~/core/components/ui/textarea'
-import { ArrowLeft } from 'lucide-vue-next'
-import { ref } from 'vue'
-import fileUrl from '@/assets/images/cell.png'
-import classesData from '~/data/classes.json'
-import assignmentsData from '~/data/assignments.json'
+import { ArrowLeft, Check, X, MessageSquarePlus } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
+import { submissionService, type GradingAnswer } from '~/services/submissionService'
+import { submissionBadges } from '~/core/helpers/studentAssignmentStatus'
+import { apiErrorMessage } from '~/core/helpers/error'
+import { useSubmissionDetail } from '~/core/composables/useSubmissionDetail'
+
+// Grading is instructor work end to end. Students read the same submission through
+// /my-feedback, which renders McSubmissionAnswerCard without any of the controls below.
+definePageMeta({ role: 'instructor' })
 
 const route = useRoute()
 const router = useRouter()
-const classId = route.params.id
-const assignmentId = route.params.assignmentId
+const { $dayjs } = useNuxtApp()
 
-const classItem = computed(() =>
-    (classesData.classes as { id: number; name: string }[]).find((c) => c.id === Number(classId)),
-)
-const assignmentItem = computed(() =>
-    (assignmentsData.assignments as { id: number; name: string }[]).find(
-        (a) => a.id === Number(assignmentId),
-    ),
-)
+const classId = computed(() => Number(route.params.id))
+const assignmentId = computed(() => Number(route.params.assignmentId))
+// The route folder is named [studentId], but the segment it actually carries is the
+// SUBMISSION id; see AssignmentSubmissionsTab.vue's link (`row.original.id`).
+const submissionId = computed(() => Number(route.params.studentId))
+
+const {
+    submission,
+    isLoading,
+    loadFailed,
+    answerGroups,
+    exerciseTitles,
+    imageUrls,
+    totalPoints,
+    load,
+} = useSubmissionDetail(submissionId, assignmentId)
+
+const isSaving = ref(false)
+
+interface Draft {
+    is_correct: boolean | null
+    points_awarded: number | null
+    comment: string
+}
+const drafts = reactive<Record<number, Draft>>({})
+const originalComments = reactive<Record<number, string>>({})
+// Feedback starts collapsed (Google Forms-style "Add feedback" link) unless a comment
+// already exists, in which case it opens so it isn't hidden.
+const feedbackOpen = reactive<Record<number, boolean>>({})
+
+const reload = () =>
+    load((detail) => {
+        for (const answer of detail.answers) {
+            drafts[answer.question_id] = {
+                is_correct: answer.is_correct ?? answer.auto_is_correct ?? null,
+                points_awarded: answer.points_awarded ?? answer.auto_points ?? null,
+                comment: answer.comment ?? '',
+            }
+            originalComments[answer.question_id] = answer.comment ?? ''
+            feedbackOpen[answer.question_id] = !!answer.comment
+        }
+    })
+await reload()
 
 const breadcrumb = useBreadcrumb()
 watchEffect(() => {
+    const s = submission.value
     breadcrumb.setBreadcrumbs([
         { label: 'Classes', to: '/classes' },
-        { label: classItem.value?.name ?? 'Class', to: `/classes/${classId}` },
+        { label: s?.assignment?.class?.name ?? 'Class', to: `/classes/${classId.value}` },
         {
-            label: assignmentItem.value?.name ?? 'Assignment',
-            to: `/classes/${classId}/assignments/${assignmentId}`,
+            label: s?.assignment?.name ?? 'Assignment',
+            to: `/classes/${classId.value}/assignments/${assignmentId.value}`,
         },
         { label: 'Submission' },
     ])
 })
 
-const showAIDetection = ref(true)
+const studentName = computed(() => {
+    const s = submission.value?.student
+    return s ? `${s.user.firstname} ${s.user.lastname}` : (submission.value?.student_id ?? '')
+})
 
-const aiBoxes = [
-    {
-        id: 1,
-        label: 'Clue Cell',
-        confidence: 94,
-        style: 'left:18%;top:22%;width:22%;height:18%',
-        color: 'tw:border-blue-400',
-        labelColor: 'tw:bg-blue-600 tw:text-white',
-    },
-    {
-        id: 2,
-        label: 'Gram-positive Rod',
-        confidence: 89,
-        style: 'left:55%;top:40%;width:18%;height:20%',
-        color: 'tw:border-emerald-400',
-        labelColor: 'tw:bg-emerald-600 tw:text-white',
-    },
-    {
-        id: 3,
-        label: 'Fungal Element',
-        confidence: 77,
-        style: 'left:35%;top:65%;width:15%;height:15%',
-        color: 'tw:border-amber-400',
-        labelColor: 'tw:bg-amber-500 tw:text-white',
-    },
-]
+const previewScore = computed(() =>
+    Object.values(drafts).reduce((sum, d) => sum + (d.points_awarded ?? 0), 0),
+)
 
-const detectionSummary = [
-    { label: 'Clue Cells', count: 4, avg: 88 },
-    { label: 'Gram-positive rods', count: 12, avg: 91 },
-    { label: 'Fungal elements', count: 0, avg: 0 },
-]
+// Every objective answer (multiple_choice/fill_in) is always auto-graded, since gradeChoice
+// and gradeFillIn never return null, so this only ever gates on an image_detection answer
+// whose AI suggestion hasn't landed yet, catching exactly the case where reviewAnswer would
+// silently clear needs_review on an answer nobody actually graded (points_awarded stays
+// null → computeScore treats it as 0).
+const allGraded = computed(() =>
+    submission.value
+        ? submission.value.answers.every((a) => drafts[a.question_id]?.is_correct !== null)
+        : false,
+)
 
-const qualityMetrics = [
-    { label: 'Focus Quality', value: 85, color: 'tw:bg-blue-500' },
-    { label: 'Stain Quality', value: 76, color: 'tw:bg-amber-400' },
-    { label: 'Overall Quality', value: 87, color: 'tw:bg-emerald-500' },
-]
+// Lateness compares against the assignment this submission belongs to, which the detail
+// payload carries alongside it (submissionBaseSchema.assignment).
+const statusBadges = computed(() =>
+    submission.value
+        ? submissionBadges(submission.value, submission.value.assignment?.due_date)
+        : [],
+)
 
-const score = ref(90)
-const overrideDiagnosis = ref('bv')
-const instructorFeedback = ref('')
-const diagnosisOptions = [
-    { label: 'Healthy', value: 'healthy' },
-    { label: 'Transition', value: 'transition' },
-    { label: 'VVC', value: 'vvc' },
-    { label: 'BV', value: 'bv' },
-    { label: 'TV', value: 'tv' },
-    { label: 'GU', value: 'gu' },
-    { label: 'NGU', value: 'ngu' },
-]
+const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY h:mm A')
+
+/**
+ * The correct/incorrect toggle owns the points too. The submission score is Σ
+ * points_awarded server-side (computeScore, ADR-005) and ignores is_correct entirely, so
+ * setting only the flag produced an answer the page tinted green and the gradebook scored
+ * as zero. Overwrites unconditionally: type a partial-credit value afterwards and it
+ * stands until the toggle is touched again.
+ */
+const markAnswer = (answer: GradingAnswer, isCorrect: boolean) => {
+    const draft = drafts[answer.question_id]
+    if (!draft) return
+    draft.is_correct = isCorrect
+    draft.points_awarded = isCorrect ? answer.question.points : 0
+}
+
+// Response-box tint: green once marked correct, red once marked incorrect, neutral while
+// ungraded, the Google Forms "quiz" review look.
+const responseBoxClass = (questionId: number): string => {
+    const state = drafts[questionId]?.is_correct
+    if (state === true) return 'tw:border-success/40 tw:bg-success/5'
+    if (state === false) return 'tw:border-danger/40 tw:bg-danger/5'
+    return 'tw:border-navy-15 tw:bg-navy-10/20'
+}
+
+const saveGrade = async () => {
+    if (!submission.value) return
+    isSaving.value = true
+    try {
+        for (const answer of submission.value.answers) {
+            const draft = drafts[answer.question_id]
+            if (!draft) continue
+            const body: Parameters<typeof submissionService.reviewAnswer>[2] = {
+                is_correct: draft.is_correct ?? undefined,
+                points_awarded: draft.points_awarded ?? undefined,
+            }
+            // Only send `comment` when it actually changed; omitting it leaves the existing
+            // value untouched server-side, and sending it always would let a grader
+            // adjusting one answer's score silently blank out a comment on another.
+            if (draft.comment !== originalComments[answer.question_id]) {
+                body.comment = draft.comment.trim() === '' ? null : draft.comment
+            }
+            await submissionService.reviewAnswer(submission.value.id, answer.question_id, body)
+        }
+        // Computes and persists the total score and flips status to graded, which is also
+        // what makes the result visible to the student. Reviewing every answer first (just
+        // above) is what lets this succeed; the server rejects it otherwise.
+        await submissionService.finalize(submission.value.id)
+        toast.success('Grade saved')
+        await reload()
+    } catch (e) {
+        toast.error(apiErrorMessage(e, 'Failed to save grade'))
+    } finally {
+        isSaving.value = false
+    }
+}
 </script>
 
 <template>
-    <div class="tw:flex tw:flex-col tw:h-full tw:bg-slate-50 tw:overflow-hidden">
-        <div class="tw:px-4 tw:pt-3 tw:pb-0">
-            <button
-                class="tw:flex tw:items-center tw:gap-1.5 tw:text-navy-60 tw:hover:text-primary tw:transition-colors tw:text-sm"
-                @click="router.push(`/classes/${classId}/assignments/${assignmentId}`)"
-            >
-                <ArrowLeft class="tw:w-4 tw:h-4" />
-                Back to Submissions
-            </button>
+    <div class="tw:mx-auto tw:flex tw:w-full tw:max-w-3xl tw:flex-col tw:gap-4">
+        <button
+            class="tw:flex tw:items-center tw:gap-1.5 tw:text-navy-60 tw:hover:text-primary tw:transition-colors tw:text-sm tw:self-start"
+            @click="
+                router.push({
+                    path: `/classes/${classId}/assignments/${assignmentId}`,
+                    query: { tab: 'submissions' },
+                })
+            "
+        >
+            <ArrowLeft class="tw:w-4 tw:h-4" />
+            Back to Submissions
+        </button>
+
+        <div v-if="isLoading" class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60">
+            Loading…
         </div>
-        <div class="tw:flex tw:flex-1 tw:gap-4 tw:p-4 tw:overflow-hidden">
-            <!-- ── LEFT: Image Viewer ── -->
+
+        <div v-else-if="loadFailed || !submission" class="tw:text-center tw:py-16 tw:text-navy-60">
+            Submission not found.
+        </div>
+
+        <template v-else>
             <div
-                class="tw:flex-1 tw:flex tw:flex-col tw:bg-white tw:rounded-md tw:border tw:border-slate-200 tw:overflow-hidden tw:min-w-0"
+                class="tw:flex tw:items-center tw:justify-between tw:bg-white tw:border tw:border-navy-10 tw:rounded-xl tw:px-6 tw:py-5"
             >
-                <!-- Student Info Header -->
-                <div
-                    class="tw:flex tw:items-center tw:justify-between tw:px-5 tw:py-3.5 tw:border-b tw:border-slate-100"
-                >
-                    <div class="tw:flex tw:items-center tw:gap-3">
-                        <div
-                            class="tw:w-9 tw:h-9 tw:rounded-full tw:bg-primary/10 tw:flex tw:items-center tw:justify-center tw:text-primary tw:font-bold tw:text-sm tw:shrink-0"
-                        >
-                            SK
-                        </div>
-                        <div>
-                            <div class="tw:flex tw:items-center tw:gap-2">
-                                <span class="tw:font-semibold tw:text-slate-900 tw:text-sm">
-                                    Sarah Kim
-                                </span>
-                                <span class="tw:text-xs tw:text-slate-400">65200001</span>
-                                <!-- Pending badge removed -->
-                            </div>
-                            <div class="tw:text-xs tw:text-slate-400 tw:mt-0.5">
-                                Gram Stain Analysis · Microbiology Lab · Feb 15, 2:34 PM
-                            </div>
-                        </div>
-                    </div>
+                <div>
                     <div class="tw:flex tw:items-center tw:gap-2">
-                        <McButton
-                            variant="outline"
-                            size="sm"
-                            class="tw:text-xs tw:h-7 tw:border-slate-200 tw:text-slate-500"
-                        >
-                            Download
-                        </McButton>
+                        <span class="tw:font-semibold tw:text-navy-100">{{ studentName }}</span>
+                        <span class="tw:text-xs tw:text-navy-40">{{ submission.student_id }}</span>
+                        <McBadge v-for="b in statusBadges" :key="b.label" :variant="b.variant">
+                            {{ b.label }}
+                        </McBadge>
                     </div>
+                    <p class="tw:text-xs tw:text-navy-50 tw:mt-0.5">
+                        {{ submission.assignment?.name }} · submitted
+                        {{ formatDateTime(submission.submitted_at) }}
+                    </p>
                 </div>
-
-                <div
-                    class="tw:flex tw:items-center tw:justify-between tw:px-4 tw:py-2 tw:border-b tw:border-slate-100 tw:bg-slate-50/60"
-                >
-                    <span class="tw:text-[11px] tw:text-slate-400">submission_gram_stain.jpg</span>
-                    <div class="tw:flex tw:items-center tw:gap-1">
-                        <McButton
-                            variant="ghost"
-                            size="icon"
-                            class="tw:w-7 tw:h-7 tw:text-slate-400"
-                        >
-                            ＋
-                        </McButton>
-                        <McButton
-                            variant="ghost"
-                            size="icon"
-                            class="tw:w-7 tw:h-7 tw:text-slate-400"
-                        >
-                            －
-                        </McButton>
-                        <McButton
-                            variant="ghost"
-                            size="icon"
-                            class="tw:w-7 tw:h-7 tw:text-slate-400"
-                        >
-                            ⟳
-                        </McButton>
-                        <McButton
-                            variant="ghost"
-                            size="icon"
-                            class="tw:w-7 tw:h-7 tw:text-slate-400"
-                        >
-                            ⛶
-                        </McButton>
-                        <div class="tw:w-px tw:h-4 tw:bg-slate-200 tw:mx-1"></div>
-                        <label
-                            class="tw:flex tw:items-center tw:gap-2 tw:cursor-pointer tw:select-none"
-                        >
-                            <div
-                                class="tw:relative tw:w-8 tw:h-4.5 tw:rounded-full tw:transition-colors tw:duration-200 tw:cursor-pointer"
-                                :class="showAIDetection ? 'tw:bg-primary' : 'tw:bg-slate-200'"
-                                @click="showAIDetection = !showAIDetection"
-                            >
-                                <div
-                                    class="tw:absolute tw:top-0.5 tw:w-3.5 tw:h-3.5 tw:rounded-full tw:bg-white tw:shadow-sm tw:transition-all tw:duration-200"
-                                    :class="showAIDetection ? 'tw:left-4' : 'tw:left-0.5'"
-                                ></div>
-                            </div>
-                            <span class="tw:text-[11px] tw:text-slate-500">AI Detection</span>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Image -->
-                <div
-                    class="tw:relative tw:flex-1 tw:bg-slate-950 tw:flex tw:items-center tw:justify-center tw:overflow-hidden"
-                >
-                    <img
-                        :src="fileUrl"
-                        alt="Microscope Submission"
-                        class="tw:h-full tw:max-w-full tw:object-contain"
-                    />
-                    <template v-if="showAIDetection">
-                        <div
-                            v-for="box in aiBoxes"
-                            :key="box.id"
-                            :style="box.style"
-                            class="tw:absolute tw:border-2 tw:rounded"
-                            :class="box.color"
-                        >
-                            <span
-                                class="tw:absolute tw:-top-5 tw:left-0 tw:px-1.5 tw:py-0.5 tw:rounded tw:text-[10px] tw:font-semibold tw:whitespace-nowrap"
-                                :class="box.labelColor"
-                            >
-                                {{ box.label }} · {{ box.confidence }}%
-                            </span>
-                        </div>
-                    </template>
-                </div>
-
-                <!-- Legend -->
-                <div
-                    class="tw:flex tw:items-center tw:gap-5 tw:px-5 tw:py-2.5 tw:border-t tw:border-slate-100 tw:bg-slate-50/60"
-                >
-                    <div
-                        v-for="box in aiBoxes"
-                        :key="box.id"
-                        class="tw:flex tw:items-center tw:gap-1.5 tw:text-[11px] tw:text-slate-500"
-                    >
-                        <span
-                            class="tw:inline-block tw:w-2.5 tw:h-2.5 tw:rounded-sm tw:border-2"
-                            :class="box.color"
-                        ></span>
-                        {{ box.label }}
-                    </div>
+                <div class="tw:text-right">
+                    <span class="tw:text-lg tw:font-bold tw:text-primary">
+                        {{ previewScore }} / {{ totalPoints }}
+                    </span>
+                    <p class="tw:text-[11px] tw:text-navy-40">
+                        {{
+                            submission.status === 'graded'
+                                ? 'final score'
+                                : 'preview, not saved yet'
+                        }}
+                    </p>
                 </div>
             </div>
 
-            <!-- ── RIGHT: Analysis + Grading ── -->
-            <div
-                class="tw:w-100 tw:shrink-0 tw:flex tw:flex-col tw:gap-3 tw:overflow-y-auto tw:pb-1"
-            >
-                <!-- AI Detection Summary -->
-                <div
-                    class="tw:bg-white tw:rounded-md tw:border tw:border-slate-200 tw:overflow-hidden"
+            <template v-for="group in answerGroups" :key="group.exerciseId">
+                <div class="tw:flex tw:items-center tw:gap-2.5">
+                    <span
+                        class="tw:flex tw:size-6 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-full tw:bg-primary/10 tw:text-xs tw:font-semibold tw:text-primary"
+                    >
+                        {{ group.exIndex + 1 }}
+                    </span>
+                    <span class="tw:text-sm tw:font-semibold tw:text-navy-90">
+                        {{ exerciseTitles[group.exerciseId] ?? `Exercise ${group.exIndex + 1}` }}
+                    </span>
+                    <div class="tw:h-px tw:flex-1 tw:bg-navy-10"></div>
+                </div>
+
+                <McSubmissionAnswerCard
+                    v-for="{ answer, qIndex } in group.items"
+                    :key="answer.question_id"
+                    :answer="answer"
+                    :label="`${group.exIndex + 1}.${qIndex + 1}`"
+                    :image-url="imageUrls[answer.question_id]"
+                    :tint-class="responseBoxClass(answer.question_id)"
+                    :highlight="drafts[answer.question_id]?.is_correct === null"
+                    show-answer-key
                 >
-                    <div class="tw:px-4 tw:py-3 tw:border-b tw:border-slate-100">
-                        <span class="tw:text-xs tw:font-semibold tw:text-slate-700">
-                            Detection Summary
-                        </span>
-                    </div>
-                    <div class="tw:divide-y tw:divide-slate-100">
-                        <div
-                            v-for="item in detectionSummary"
-                            :key="item.label"
-                            class="tw:flex tw:items-center tw:justify-between tw:px-4 tw:py-2.5"
+                    <template #points>
+                        <label
+                            class="tw:shrink-0 tw:flex tw:items-center tw:gap-1.5 tw:text-xs tw:text-navy-50"
                         >
-                            <span class="tw:text-xs tw:text-slate-600">{{ item.label }}</span>
-                            <div class="tw:flex tw:items-center tw:gap-2">
-                                <span
-                                    class="tw:text-xs tw:font-bold tw:px-2 tw:py-0.5 tw:rounded-full tw:min-w-6 tw:text-center"
-                                    :class="
-                                        item.count > 0
-                                            ? 'tw:bg-primary/10 tw:text-primary'
-                                            : 'tw:bg-slate-100 tw:text-slate-400'
-                                    "
-                                >
-                                    {{ item.count }}
-                                </span>
-                                <span class="tw:text-[10px] tw:text-slate-400 tw:w-12">
-                                    {{ item.count > 0 ? `avg ${item.avg}%` : '—' }}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- AI Diagnosis -->
-                <div
-                    class="tw:bg-white tw:rounded-md tw:border tw:border-slate-200 tw:overflow-hidden"
-                >
-                    <div class="tw:px-4 tw:py-3 tw:border-b tw:border-slate-100">
-                        <span class="tw:text-xs tw:font-semibold tw:text-slate-700">
-                            AI Diagnosis
-                        </span>
-                    </div>
-                    <div class="tw:p-4">
-                        <div class="tw:flex tw:items-center tw:justify-between tw:mb-2">
-                            <span class="tw:text-sm tw:font-semibold tw:text-red-600">
-                                Bacterial Vaginosis (BV)
-                            </span>
-                            <span class="tw:text-sm tw:font-bold tw:text-red-600">92%</span>
-                        </div>
-                        <div class="tw:w-full tw:bg-red-100 tw:rounded-full tw:h-1 tw:mb-2.5">
-                            <div
-                                class="tw:bg-red-500 tw:h-1 tw:rounded-full"
-                                style="width: 92%"
-                            ></div>
-                        </div>
-                        <p class="tw:text-[10px] tw:text-slate-400 tw:leading-relaxed">
-                            AI suggestions only — verify before grading.
-                        </p>
-                    </div>
-                </div>
-
-                <!-- Image Quality -->
-                <div
-                    class="tw:bg-white tw:rounded-md tw:border tw:border-slate-200 tw:overflow-hidden"
-                >
-                    <div class="tw:px-4 tw:py-3 tw:border-b tw:border-slate-100">
-                        <span class="tw:text-xs tw:font-semibold tw:text-slate-700">
-                            Image Quality
-                        </span>
-                    </div>
-                    <div class="tw:p-4 tw:flex tw:flex-col tw:gap-3">
-                        <div v-for="q in qualityMetrics" :key="q.label">
-                            <div class="tw:flex tw:justify-between tw:items-center tw:mb-1.5">
-                                <span class="tw:text-xs tw:text-slate-500">{{ q.label }}</span>
-                                <span class="tw:text-xs tw:font-semibold tw:text-slate-700">
-                                    {{ q.value }}%
-                                </span>
-                            </div>
-                            <div class="tw:w-full tw:bg-slate-100 tw:rounded-full tw:h-1">
-                                <div
-                                    class="tw:h-1 tw:rounded-full tw:transition-all"
-                                    :class="q.color"
-                                    :style="`width:${q.value}%`"
-                                ></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Grading -->
-                <div
-                    class="tw:bg-white tw:rounded-md tw:border tw:border-slate-200 tw:overflow-hidden"
-                >
-                    <div class="tw:px-4 tw:py-3 tw:border-b tw:border-slate-100">
-                        <span class="tw:text-xs tw:font-semibold tw:text-slate-700">
-                            Instructor Grading
-                        </span>
-                    </div>
-                    <div class="tw:p-4 tw:flex tw:flex-col tw:gap-3.5">
-                        <!-- Score -->
-                        <div>
-                            <label
-                                class="tw:text-[11px] tw:font-semibold tw:text-slate-500 tw:uppercase tw:tracking-wide tw:block tw:mb-1.5"
-                            >
-                                Score
-                            </label>
-                            <div class="tw:flex tw:items-center tw:gap-2">
-                                <Input
-                                    v-model="score"
-                                    type="number"
-                                    min="0"
-                                    max="100"
-                                    class="tw:w-16 tw:text-center tw:font-bold tw:text-base"
-                                />
-                                <span class="tw:text-sm tw:text-slate-400">/ 100</span>
-                                <span
-                                    class="tw:text-xs tw:font-bold tw:px-2.5 tw:py-1 tw:rounded-lg tw:bg-primary/10 tw:text-primary tw:ml-auto"
-                                >
-                                    {{
-                                        score >= 90
-                                            ? 'A'
-                                            : score >= 80
-                                              ? 'B'
-                                              : score >= 70
-                                                ? 'C'
-                                                : score >= 60
-                                                  ? 'D'
-                                                  : 'F'
-                                    }}
-                                </span>
-                            </div>
-                        </div>
-
-                        <!-- Override Diagnosis -->
-                        <div>
-                            <label
-                                class="tw:text-[11px] tw:font-semibold tw:text-slate-500 tw:uppercase tw:tracking-wide tw:block tw:mb-1.5"
-                            >
-                                Override Diagnosis
-                            </label>
-                            <Select
-                                v-model="overrideDiagnosis"
-                                :options="diagnosisOptions"
-                                option-label="label"
-                                option-value="value"
+                            <input
+                                v-model.number="drafts[answer.question_id]!.points_awarded"
+                                type="number"
+                                min="0"
+                                :max="answer.question.points"
+                                class="tw:w-14 tw:appearance-none tw:rounded-md tw:border tw:border-navy-20 tw:px-2 tw:py-1 tw:text-right tw:text-sm tw:text-navy-90 tw:transition-colors tw:outline-none tw:focus:border-primary tw:focus:ring-2 tw:focus:ring-primary/20 tw:[&::-webkit-inner-spin-button]:appearance-none tw:[&::-webkit-outer-spin-button]:appearance-none"
                             />
-                        </div>
+                            <span>/ {{ answer.question.points }} pt</span>
+                        </label>
+                    </template>
 
-                        <!-- Feedback -->
-                        <div>
-                            <label
-                                class="tw:text-[11px] tw:font-semibold tw:text-slate-500 tw:uppercase tw:tracking-wide tw:block tw:mb-1.5"
-                            >
+                    <template #marks>
+                        <button
+                            type="button"
+                            aria-label="Mark correct"
+                            class="tw:flex tw:size-7 tw:items-center tw:justify-center tw:rounded-full tw:border tw:transition-colors"
+                            :class="
+                                drafts[answer.question_id]?.is_correct === true
+                                    ? 'tw:border-success tw:bg-success tw:text-white'
+                                    : 'tw:border-navy-20 tw:bg-white tw:text-navy-40 tw:hover:border-success tw:hover:text-success'
+                            "
+                            @click="markAnswer(answer, true)"
+                        >
+                            <Check class="tw:size-4" />
+                        </button>
+                        <button
+                            type="button"
+                            aria-label="Mark incorrect"
+                            class="tw:flex tw:size-7 tw:items-center tw:justify-center tw:rounded-full tw:border tw:transition-colors"
+                            :class="
+                                drafts[answer.question_id]?.is_correct === false
+                                    ? 'tw:border-danger tw:bg-danger tw:text-white'
+                                    : 'tw:border-navy-20 tw:bg-white tw:text-navy-40 tw:hover:border-danger tw:hover:text-danger'
+                            "
+                            @click="markAnswer(answer, false)"
+                        >
+                            <X class="tw:size-4" />
+                        </button>
+                    </template>
+
+                    <template #footer>
+                        <button
+                            v-if="!feedbackOpen[answer.question_id]"
+                            type="button"
+                            class="tw:flex tw:w-fit tw:items-center tw:gap-1.5 tw:text-xs tw:font-medium tw:text-navy-50 tw:transition-colors tw:hover:text-primary"
+                            @click="feedbackOpen[answer.question_id] = true"
+                        >
+                            <MessageSquarePlus class="tw:size-3.5" />
+                            Add feedback
+                        </button>
+                        <div
+                            v-else
+                            class="tw:flex tw:flex-col tw:gap-1.5 tw:border-t tw:border-navy-10 tw:pt-3"
+                        >
+                            <label class="tw:text-xs tw:font-medium tw:text-navy-60">
                                 Feedback
                             </label>
-                            <Textarea
-                                v-model="instructorFeedback"
-                                placeholder="Write feedback for the student..."
-                                class="tw:resize-none tw:text-sm"
-                                :rows="4"
+                            <McTextarea
+                                v-model="drafts[answer.question_id]!.comment"
+                                placeholder="Feedback for the student…"
+                                class="tw:text-sm"
+                                :rows="2"
                             />
                         </div>
+                    </template>
+                </McSubmissionAnswerCard>
+            </template>
 
-                        <!-- Actions -->
-                        <McButton class="tw:w-full tw:text-sm tw:font-semibold">
-                            Save Grade
-                        </McButton>
-                    </div>
-                </div>
+            <div class="tw:flex tw:items-center tw:justify-end tw:gap-3">
+                <p v-if="!allGraded" class="tw:text-xs tw:text-warning">
+                    Mark every highlighted answer Correct or Incorrect before saving.
+                </p>
+                <McButton :disabled="!allGraded" :loading="isSaving" @click="saveGrade">
+                    Save Grade
+                </McButton>
             </div>
-        </div>
+        </template>
     </div>
 </template>

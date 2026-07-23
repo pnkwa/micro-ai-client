@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { ArrowLeft, FileText } from 'lucide-vue-next'
+import { ArrowLeft, FileText, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { assignmentService, type Assignment } from '~/services/assignmentService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { classService, type ClassItem } from '~/services/classService'
 import AssignmentDetailTab from '~/features/components/assignment/AssignmentDetailTab.vue'
-import AssignmentExercisesTab from '~/features/components/assignment/AssignmentExercisesTab.vue'
+import AssignmentExercises from '~/features/components/assignment/AssignmentExercises.vue'
+import AssignmentReleaseBar from '~/features/components/assignment/AssignmentReleaseBar.vue'
 import AssignmentSubmissionsTab from '~/features/components/assignment/AssignmentSubmissionsTab.vue'
+import StudentExerciseForm from '~/features/components/assignment/StudentExerciseForm.vue'
+import { studentAssignmentBadges } from '~/core/helpers/studentAssignmentStatus'
+import DeleteAssignmentDialog from '~/features/components/assignment/DeleteAssignmentDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,13 +27,18 @@ const isLoadingAssignment = ref(false)
 const isLoadingSubmissions = ref(false)
 
 const loadAssignment = async () => {
-    isLoadingAssignment.value = true
+    // Only the very first load has nothing to show yet; every reload after that
+    // (release toggle, add/edit exercise or question, …) already has content on
+    // screen, so it should update in place rather than blank the whole page out
+    // to "Loading…" and back for what's often a single-field change.
+    const isInitialLoad = assignment.value === null
+    if (isInitialLoad) isLoadingAssignment.value = true
     try {
         assignment.value = await assignmentService.getById(assignmentId.value)
     } catch {
         toast.error('Failed to load assignment')
     } finally {
-        isLoadingAssignment.value = false
+        if (isInitialLoad) isLoadingAssignment.value = false
     }
 }
 
@@ -52,7 +61,34 @@ const loadSubmissions = async () => {
     }
 }
 
-await Promise.all([loadAssignment(), loadClass()])
+const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
+
+// The signed-in student's own submission for this assignment, if any. Owned here rather
+// than inside StudentExerciseForm because the header pill needs it too, and a single fetch
+// keeps the pill and the form from ever disagreeing about whether the work is in.
+const mySubmission = ref<SubmissionView | null>(null)
+
+const loadMySubmission = async () => {
+    try {
+        const all = await submissionService.listByAssignment(assignmentId.value)
+        // The student list endpoint returns all of their submissions and ignores the
+        // assignment_id filter, so match on assignment_id rather than taking the first row.
+        mySubmission.value = all.find((s) => s.assignment_id === assignmentId.value) ?? null
+    } catch {
+        // Couldn't determine. Leave it null: the form then lets them answer rather than
+        // blocking them, and the pill falls back to the due-date-only reading.
+        mySubmission.value = null
+    }
+}
+
+// Load the submissions count up front too (not just on tab activation) so the
+// "Submissions (N)" tab label is accurate before the tab is ever clicked;
+// students never see that tab, so they fetch their own submission instead.
+await Promise.all([
+    loadAssignment(),
+    loadClass(),
+    isStudent.value ? loadMySubmission() : loadSubmissions(),
+])
 
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([
@@ -61,26 +97,51 @@ breadcrumb.setBreadcrumbs([
     { label: assignment.value?.name ?? 'Assignment' },
 ])
 
-const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
+// Students see no tabs at all: the detail and the answer form are the whole page for them.
+type Tab = 'detail' | 'submissions'
 
-const activeTab = ref<'detail' | 'exercises' | 'submissions'>('detail')
+// The tab lives in the URL so it can be linked to and survives a reload. Grading a
+// submission navigates away and back, and landing on Detail every time made the grader
+// re-find the Submissions tab after every student.
+const activeTab = ref<Tab>(route.query.tab === 'submissions' ? 'submissions' : 'detail')
 
-const tabs = computed(() => {
-    const base = [
-        { value: 'detail', label: 'Detail' },
-        { value: 'exercises', label: `Exercises (${assignment.value?.exercises.length ?? 0})` },
-    ]
-    if (!isStudent.value) {
-        base.push({ value: 'submissions', label: `Submissions (${submissions.value.length})` })
-    }
-    return base
-})
+const tabs = computed(() => [
+    { value: 'detail', label: 'Detail' },
+    { value: 'submissions', label: `Submissions (${submissions.value.length})` },
+])
 
-const onTabChange = async (tab: 'detail' | 'exercises' | 'submissions') => {
+const onTabChange = async (tab: Tab) => {
     activeTab.value = tab
+    // replace, not push: switching tabs shouldn't stack history entries a Back press then
+    // has to walk through. Detail is the default, so it carries no query at all.
+    router.replace({ query: tab === 'detail' ? {} : { tab } })
     if (tab === 'submissions' && submissions.value.length === 0) {
         await loadSubmissions()
     }
+}
+
+// Release is per exercise on the server but only ever authored for the assignment as a whole.
+// Legacy data with a mix of released and draft exercises therefore reads as NOT released, so
+// the instructor's next action is the bulk release that sweeps the stragglers into line.
+const isReleased = computed(() => {
+    const exercises = assignment.value?.exercises ?? []
+    return exercises.length > 0 && exercises.every((ex) => ex.released)
+})
+
+// The header pill(s), from the student's point of view. The rule lives in the helper so this
+// page and the class list can't drift apart on it. Usually one badge; a late-then-graded
+// assignment reads Graded + Late.
+const studentBadges = computed(() =>
+    assignment.value ? studentAssignmentBadges(assignment.value, mySubmission.value) : [],
+)
+
+const isDeleteOpen = ref(false)
+
+const onDeleted = async () => {
+    isDeleteOpen.value = false
+    toast.success('Assignment deleted')
+    // The page's own record is gone, so leave before anything re-reads it.
+    await router.push(`/classes/${classId.value}`)
 }
 
 const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
@@ -117,37 +178,94 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                         </div>
                     </div>
                 </div>
-                <McBadge :variant="assignment.status === 'active' ? 'default' : 'outline'">
-                    {{ assignment.status === 'active' ? 'Active' : 'Closed' }}
-                </McBadge>
+                <!-- Students get their own standing (New/Overdue/Submitted/Graded); the
+                     authoring-side badges are instructor-only. An unreleased assignment is
+                     invisible to students, so Draft/Released could only ever read "Released"
+                     for them anyway. -->
+                <template v-if="isStudent">
+                    <McBadge v-for="b in studentBadges" :key="b.label" :variant="b.variant">
+                        {{ b.label }}
+                    </McBadge>
+                </template>
+                <div v-else class="tw:flex tw:items-center tw:gap-2">
+                    <McBadge :variant="isReleased ? 'info' : 'outline'">
+                        {{ isReleased ? 'Released' : 'Draft' }}
+                    </McBadge>
+                    <McBadge :variant="assignment.status === 'active' ? 'default' : 'outline'">
+                        {{ assignment.status === 'active' ? 'Active' : 'Closed' }}
+                    </McBadge>
+                    <!-- Icon-only and last: destructive, rarely wanted, and shouldn't sit in
+                         the reading path of the badges next to it. -->
+                    <McButton
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Delete assignment"
+                        title="Delete assignment"
+                        class="tw:ml-1 tw:text-navy-50 tw:hover:bg-destructive/10 tw:hover:text-destructive"
+                        @click="isDeleteOpen = true"
+                    >
+                        <Trash2 class="tw:size-4" />
+                    </McButton>
+                </div>
             </div>
 
-            <McTabs
-                :model-value="activeTab"
-                :tabs="tabs"
-                @update:model-value="onTabChange($event as 'detail' | 'exercises' | 'submissions')"
-            />
+            <!-- Student: one page, no tabs. The detail and the answer form are all there is. -->
+            <template v-if="isStudent">
+                <AssignmentDetailTab
+                    :assignment="assignment"
+                    :is-student="isStudent"
+                    @reload="loadAssignment"
+                />
+                <StudentExerciseForm
+                    :assignment="assignment"
+                    :my-submission="mySubmission"
+                    class="tw:mt-6"
+                    @submitted="loadMySubmission"
+                />
+            </template>
 
-            <AssignmentDetailTab
-                v-if="activeTab === 'detail'"
-                :assignment="assignment"
-                :is-student="isStudent"
-                @reload="loadAssignment"
-            />
+            <template v-else>
+                <McTabs
+                    :model-value="activeTab"
+                    :tabs="tabs"
+                    @update:model-value="onTabChange($event as Tab)"
+                />
 
-            <AssignmentExercisesTab
-                v-else-if="activeTab === 'exercises'"
-                :assignment="assignment"
-                :is-student="isStudent"
-                @reload="loadAssignment"
-            />
+                <template v-if="activeTab === 'detail'">
+                    <AssignmentDetailTab
+                        :assignment="assignment"
+                        :is-student="isStudent"
+                        @reload="loadAssignment"
+                    />
+                    <div class="tw:mt-6 tw:flex tw:flex-col tw:gap-4">
+                        <AssignmentReleaseBar
+                            :assignment="assignment"
+                            :released="isReleased"
+                            :submission-count="submissions.length"
+                            @reload="loadAssignment"
+                        />
+                        <AssignmentExercises
+                            :assignment="assignment"
+                            :released="isReleased"
+                            @reload="loadAssignment"
+                        />
+                    </div>
+                </template>
 
-            <AssignmentSubmissionsTab
-                v-else-if="activeTab === 'submissions'"
-                :assignment="assignment"
-                :submissions="submissions"
-                :is-loading="isLoadingSubmissions"
-            />
+                <AssignmentSubmissionsTab
+                    v-else
+                    :assignment="assignment"
+                    :submissions="submissions"
+                    :is-loading="isLoadingSubmissions"
+                />
+
+                <DeleteAssignmentDialog
+                    v-model:open="isDeleteOpen"
+                    :assignment="assignment"
+                    :submission-count="submissions.length"
+                    @deleted="onDeleted"
+                />
+            </template>
         </template>
 
         <div v-else class="tw:text-center tw:py-16 tw:text-navy-60">Assignment not found.</div>

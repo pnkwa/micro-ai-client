@@ -55,7 +55,7 @@ const errorMessage = computed(() => modelValue.errorMessage.value || '')
 const open = ref(false)
 
 const onSelect = (date: DateValue | undefined) => {
-    // date.toString() yields "YYYY-MM-DD" for a CalendarDate — the format the form expects.
+    // date.toString() yields "YYYY-MM-DD" for a CalendarDate, the format the form expects.
     modelValue.value.value = date ? date.toString() : ''
     open.value = false
 }

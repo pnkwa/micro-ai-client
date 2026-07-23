@@ -100,6 +100,7 @@ const resolvedType = computed(() => {
                 class="tw:outline-none tw:w-full tw:text-base"
                 :value="modelValue.value.value"
                 data-slot="input"
+                :name="props.name"
                 v-bind="{ ...$attrs, disabled: props.disabled }"
                 :type="resolvedType"
                 @input="handleInput"

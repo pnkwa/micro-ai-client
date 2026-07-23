@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Upload, FileText, X } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import { enrollStudentFormSchema } from '~/features/types/forms/student'
 import type { EnrollStudentInput } from '~/services/classService'
 
@@ -91,8 +92,17 @@ const parse = (text: string) => {
     parsed.value = true
 }
 
+const isCsvFile = (file: File): boolean => {
+    const validMimeTypes = ['text/csv', 'application/vnd.ms-excel', '']
+    return file.name.toLowerCase().endsWith('.csv') && validMimeTypes.includes(file.type)
+}
+
 const handleFile = async (file: File | undefined) => {
     if (!file) return
+    if (!isCsvFile(file)) {
+        toast.error('Please upload a .csv file')
+        return
+    }
     fileName.value = file.name
     parse(await file.text())
 }

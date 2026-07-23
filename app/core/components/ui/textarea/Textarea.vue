@@ -28,7 +28,7 @@ const onKeydown = (e: KeyboardEvent) => {
     if (!props.autoList || e.key !== 'Enter' || e.shiftKey || e.isComposing) return
 
     const el = e.target as HTMLTextAreaElement
-    // Only act on a collapsed caret — leave range-selection Enter to the browser.
+    // Only act on a collapsed caret; leave range-selection Enter to the browser.
     if (el.selectionStart !== el.selectionEnd) return
 
     const value = String(modelValue.value.value ?? '')
@@ -79,6 +79,7 @@ const onKeydown = (e: KeyboardEvent) => {
         <textarea
             v-model="modelValue.value.value"
             data-slot="textarea"
+            :name="props.name"
             v-bind="$attrs"
             :class="
                 cn(

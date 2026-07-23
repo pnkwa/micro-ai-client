@@ -29,12 +29,16 @@ const exerciseSchema = z.object({
     title: z.string(),
     instructions: z.string().nullable(),
     position: z.number(),
+    // While unreleased, students never see this exercise at all (backend omits it from
+    // their read entirely), and its own content is locked against edits server-side;
+    // release/un-release is the one action always allowed regardless of this flag.
+    released: z.boolean(),
     created_at: z.string(),
     updated_at: z.string(),
     questions: z.array(questionSchema),
 })
 
-// Returned by GET /assignments (list) — scalars only, no tree
+// Returned by GET /assignments (list): scalars only, no tree
 const assignmentListItemSchema = z.object({
     id: z.number(),
     class_id: z.number(),
@@ -48,7 +52,7 @@ const assignmentListItemSchema = z.object({
     updated_at: z.string(),
 })
 
-// Returned by GET /assignments/:id — full tree via toAssignmentView
+// Returned by GET /assignments/:id: full tree via toAssignmentView
 const assignmentSchema = assignmentListItemSchema.extend({
     attachments: z.array(attachmentSchema),
     exercises: z.array(exerciseSchema),
@@ -56,6 +60,13 @@ const assignmentSchema = assignmentListItemSchema.extend({
 
 export type AssignmentListItem = z.infer<typeof assignmentListItemSchema>
 export type Assignment = z.infer<typeof assignmentSchema>
+
+// The only source of truth for "how many points is this assignment worth": the backend's
+// own computeScore() sums per-answer points the same way, never reading assignments.points
+// (a disconnected, manually-typed field that's easy to leave stale once questions are added
+// or edited after the fact).
+export const assignmentTotalPoints = (assignment: Assignment): number =>
+    assignment.exercises.flatMap((ex) => ex.questions).reduce((sum, q) => sum + (q.points ?? 0), 0)
 
 const deriveFilename = (url: string): string => {
     try {
@@ -97,7 +108,6 @@ export const assignmentService = {
                 status: payload.status,
                 description: payload.description,
                 instructions: payload.instructions,
-                points: payload.points,
                 attachments: payload.attachments?.map((a) => ({
                     filename: deriveFilename(a.path),
                     path: a.path,
@@ -118,14 +128,20 @@ export const assignmentService = {
         if (payload.status !== undefined) body.status = payload.status
         if (payload.description !== undefined) body.description = payload.description
         if (payload.instructions !== undefined) body.instructions = payload.instructions
-        if (payload.points !== undefined) body.points = payload.points
         const response = await $api(assignmentRoutes.byId(id), { method: 'PATCH', body })
         return assignmentSchema.parse(response)
     },
 
-    async remove(id: number): Promise<void> {
+    /**
+     * Without `force`, the API refuses (409) an assignment that has submissions and reports
+     * how many. `force` deletes those submissions and their grades along with it, so only
+     * send it once the instructor has been told what they are destroying.
+     */
+    async remove(id: number, force = false): Promise<void> {
         const { $api } = useNuxtApp()
-        await $api(assignmentRoutes.byId(id), { method: 'DELETE' })
+        await $api(`${assignmentRoutes.byId(id)}${force ? '?force=true' : ''}`, {
+            method: 'DELETE',
+        })
     },
 
     // ---- exercises ----
@@ -149,6 +165,21 @@ export const assignmentService = {
     async removeExercise(exerciseId: number): Promise<void> {
         const { $api } = useNuxtApp()
         await $api(assignmentRoutes.exerciseById(exerciseId), { method: 'DELETE' })
+    },
+
+    // Always allowed, even while the exercise's other content is locked for editing.
+    async setExerciseReleased(exerciseId: number, released: boolean): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(assignmentRoutes.exerciseRelease(exerciseId), {
+            method: 'PATCH',
+            body: { released },
+        })
+    },
+
+    // Convenience bulk action: releases every exercise under the assignment in one go.
+    async releaseAllExercises(assignmentId: number): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(assignmentRoutes.releaseAllExercises(assignmentId), { method: 'PATCH' })
     },
 
     // ---- questions ----

@@ -60,7 +60,6 @@ const { handleSubmit, errors } = useForm<CreateAssignmentFormData>({
         status: 'active',
         description: '',
         instructions: '',
-        points: 100,
         attachments: [],
     },
 })
@@ -111,7 +110,7 @@ const handleCancel = () => {
                 placeholder="1. Step one&#10;2. Step two&#10;3. Step three"
             />
         </div>
-        <div class="tw:grid tw:grid-cols-2 tw:gap-4">
+        <div class="tw:grid tw:grid-cols-3 tw:gap-4">
             <div class="tw:flex tw:flex-col tw:gap-2">
                 <label class="tw:text-sm tw:font-medium">
                     Due Date
@@ -119,12 +118,6 @@ const handleCancel = () => {
                 </label>
                 <McDatePicker name="dueDate" placeholder="Select a date" />
             </div>
-            <div class="tw:flex tw:flex-col tw:gap-2">
-                <label class="tw:text-sm tw:font-medium">Points</label>
-                <McInput name="points" type="number" placeholder="e.g., 100" />
-            </div>
-        </div>
-        <div class="tw:grid tw:grid-cols-2 tw:gap-4">
             <div class="tw:flex tw:flex-col tw:gap-2">
                 <label class="tw:text-sm tw:font-medium">
                     Class
