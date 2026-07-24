@@ -36,7 +36,7 @@ const { $dayjs } = useNuxtApp()
 
 // The threshold stays outside vee-validate (a checkbox + 0..1 slider, not a text field).
 const useThreshold = ref(false)
-const threshold = ref(0.5)
+const threshold = ref(0.6)
 
 // The window uses the date+time picker; fields hold 'YYYY-MM-DDTHH:mm' (local), converted to
 // ISO instants on submit.

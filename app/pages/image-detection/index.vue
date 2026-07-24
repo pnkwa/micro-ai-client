@@ -6,7 +6,8 @@ import {
     Trash2,
     Loader2,
     ScanSearch,
-    FlipHorizontal,
+    Target,
+    Sparkles,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { detectionService, type DetectionStep, type ModelSpec } from '~/services/detectionService'
@@ -80,6 +81,13 @@ const fungalConfidence = computed(() => {
     const boxes = segmentStep.value?.boxes ?? []
     return boxes.length ? Math.max(...boxes.map((b) => b.confidence)) : 0
 })
+
+// A detect/segment pass that found nothing reports predicted_class 'none' (worker-contract:
+// the top box's label, or 'none' when there were no boxes). That's the absence of a class,
+// not one the user detected — and the summary already says so — so it doesn't belong among
+// the per-class confidence bars or the "classes found" count.
+const classSteps = computed(() => detectionSteps.value.filter((s) => s.predicted_class !== 'none'))
+
 const pct = (n: number) => Math.round(n * 100)
 
 const startCamera = () => {
@@ -194,9 +202,12 @@ onUnmounted(() => {
         <div class="tw:h-full">
             <!-- Scopes the overlay's filter state across both columns: the image is on the
                  left, the controls that drive it are in the CONTROLS panel on the right. -->
+            <!-- Fixed height only on lg, where image and controls sit side-by-side and share it.
+                 Stacked (iPad/mobile) it's height-auto so the controls flow below instead of
+                 squeezing the image; the image panel gets its own height from the aspect ratio. -->
             <McDetectionFilterScope
                 :steps="detectionSteps"
-                class="tw:h-200 tw:flex tw:flex-col tw:lg:flex-row tw:divide-y tw:lg:divide-y-0 tw:lg:divide-x tw:divide-slate-100 tw:flex-1"
+                class="tw:flex tw:flex-col tw:lg:h-200 tw:lg:flex-row tw:divide-y tw:lg:divide-y-0 tw:lg:divide-x tw:divide-slate-100 tw:flex-1"
             >
                 <div class="tw:flex-1 tw:p-5 tw:md:p-6 tw:flex tw:flex-col tw:overflow-hidden">
                     <div class="tw:flex tw:items-center tw:justify-between tw:mb-3">
@@ -243,8 +254,10 @@ onUnmounted(() => {
                         </div>
                     </div>
 
+                    <!-- Its content is absolutely positioned (0 intrinsic height), so it needs a
+                         height source: an aspect ratio when stacked, flex-1 to fill the row on lg. -->
                     <div
-                        class="tw:relative tw:w-full tw:rounded-md tw:overflow-hidden tw:bg-linear-to-br tw:from-slate-100 tw:to-slate-50 tw:ring-1 tw:ring-slate-200/80 tw:flex-1"
+                        class="tw:relative tw:w-full tw:rounded-md tw:overflow-hidden tw:bg-linear-to-br tw:from-slate-100 tw:to-slate-50 tw:ring-1 tw:ring-slate-200/80 tw:aspect-[4/3] tw:lg:aspect-auto tw:flex-1"
                     >
                         <div
                             v-if="mode === 'empty'"
@@ -357,51 +370,70 @@ onUnmounted(() => {
                     class="tw:w-full tw:lg:w-[400px] tw:shrink-0 tw:p-5 tw:md:p-6 tw:flex tw:flex-col tw:gap-4 tw:bg-slate-50/60 tw:overflow-y-auto"
                     style="min-height: 0"
                 >
-                    <!-- Source -->
+                    <!-- Source: a camera-app control bar — a prominent shutter (captures when the
+                         camera is live, otherwise opens it) flanked by Upload and Clear. -->
                     <div class="tw:flex tw:flex-col tw:gap-2">
                         <span
                             class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em]"
                         >
                             Source
                         </span>
-                        <div class="tw:grid tw:grid-cols-2 tw:gap-2">
-                            <!-- One slot toggles between opening the camera and capturing from it. -->
-                            <McButton
-                                v-if="mode === 'camera'"
-                                class="tw:justify-start tw:gap-2 tw:text-sm tw:font-semibold tw:shadow-sm tw:shadow-primary/20 tw:transition-colors"
-                                @click="takeSnapshot"
-                            >
-                                <FlipHorizontal class="tw:w-4 tw:h-4" />
-                                Take Snapshot
-                            </McButton>
-                            <McButton
-                                v-else
-                                variant="outline"
-                                class="tw:justify-start tw:gap-2 tw:text-sm tw:border-slate-200 tw:bg-white tw:text-slate-700 tw:shadow-sm tw:shadow-slate-100 hover:tw:border-primary/30 hover:tw:text-primary tw:transition-colors"
-                                @click="startCamera"
-                            >
-                                <CameraIcon class="tw:w-4 tw:h-4 tw:text-slate-400" />
-                                Camera
-                            </McButton>
-
-                            <McButton
-                                variant="outline"
-                                class="tw:justify-start tw:gap-2 tw:text-sm tw:border-slate-200 tw:bg-white tw:text-slate-700 tw:shadow-sm tw:shadow-slate-100 hover:tw:border-primary/30 hover:tw:text-primary tw:transition-colors"
+                        <div
+                            class="tw:flex tw:items-center tw:justify-between tw:rounded-2xl tw:border tw:border-slate-200 tw:bg-white tw:px-8 tw:py-4"
+                        >
+                            <button
+                                type="button"
+                                title="Upload an image"
+                                class="tw:group tw:flex tw:flex-col tw:items-center tw:gap-1.5 tw:text-slate-500 tw:transition-colors hover:tw:text-primary"
                                 @click="triggerUpload"
                             >
-                                <Upload class="tw:w-4 tw:h-4 tw:text-slate-400" />
-                                Upload
-                            </McButton>
+                                <span
+                                    class="tw:flex tw:h-11 tw:w-11 tw:items-center tw:justify-center tw:rounded-full tw:bg-slate-100 tw:transition-colors group-hover:tw:bg-primary/10"
+                                >
+                                    <Upload class="tw:h-5 tw:w-5" />
+                                </span>
+                                <span class="tw:text-[10px] tw:font-semibold">Upload</span>
+                            </button>
 
-                            <McButton
-                                variant="ghost"
-                                class="tw:justify-start tw:gap-2 tw:text-sm tw:text-slate-400 hover:tw:text-red-500 hover:tw:bg-red-50 tw:transition-colors disabled:tw:opacity-30"
+                            <!-- Shutter: capture when the camera is live, otherwise open it. Live =
+                                 primary ring + solid disc (ready to snap); idle = soft tint + lens. -->
+                            <button
+                                type="button"
+                                :title="mode === 'camera' ? 'Capture photo' : 'Open camera'"
+                                class="tw:flex tw:h-16 tw:w-16 tw:items-center tw:justify-center tw:rounded-full tw:border-4 tw:p-1 tw:transition-all active:tw:scale-95"
+                                :class="
+                                    mode === 'camera'
+                                        ? 'tw:border-primary'
+                                        : 'tw:border-slate-200 hover:tw:border-primary/50'
+                                "
+                                @click="mode === 'camera' ? takeSnapshot() : startCamera()"
+                            >
+                                <span
+                                    class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center tw:rounded-full tw:transition-colors"
+                                    :class="
+                                        mode === 'camera'
+                                            ? 'tw:bg-primary tw:text-white'
+                                            : 'tw:bg-primary/10 tw:text-primary'
+                                    "
+                                >
+                                    <CameraIcon class="tw:h-6 tw:w-6" />
+                                </span>
+                            </button>
+
+                            <button
+                                type="button"
+                                title="Clear image"
                                 :disabled="mode === 'empty'"
+                                class="tw:group tw:flex tw:flex-col tw:items-center tw:gap-1.5 tw:text-slate-500 tw:transition-colors hover:tw:text-red-500 disabled:tw:opacity-30 disabled:hover:tw:text-slate-500"
                                 @click="clearImage"
                             >
-                                <Trash2 class="tw:w-4 tw:h-4" />
-                                Clear
-                            </McButton>
+                                <span
+                                    class="tw:flex tw:h-11 tw:w-11 tw:items-center tw:justify-center tw:rounded-full tw:bg-slate-100 tw:transition-colors group-hover:tw:bg-red-50"
+                                >
+                                    <Trash2 class="tw:h-5 tw:w-5" />
+                                </span>
+                                <span class="tw:text-[10px] tw:font-semibold">Clear</span>
+                            </button>
                         </div>
                     </div>
 
@@ -429,12 +461,16 @@ onUnmounted(() => {
                                 :disabled="isAnalyzing"
                                 class="tw:bg-white"
                             />
-                            <p
-                                v-if="selectedModelSpec"
-                                class="tw:text-[10px] tw:text-slate-400 tw:mt-1 tw:leading-relaxed"
-                            >
-                                {{ selectedModelSpec.description }}
-                            </p>
+                            <!-- Reserve space for the (variable-length) description so switching
+                                 models doesn't shift the Run button and everything below it. -->
+                            <div class="tw:mt-1 tw:min-h-12">
+                                <p
+                                    v-if="selectedModelSpec"
+                                    class="tw:text-[10px] tw:text-slate-400 tw:leading-relaxed"
+                                >
+                                    {{ selectedModelSpec.description }}
+                                </p>
+                            </div>
                         </div>
 
                         <div>
@@ -452,18 +488,23 @@ onUnmounted(() => {
                                 :disabled="isAnalyzing || !canChain"
                                 class="tw:bg-white"
                             />
-                            <p
-                                v-if="!canChain"
-                                class="tw:text-[10px] tw:text-slate-400 tw:mt-1 tw:leading-relaxed"
-                            >
-                                Only a detector chains a segmenter; the selected model runs alone.
-                            </p>
-                            <p
-                                v-else-if="selectedSegmentSpec"
-                                class="tw:text-[10px] tw:text-slate-400 tw:mt-1 tw:leading-relaxed"
-                            >
-                                {{ selectedSegmentSpec.description }}
-                            </p>
+                            <!-- Same reserved slot so toggling the segmenter (incl. to "None",
+                                 which has no description) keeps the Run button anchored. -->
+                            <div class="tw:mt-1 tw:min-h-12">
+                                <p
+                                    v-if="!canChain"
+                                    class="tw:text-[10px] tw:text-slate-400 tw:leading-relaxed"
+                                >
+                                    Only a detector chains a segmenter; the selected model runs
+                                    alone.
+                                </p>
+                                <p
+                                    v-else-if="selectedSegmentSpec"
+                                    class="tw:text-[10px] tw:text-slate-400 tw:leading-relaxed"
+                                >
+                                    {{ selectedSegmentSpec.description }}
+                                </p>
+                            </div>
                         </div>
 
                         <McButton
@@ -509,42 +550,59 @@ onUnmounted(() => {
             >
                 <div
                     v-if="hasResults"
-                    class="tw:grid tw:grid-cols-1 tw:lg:grid-cols-2 tw:gap-4 tw:mt-4 tw:items-start"
+                    class="tw:grid tw:grid-cols-1 tw:lg:grid-cols-5 tw:gap-4 tw:mt-4 tw:items-stretch"
                 >
                     <div
-                        class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
+                        class="tw:lg:col-span-2 tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:p-5 tw:md:p-6"
                     >
                         <div class="tw:flex tw:items-center tw:justify-between tw:mb-4">
-                            <h2 class="tw:text-sm tw:font-bold tw:text-slate-700">
-                                Detection Results
-                            </h2>
+                            <div class="tw:flex tw:items-center tw:gap-2">
+                                <span
+                                    class="tw:flex tw:items-center tw:justify-center tw:w-7 tw:h-7 tw:rounded-lg tw:bg-primary/10 tw:text-primary"
+                                >
+                                    <Target class="tw:w-4 tw:h-4" />
+                                </span>
+                                <h2 class="tw:text-sm tw:font-bold tw:text-slate-700">
+                                    Detection Results
+                                </h2>
+                            </div>
                             <span
                                 class="tw:text-[10px] tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest tw:bg-slate-100 tw:px-2 tw:py-0.5 tw:rounded-full"
                             >
-                                {{ detectionSteps.length }} class{{
-                                    detectionSteps.length === 1 ? '' : 'es'
+                                {{ classSteps.length }} class{{
+                                    classSteps.length === 1 ? '' : 'es'
                                 }}
                                 found
                             </span>
                         </div>
 
-                        <div class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:gap-3">
+                        <div v-if="classSteps.length" class="tw:flex tw:flex-col tw:gap-3">
                             <McConfidenceBar
-                                v-for="step in detectionSteps"
+                                v-for="step in classSteps"
                                 :key="step.id"
                                 :label="step.predicted_class"
                                 :confidence="step.confidence"
                             />
                         </div>
+                        <p v-else class="tw:text-sm tw:text-slate-400 tw:italic">
+                            No classes were detected in this image.
+                        </p>
                     </div>
 
                     <div
                         v-if="detectStep"
-                        class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
+                        class="tw:lg:col-span-3 tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:p-5 tw:md:p-6"
                     >
-                        <h2 class="tw:text-sm tw:font-bold tw:text-slate-700 tw:mb-3">
-                            AI Analysis Summary
-                        </h2>
+                        <div class="tw:flex tw:items-center tw:gap-2 tw:mb-3">
+                            <span
+                                class="tw:flex tw:items-center tw:justify-center tw:w-7 tw:h-7 tw:rounded-lg tw:bg-primary/10 tw:text-primary"
+                            >
+                                <Sparkles class="tw:w-4 tw:h-4" />
+                            </span>
+                            <h2 class="tw:text-sm tw:font-bold tw:text-slate-700">
+                                AI Analysis Summary
+                            </h2>
+                        </div>
 
                         <div
                             class="tw:relative tw:bg-linear-to-br tw:from-primary/5 tw:to-primary/3 tw:border tw:border-primary/15 tw:rounded-xl tw:p-5 tw:overflow-hidden"

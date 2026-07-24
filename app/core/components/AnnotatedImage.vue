@@ -30,6 +30,7 @@ const onImgLoad = (event: Event) => {
 
 // A new source hasn't been measured yet; drop the old dimensions so the overlay hides rather
 // than briefly drawing the previous image's boxes at the wrong scale.
+//todo: this is a bit of a hack, but it works for now. We should probably refactor the submissionScore and scoreFraction functions to return an object with both the score and the total points, so we don't have to compute the total points twice.
 watch(
     () => props.src,
     () => {
@@ -135,7 +136,14 @@ const boxStyle = (box: DetectionBox) => ({
             </div>
         </div>
 
-        <div class="tw:flex tw:min-h-6 tw:items-center tw:justify-between tw:gap-3">
+        <!-- FIXED height, not min-height: the image above is flex-1, so any change in this
+             row's height resizes it and the layout jumps. A fixed box stays put no matter what
+             text lands here (legend, the wrapped "below threshold" message, the count) — content
+             is vertically centred and anything taller is clipped rather than pushing the box.
+             Two lines' worth on narrow widths where the message wraps; one line at lg. -->
+        <div
+            class="tw:flex tw:h-12 tw:lg:h-9 tw:items-center tw:justify-between tw:gap-3 tw:overflow-hidden tw:px-3"
+        >
             <div
                 v-if="distinctLabels.length"
                 class="tw:flex tw:flex-wrap tw:gap-3 tw:text-[11px] tw:text-navy-60"

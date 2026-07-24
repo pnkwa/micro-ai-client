@@ -39,7 +39,7 @@ const selectedPeriod = ref('Weekly')
 
 const submissions = ref<SubmissionView[]>([])
 const classStudents = ref(new Map<number, StudentRosterItem[]>())
-const assignments = ref<AssignmentListItem[]>([])
+const allAssignments = ref<AssignmentListItem[]>([])
 const isLoading = ref(true)
 
 // ---- loaders ----
@@ -57,14 +57,10 @@ const loadAllStudents = async () => {
     classStudents.value = map
 }
 
+// Load the instructor's whole set once; the class filter scopes it client-side (below),
+// the same way scopedSubmissions does — so switching classes re-derives, never re-fetches.
 const loadAssignments = async () => {
-    if (classFilterStore.isAllSelected) {
-        assignments.value = await assignmentService.list()
-    } else {
-        assignments.value = await assignmentService.listByClass(
-            classFilterStore.selectedClassId as number,
-        )
-    }
+    allAssignments.value = await assignmentService.list()
 }
 
 isLoading.value = true
@@ -78,7 +74,13 @@ try {
     isLoading.value = false
 }
 
-watch(() => classFilterStore.selectedClassId, loadAssignments)
+// Scoped to the selected class, mirroring scopedSubmissions: re-derives when the filter
+// changes, no reload.
+const assignments = computed(() =>
+    classFilterStore.isAllSelected
+        ? allAssignments.value
+        : allAssignments.value.filter((a) => a.class_id === classFilterStore.selectedClassId),
+)
 
 // ---- helpers ----
 
@@ -292,12 +294,15 @@ const formatSubmittedAt = (dateString: string) => dayjs(dateString).fromNow()
             </div>
 
             <div class="charts-section">
+                <!-- No max-y: bucket values are submission counts (per weekday / per week), which
+                     aren't bounded by the student count, so a fixed student-count cap made busy
+                     buckets overflow the top and quiet ones vanish. Let the chart scale to its
+                     own data instead — BarChart rounds up to a clean axis max. -->
                 <BarChart
                     v-model:selected-period="selectedPeriod"
                     title="Submission Activity"
                     :data="submissionActivity"
                     :periods="['Weekly', 'Monthly']"
-                    :max-y="totalStudents || 10"
                     class="activity-chart"
                 />
 

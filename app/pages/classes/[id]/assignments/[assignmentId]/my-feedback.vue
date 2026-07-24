@@ -45,20 +45,18 @@ if (mine) {
 }
 
 const breadcrumb = useBreadcrumb()
-watchEffect(() => {
-    breadcrumb.setBreadcrumbs([
-        { label: 'Classes', to: '/classes' },
-        {
-            label: submission.value?.assignment?.class?.name ?? 'Class',
-            to: `/classes/${classId.value}`,
-        },
-        {
-            label: submission.value?.assignment?.name ?? 'Assignment',
-            to: `/classes/${classId.value}/assignments/${assignmentId.value}`,
-        },
-        { label: 'My feedback' },
-    ])
-})
+breadcrumb.setBreadcrumbs(() => [
+    { label: 'Classes', to: '/classes' },
+    {
+        label: submission.value?.assignment?.class?.name ?? 'Class',
+        to: `/classes/${classId.value}`,
+    },
+    {
+        label: submission.value?.assignment?.name ?? 'Assignment',
+        to: `/classes/${classId.value}/assignments/${assignmentId.value}`,
+    },
+    { label: 'My feedback' },
+])
 
 const isGraded = computed(() => submission.value?.status === 'graded')
 const isRejected = computed(() => submission.value?.status === 'rejected')

@@ -83,7 +83,9 @@ const buildInitial = (): FormValues => {
     return {
         type: props.fixedType ?? 'multiple_choice',
         prompt: '',
-        points: undefined,
+        // A new question is worth 1 point unless the author changes it — the common case, and
+        // it keeps a just-added question from silently contributing 0 to the total.
+        points: 1,
         options: [{ text: '', correct: false }],
         answers: '',
     }
@@ -309,7 +311,7 @@ const onSubmit = handleSubmit((v) => {
 
         <div class="tw:flex tw:items-center tw:gap-3 tw:border-t tw:border-navy-10 tw:pt-3">
             <label class="tw:text-xs tw:text-navy-60">Points</label>
-            <McInput name="points" type="number" class="tw:w-20 tw:bg-white" placeholder="0" />
+            <McInput name="points" type="number" class="tw:w-20 tw:bg-white" placeholder="1" />
             <div class="tw:ml-auto tw:flex tw:gap-2">
                 <McButton type="button" variant="outline" size="sm" @click="emit('cancel')">
                     Cancel
