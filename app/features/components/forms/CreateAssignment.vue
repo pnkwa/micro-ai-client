@@ -2,48 +2,15 @@
 import { Link, X } from 'lucide-vue-next'
 import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { toast } from 'vue-sonner'
-
 import {
     createAssignmentFormSchema,
     type CreateAssignmentFormData,
 } from '~/features/types/forms/assignment'
-import { classService, type ClassItem } from '~/services/classService'
-
-const classes = ref<ClassItem[]>([])
-const isLoadingClasses = ref(false)
-
-const loadClasses = async () => {
-    isLoadingClasses.value = true
-    try {
-        classes.value = await classService.list()
-    } catch {
-        toast.error('Failed to load classes')
-    } finally {
-        isLoadingClasses.value = false
-    }
-}
-
-onMounted(loadClasses)
-
-// Only active classes can receive new assignments.
-const isActive = (c: ClassItem) => c.status === 'active'
-
-const classOptions = computed(() =>
-    classes.value.filter(isActive).map((c) => ({
-        value: c.id,
-        label: c.name,
-    })),
-)
-
-const statusOptions = [
-    { value: 'active', label: 'Active' },
-    { value: 'closed', label: 'Closed' },
-]
 
 const props = defineProps<{
-    // When the form is opened from a class page, pre-select that class.
-    defaultClassId?: number
+    // The form is always opened from a class page; every new assignment belongs to this class
+    // and starts active, so neither is shown as a field.
+    defaultClassId: number
 }>()
 
 const emit = defineEmits<{
@@ -56,7 +23,7 @@ const { handleSubmit, errors } = useForm<CreateAssignmentFormData>({
     initialValues: {
         name: '',
         dueDate: '',
-        classId: props.defaultClassId ?? 0,
+        classId: props.defaultClassId,
         status: 'active',
         description: '',
         instructions: '',
@@ -110,44 +77,12 @@ const handleCancel = () => {
                 placeholder="1. Step one&#10;2. Step two&#10;3. Step three"
             />
         </div>
-        <div class="tw:grid tw:grid-cols-3 tw:gap-4">
-            <div class="tw:flex tw:flex-col tw:gap-2">
-                <label class="tw:text-sm tw:font-medium">
-                    Due Date
-                    <span class="tw:text-red-500">*</span>
-                </label>
-                <McDatePicker name="dueDate" placeholder="Select a date" />
-            </div>
-            <div class="tw:flex tw:flex-col tw:gap-2">
-                <label class="tw:text-sm tw:font-medium">
-                    Class
-                    <span class="tw:text-red-500">*</span>
-                </label>
-                <McSelect
-                    name="classId"
-                    placeholder="Select a class"
-                    :options="classOptions"
-                    option-value="value"
-                    option-label="label"
-                    :loading="isLoadingClasses"
-                />
-            </div>
-            <div class="tw:flex tw:flex-col tw:gap-2">
-                <label class="tw:text-sm tw:font-medium">
-                    Status
-                    <span class="tw:text-red-500">*</span>
-                </label>
-                <McSelect
-                    name="status"
-                    placeholder="Select status"
-                    :options="statusOptions"
-                    option-value="value"
-                    option-label="label"
-                />
-                <span v-if="errors.status" class="tw:text-xs tw:text-red-500">
-                    {{ errors.status }}
-                </span>
-            </div>
+        <div class="tw:flex tw:flex-col tw:gap-2">
+            <label class="tw:text-sm tw:font-medium">
+                Due Date
+                <span class="tw:text-red-500">*</span>
+            </label>
+            <McDatePicker name="dueDate" with-time placeholder="Select date & time" />
         </div>
         <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">Attachments</label>

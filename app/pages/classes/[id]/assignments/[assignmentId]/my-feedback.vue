@@ -66,7 +66,7 @@ const statusBadges = computed(() =>
         ? submissionBadges(submission.value, submission.value.assignment?.due_date)
         : [],
 )
-const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY h:mm A')
+const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm')
 </script>
 
 <template>
