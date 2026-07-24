@@ -61,6 +61,7 @@ watchEffect(() => {
 })
 
 const isGraded = computed(() => submission.value?.status === 'graded')
+const isRejected = computed(() => submission.value?.status === 'rejected')
 const statusBadges = computed(() =>
     submission.value
         ? submissionBadges(submission.value, submission.value.assignment?.due_date)
@@ -116,10 +117,34 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY h:mm A
                 </div>
             </div>
 
+            <!-- Returned to redo: the work wasn't graded, it was handed back. Lead with the
+                 reason and point at resubmitting, rather than the neutral "not graded" note. -->
+            <div
+                v-if="isRejected"
+                class="tw:bg-danger/5 tw:border tw:border-danger/30 tw:rounded-xl tw:px-6 tw:py-5"
+            >
+                <p class="tw:font-semibold tw:text-danger">Returned — please resubmit</p>
+                <p class="tw:text-sm tw:text-navy-70 tw:mt-1">
+                    Your instructor returned this submission without grading it:
+                </p>
+                <p
+                    v-if="submission.rejection_reason"
+                    class="tw:text-sm tw:text-navy-90 tw:mt-2 tw:whitespace-pre-line tw:border-l-2 tw:border-danger/40 tw:pl-3"
+                >
+                    {{ submission.rejection_reason }}
+                </p>
+                <McButton
+                    class="tw:mt-4"
+                    @click="router.push(`/classes/${classId}/assignments/${assignmentId}`)"
+                >
+                    Go to assignment to resubmit
+                </McButton>
+            </div>
+
             <!-- Reachable before grading if the student keeps the URL, so say so plainly
                  rather than showing a page of blank marks. -->
             <div
-                v-if="!isGraded"
+                v-else-if="!isGraded"
                 class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-xl tw:py-12 tw:text-center"
             >
                 <p class="tw:font-semibold tw:text-navy-100">Not graded yet</p>

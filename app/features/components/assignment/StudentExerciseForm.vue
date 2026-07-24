@@ -71,7 +71,9 @@ const submitting = ref(false)
 // Locked out of answering: either they already had a submission on load, or they just made
 // one. Tracked locally as well as via the prop so the confirmation panel appears the instant
 // the POST returns, without waiting for the parent's refetch to come back.
-const submitted = ref(props.mySubmission !== null)
+// A REJECTED submission is the exception — staff handed it back to redo, so the form must
+// reopen; re-submitting replaces the rejected row (one submission per student per assignment).
+const submitted = ref(props.mySubmission !== null && props.mySubmission.status !== 'rejected')
 
 const isGraded = computed(() => props.mySubmission?.status === 'graded')
 // Same derivation the grading page and the submissions table use: summed from the
@@ -216,6 +218,23 @@ const onSubmit = handleSubmit(async (v) => {
     </div>
 
     <form v-else class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="onSubmit">
+        <!-- Reopened because staff returned the previous attempt. Lead with why, so the
+             student knows what to fix before resubmitting. -->
+        <div
+            v-if="mySubmission?.status === 'rejected'"
+            class="tw:bg-danger/5 tw:border tw:border-danger/30 tw:rounded-lg tw:px-4 tw:py-3"
+        >
+            <p class="tw:text-sm tw:font-semibold tw:text-danger">
+                Your previous submission was returned
+            </p>
+            <p
+                v-if="mySubmission.rejection_reason"
+                class="tw:text-sm tw:text-navy-90 tw:mt-1 tw:whitespace-pre-line"
+            >
+                {{ mySubmission.rejection_reason }}
+            </p>
+        </div>
+
         <div
             v-for="ex in exercises"
             :key="ex.id"
