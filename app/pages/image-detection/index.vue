@@ -66,7 +66,21 @@ try {
     toast.error('Failed to load models')
 }
 
-const topResult = computed(() => detectionSteps.value[0] ?? null)
+// Split the result steps into the classify/detect pass and the optional fungal segmentation
+// pass so the summary can describe each. The segmenter's step name contains "segment"; its
+// boxes are the outlined fungal elements, so their count/confidence answer "are there fungal
+// elements, and how sure is the model".
+const isSegmentStep = (s: DetectionStep) => /segment/i.test(s.step)
+const detectStep = computed(
+    () => detectionSteps.value.find((s) => !isSegmentStep(s)) ?? detectionSteps.value[0] ?? null,
+)
+const segmentStep = computed(() => detectionSteps.value.find(isSegmentStep) ?? null)
+const fungalCount = computed(() => segmentStep.value?.boxes.length ?? 0)
+const fungalConfidence = computed(() => {
+    const boxes = segmentStep.value?.boxes ?? []
+    return boxes.length ? Math.max(...boxes.map((b) => b.confidence)) : 0
+})
+const pct = (n: number) => Math.round(n * 100)
 
 const startCamera = () => {
     imageUrl.value = null
@@ -74,6 +88,30 @@ const startCamera = () => {
     hasResults.value = false
     detectionSteps.value = []
     mode.value = 'camera'
+    applyCameraMirror()
+}
+
+// Mirror the preview only for a user-facing camera (selfie-style, so a raised left hand shows
+// on the left); a back/environment camera keeps its true orientation. simple-vue-camera
+// renders fragment root nodes, so a passed `class` never reaches its inner <video> — we grab
+// that element directly (it uses a fixed id="video") and flip it. The flip is (re)applied on
+// the video's own loadedmetadata, so it survives however long the user takes to grant camera
+// access. Desktop webcams report no facingMode, so the rule is "mirror unless it's environment".
+const mirrorCameraVideo = (video: HTMLVideoElement) => {
+    const stream = video.srcObject as MediaStream | null
+    const facingMode = stream?.getVideoTracks()[0]?.getSettings().facingMode
+    video.style.transform = facingMode === 'environment' ? '' : 'scaleX(-1)'
+}
+
+const applyCameraMirror = (attempt = 0) => {
+    if (mode.value !== 'camera') return
+    const video = document.getElementById('video') as HTMLVideoElement | null
+    if (!video) {
+        if (attempt < 30) setTimeout(() => applyCameraMirror(attempt + 1), 100)
+        return
+    }
+    if (video.srcObject) mirrorCameraVideo(video)
+    video.addEventListener('loadedmetadata', () => mirrorCameraVideo(video))
 }
 
 const takeSnapshot = async () => {
@@ -316,68 +354,69 @@ onUnmounted(() => {
 
                 <!-- ── Controls sidebar ── -->
                 <div
-                    class="tw:w-full tw:lg:w-[450px] tw:shrink-0 tw:p-5 tw:md:p-6 tw:flex tw:flex-col tw:gap-2 tw:bg-slate-50/60"
+                    class="tw:w-full tw:lg:w-[400px] tw:shrink-0 tw:p-5 tw:md:p-6 tw:flex tw:flex-col tw:gap-4 tw:bg-slate-50/60 tw:overflow-y-auto"
                     style="min-height: 0"
                 >
-                    <span
-                        class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em] tw:mb-1"
-                    >
-                        Controls
-                    </span>
+                    <!-- Source -->
+                    <div class="tw:flex tw:flex-col tw:gap-2">
+                        <span
+                            class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em]"
+                        >
+                            Source
+                        </span>
+                        <div class="tw:grid tw:grid-cols-2 tw:gap-2">
+                            <!-- One slot toggles between opening the camera and capturing from it. -->
+                            <McButton
+                                v-if="mode === 'camera'"
+                                class="tw:justify-start tw:gap-2 tw:text-sm tw:font-semibold tw:shadow-sm tw:shadow-primary/20 tw:transition-colors"
+                                @click="takeSnapshot"
+                            >
+                                <FlipHorizontal class="tw:w-4 tw:h-4" />
+                                Take Snapshot
+                            </McButton>
+                            <McButton
+                                v-else
+                                variant="outline"
+                                class="tw:justify-start tw:gap-2 tw:text-sm tw:border-slate-200 tw:bg-white tw:text-slate-700 tw:shadow-sm tw:shadow-slate-100 hover:tw:border-primary/30 hover:tw:text-primary tw:transition-colors"
+                                @click="startCamera"
+                            >
+                                <CameraIcon class="tw:w-4 tw:h-4 tw:text-slate-400" />
+                                Camera
+                            </McButton>
 
-                    <McButton
-                        variant="outline"
-                        class="tw:w-full tw:justify-start tw:gap-2.5 tw:text-sm tw:border-slate-200 tw:bg-white tw:text-slate-700 tw:shadow-sm tw:shadow-slate-100 hover:tw:border-primary/30 hover:tw:text-primary tw:transition-colors"
-                        @click="startCamera"
-                    >
-                        <CameraIcon class="tw:w-4 tw:h-4 tw:text-slate-400" />
-                        Camera
-                    </McButton>
+                            <McButton
+                                variant="outline"
+                                class="tw:justify-start tw:gap-2 tw:text-sm tw:border-slate-200 tw:bg-white tw:text-slate-700 tw:shadow-sm tw:shadow-slate-100 hover:tw:border-primary/30 hover:tw:text-primary tw:transition-colors"
+                                @click="triggerUpload"
+                            >
+                                <Upload class="tw:w-4 tw:h-4 tw:text-slate-400" />
+                                Upload
+                            </McButton>
 
-                    <McButton
-                        variant="outline"
-                        class="tw:w-full tw:justify-start tw:gap-2.5 tw:text-sm tw:border-slate-200 tw:bg-white tw:text-slate-700 tw:shadow-sm tw:shadow-slate-100 hover:tw:border-primary/30 hover:tw:text-primary tw:transition-colors disabled:tw:opacity-40 disabled:tw:shadow-none"
-                        :disabled="mode !== 'camera'"
-                        @click="takeSnapshot"
-                    >
-                        <FlipHorizontal class="tw:w-4 tw:h-4 tw:text-slate-400" />
-                        Take Snapshot
-                    </McButton>
-
-                    <McButton
-                        variant="outline"
-                        class="tw:w-full tw:justify-start tw:gap-2.5 tw:text-sm tw:border-slate-200 tw:bg-white tw:text-slate-700 tw:shadow-sm tw:shadow-slate-100 hover:tw:border-primary/30 hover:tw:text-primary tw:transition-colors"
-                        @click="triggerUpload"
-                    >
-                        <Upload class="tw:w-4 tw:h-4 tw:text-slate-400" />
-                        Upload Image
-                    </McButton>
-
-                    <div class="tw:h-px tw:bg-slate-200 tw:my-1"></div>
-
-                    <McButton
-                        variant="ghost"
-                        class="tw:w-full tw:justify-start tw:gap-2.5 tw:text-sm tw:text-slate-400 hover:tw:text-red-500 hover:tw:bg-red-50 tw:transition-colors disabled:tw:opacity-30"
-                        :disabled="mode === 'empty'"
-                        @click="clearImage"
-                    >
-                        <Trash2 class="tw:w-4 tw:h-4" />
-                        Clear Image
-                    </McButton>
-
-                    <div v-if="hasResults" class="tw:pt-3 tw:border-t tw:border-slate-200">
-                        <McDetectionFilters />
+                            <McButton
+                                variant="ghost"
+                                class="tw:justify-start tw:gap-2 tw:text-sm tw:text-slate-400 hover:tw:text-red-500 hover:tw:bg-red-50 tw:transition-colors disabled:tw:opacity-30"
+                                :disabled="mode === 'empty'"
+                                @click="clearImage"
+                            >
+                                <Trash2 class="tw:w-4 tw:h-4" />
+                                Clear
+                            </McButton>
+                        </div>
                     </div>
 
-                    <div class="tw:flex-1"></div>
-
-                    <!-- Run Detection CTA -->
+                    <!-- Model -->
                     <div
-                        class="tw:pt-3 tw:border-t tw:border-slate-200 tw:flex tw:flex-col tw:gap-2"
+                        class="tw:flex tw:flex-col tw:gap-3 tw:pt-4 tw:border-t tw:border-slate-200"
                     >
+                        <span
+                            class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em]"
+                        >
+                            Model
+                        </span>
                         <div>
                             <label
-                                class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em] tw:mb-1 tw:block"
+                                class="tw:text-[10px] tw:font-semibold tw:text-slate-500 tw:mb-1 tw:block"
                             >
                                 Classification / Detection
                             </label>
@@ -400,7 +439,7 @@ onUnmounted(() => {
 
                         <div>
                             <label
-                                class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em] tw:mb-1 tw:block"
+                                class="tw:text-[10px] tw:font-semibold tw:text-slate-500 tw:mb-1 tw:block"
                             >
                                 Segmentation
                             </label>
@@ -437,7 +476,7 @@ onUnmounted(() => {
                             {{ isAnalyzing ? 'Analyzing…' : 'Run AI Detection' }}
                         </McButton>
                         <p
-                            class="tw:text-[10px] tw:text-slate-400 tw:text-center tw:mt-2.5 tw:leading-relaxed"
+                            class="tw:text-[10px] tw:text-slate-400 tw:text-center tw:leading-relaxed"
                         >
                             {{
                                 currentFile
@@ -446,96 +485,130 @@ onUnmounted(() => {
                             }}
                         </p>
                     </div>
+
+                    <!-- Display filters (only meaningful once boxes are drawn) -->
+                    <div
+                        v-if="hasResults"
+                        class="tw:flex tw:flex-col tw:gap-2 tw:pt-4 tw:border-t tw:border-slate-200"
+                    >
+                        <span
+                            class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em]"
+                        >
+                            Display
+                        </span>
+                        <McDetectionFilters />
+                    </div>
                 </div>
             </McDetectionFilterScope>
 
-            <div class="tw:grid tw:grid-cols-1 tw:lg:grid-cols-3 tw:gap-4 tw:mt-4">
-                <!-- Detection summary -->
-                <Transition
-                    enter-active-class="tw:transition-all tw:duration-500 tw:ease-out"
-                    enter-from-class="tw:opacity-0 tw:translate-y-4"
-                    enter-to-class="tw:opacity-100 tw:translate-y-0"
+            <!-- Detection summary -->
+            <Transition
+                enter-active-class="tw:transition-all tw:duration-500 tw:ease-out"
+                enter-from-class="tw:opacity-0 tw:translate-y-4"
+                enter-to-class="tw:opacity-100 tw:translate-y-0"
+            >
+                <div
+                    v-if="hasResults"
+                    class="tw:grid tw:grid-cols-1 tw:lg:grid-cols-2 tw:gap-4 tw:mt-4 tw:items-start"
                 >
-                    <div v-if="hasResults" class="tw:space-y-4 tw:lg:col-span-2">
-                        <div
-                            class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
-                        >
-                            <div class="tw:flex tw:items-center tw:justify-between tw:mb-4">
-                                <h2 class="tw:text-sm tw:font-bold tw:text-slate-700">
-                                    Detection Results
-                                </h2>
-                                <span
-                                    class="tw:text-[10px] tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest tw:bg-slate-100 tw:px-2 tw:py-0.5 tw:rounded-full"
-                                >
-                                    {{ detectionSteps.length }} class{{
-                                        detectionSteps.length === 1 ? '' : 'es'
-                                    }}
-                                    found
-                                </span>
-                            </div>
-
-                            <div
-                                class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:lg:grid-cols-3 tw:gap-3"
+                    <div
+                        class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
+                    >
+                        <div class="tw:flex tw:items-center tw:justify-between tw:mb-4">
+                            <h2 class="tw:text-sm tw:font-bold tw:text-slate-700">
+                                Detection Results
+                            </h2>
+                            <span
+                                class="tw:text-[10px] tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest tw:bg-slate-100 tw:px-2 tw:py-0.5 tw:rounded-full"
                             >
-                                <McConfidenceBar
-                                    v-for="step in detectionSteps"
-                                    :key="step.id"
-                                    :label="step.predicted_class"
-                                    :confidence="step.confidence"
-                                />
-                            </div>
+                                {{ detectionSteps.length }} class{{
+                                    detectionSteps.length === 1 ? '' : 'es'
+                                }}
+                                found
+                            </span>
                         </div>
 
-                        <div
-                            v-if="topResult"
-                            class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
-                        >
-                            <h2 class="tw:text-sm tw:font-bold tw:text-slate-700 tw:mb-3">
-                                AI Analysis Summary
-                            </h2>
-
-                            <div
-                                class="tw:relative tw:bg-linear-to-br tw:from-primary/5 tw:to-primary/3 tw:border tw:border-primary/15 tw:rounded-xl tw:p-5 tw:overflow-hidden"
-                            >
-                                <span
-                                    class="tw:absolute tw:top-2 tw:right-4 tw:text-5xl tw:font-black tw:text-primary/8 tw:select-none tw:leading-none"
-                                >
-                                    "
-                                </span>
-                                <p
-                                    class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative"
-                                >
-                                    The AI identified
-                                    <span class="tw:font-bold tw:text-primary">
-                                        {{ topResult.predicted_class }}
-                                    </span>
-                                    as the primary finding with
-                                    <span class="tw:font-bold tw:text-primary">
-                                        {{ Math.round(topResult.confidence * 100) }}% confidence
-                                    </span>
-                                    .
-                                    <template v-if="detectionSteps.length > 1">
-                                        Additional classes were also detected. Review all results
-                                        below before grading.
-                                    </template>
-                                </p>
-                            </div>
-
-                            <div
-                                class="tw:flex tw:items-start tw:gap-2 tw:mt-3 tw:p-3 tw:rounded-lg tw:bg-amber-50/60 tw:border tw:border-amber-100"
-                            >
-                                <span
-                                    class="tw:w-3.5 tw:h-3.5 tw:rounded-full tw:bg-amber-300 tw:shrink-0 tw:mt-0.5"
-                                ></span>
-                                <p class="tw:text-[11px] tw:text-amber-700 tw:leading-relaxed">
-                                    AI analysis is for educational guidance only. Results should be
-                                    verified by an instructor.
-                                </p>
-                            </div>
+                        <div class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:gap-3">
+                            <McConfidenceBar
+                                v-for="step in detectionSteps"
+                                :key="step.id"
+                                :label="step.predicted_class"
+                                :confidence="step.confidence"
+                            />
                         </div>
                     </div>
-                </Transition>
-            </div>
+
+                    <div
+                        v-if="detectStep"
+                        class="tw:bg-white tw:rounded-2xl tw:border tw:border-slate-200 tw:shadow-sm tw:p-5 tw:md:p-6"
+                    >
+                        <h2 class="tw:text-sm tw:font-bold tw:text-slate-700 tw:mb-3">
+                            AI Analysis Summary
+                        </h2>
+
+                        <div
+                            class="tw:relative tw:bg-linear-to-br tw:from-primary/5 tw:to-primary/3 tw:border tw:border-primary/15 tw:rounded-xl tw:p-5 tw:overflow-hidden"
+                        >
+                            <span
+                                class="tw:absolute tw:top-2 tw:right-4 tw:text-5xl tw:font-black tw:text-primary/8 tw:select-none tw:leading-none"
+                            >
+                                "
+                            </span>
+                            <p class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative">
+                                The classification model examined this slide and determined its most
+                                likely class as
+                                <span class="tw:font-bold tw:text-primary">
+                                    {{ detectStep.predicted_class }}
+                                </span>
+                                with
+                                <span class="tw:font-bold tw:text-primary">
+                                    {{ pct(detectStep.confidence) }}% confidence
+                                </span>
+                                , making it the best-supported class for this image.
+                                <template v-if="segmentStep">
+                                    The fungal segmentation model was also run on this image:
+                                    <template v-if="fungalCount > 0">
+                                        it is
+                                        <span class="tw:font-bold tw:text-primary">
+                                            {{ pct(fungalConfidence) }}%
+                                        </span>
+                                        confident that fungal elements are present, outlining
+                                        <span class="tw:font-bold tw:text-primary">
+                                            {{ fungalCount }}
+                                        </span>
+                                        fungal element{{ fungalCount === 1 ? '' : 's' }} in the
+                                        field of view.
+                                    </template>
+                                    <template v-else>
+                                        it detected
+                                        <span class="tw:font-bold tw:text-primary">
+                                            no fungal elements
+                                        </span>
+                                        , so this field of view reads as bacterial only.
+                                    </template>
+                                </template>
+                                <template v-else>
+                                    The fungal segmentation model was
+                                    <span class="tw:font-bold tw:text-primary">not run</span>
+                                    on this image, so no fungal elements were assessed.
+                                </template>
+                            </p>
+                        </div>
+
+                        <div
+                            class="tw:flex tw:items-start tw:gap-2 tw:mt-3 tw:p-3 tw:rounded-lg tw:bg-amber-50/60 tw:border tw:border-amber-100"
+                        >
+                            <span
+                                class="tw:w-3.5 tw:h-3.5 tw:rounded-full tw:bg-amber-300 tw:shrink-0 tw:mt-0.5"
+                            ></span>
+                            <p class="tw:text-[11px] tw:text-amber-700 tw:leading-relaxed">
+                                AI analysis is for educational guidance only. Results should be
+                                verified by an instructor.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </Transition>
         </div>
 
         <input
