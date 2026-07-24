@@ -31,9 +31,11 @@ type SubmissionTiming = {
 }
 
 /**
- * Day granularity, matching the Overdue check: due_date carries no time, so anything handed
- * in during the due day is on time. Comparing instants would make a 9am submission on the
- * due date "late" against a midnight-parsed deadline.
+ * Late = handed in after the deadline instant. due_date is a full ISO instant now (the
+ * create/update form carries 'YYYY-MM-DDTHH:mm' local and assignmentService sends it as an
+ * ISO instant), so this compares instants, not calendar days: an assignment due Jul 24 at
+ * 09:00 marks a 17:00-same-day submission Late. This used to be a `'day'` comparison back
+ * when due_date was a bare midnight date and any same-day hand-in counted as on time.
  *
  * A standalone predicate because lateness is a property of the submission independent of
  * whether it's been graded — the "Late Submissions" count wants every late one, including
@@ -43,7 +45,7 @@ export function isLateSubmission(
     submission: SubmissionTiming,
     dueDate: string | null | undefined,
 ): boolean {
-    return !!dueDate && dayjs(submission.submitted_at).isAfter(dayjs(dueDate), 'day')
+    return !!dueDate && dayjs(submission.submitted_at).isAfter(dayjs(dueDate))
 }
 
 /**
@@ -83,8 +85,10 @@ export function studentAssignmentBadges(
     if (submission) return submissionBadges(submission, assignment.due_date)
 
     // Nothing handed in. A closed assignment is as shut as a past-due one, so both read the
-    // same way: the chance to submit has gone.
-    const pastDue = dayjs().isAfter(dayjs(assignment.due_date), 'day')
+    // same way: the chance to submit has gone. Instant granularity, matching isLateSubmission
+    // — due_date carries a real time-of-day deadline now, so "overdue" flips at that instant,
+    // not at the following midnight.
+    const pastDue = dayjs().isAfter(dayjs(assignment.due_date))
     if (pastDue || assignment.status === 'closed') {
         return [{ label: 'Overdue', variant: 'destructive' }]
     }
