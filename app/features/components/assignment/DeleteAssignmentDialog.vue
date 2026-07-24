@@ -57,17 +57,16 @@ const destroysWork = computed(() => knownSubmissions.value > 0 || conflictCount.
 
 const canDelete = computed(() => typed.value.trim() === CONFIRM_WORD && !isDeleting.value)
 
-// Reset every time it opens: a dialog that reopens still holding a valid confirmation word
-// would let a second, unintended delete through on one click.
-watch(
-    () => props.open,
-    (isOpen) => {
-        if (isOpen) {
-            typed.value = ''
-            conflictCount.value = null
-        }
-    },
-)
+// Clear the confirmation whenever the dialog closes, so it can never reopen still holding a
+// valid word — which would let a second, unintended delete through on one click. Every way
+// out routes through here (Cancel, Escape, the overlay); a successful delete navigates away.
+const onOpenChange = (value: boolean) => {
+    if (!value) {
+        typed.value = ''
+        conflictCount.value = null
+    }
+    emit('update:open', value)
+}
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -97,7 +96,7 @@ const onDelete = async () => {
 </script>
 
 <template>
-    <McDialog :open="open" @update:open="emit('update:open', $event)">
+    <McDialog :open="open" @update:open="onOpenChange">
         <McDialogContent class="tw:sm:max-w-lg">
             <McDialogHeader>
                 <McDialogTitle>Delete “{{ assignment.name }}”?</McDialogTitle>
@@ -169,7 +168,7 @@ const onDelete = async () => {
             </div>
 
             <McDialogFooter>
-                <McButton variant="outline" type="button" @click="emit('update:open', false)">
+                <McButton variant="outline" type="button" @click="onOpenChange(false)">
                     Cancel
                 </McButton>
                 <McButton

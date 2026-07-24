@@ -7,6 +7,13 @@ export interface DetectionStepLike {
     boxes: DetectionBox[]
 }
 
+/**
+ * Where the confidence filter starts, both for a fresh overlay and after each new
+ * detection. 0.6 hides the low-confidence noise by default so the strong boxes read
+ * first; the user can always drag it down to 0 to see everything.
+ */
+export const DEFAULT_MIN_CONFIDENCE = 0.6
+
 export interface DetectionFilters {
     steps: ComputedRef<DetectionStepLike[]>
     minConfidence: Ref<number>
@@ -33,11 +40,43 @@ export const detectionFiltersKey: InjectionKey<DetectionFilters> = Symbol('detec
 
 export function createDetectionFilters(getSteps: () => DetectionStepLike[]): DetectionFilters {
     const steps = computed(getSteps)
-    const minConfidence = ref(0)
+
+    // Identity of the current detection — its step ids and box counts. A new detection is a
+    // new set of boxes, so a threshold or hidden layer carried over from the previous one
+    // would silently hide results the user just asked for. Rather than a watcher resetting
+    // the state on change, the state is DERIVED from this key: edits below are stamped with
+    // the detection they were made against, and once the key moves on they no longer apply.
+    const detectionKey = computed(() =>
+        steps.value.map((s) => `${s.id}:${s.boxes.length}`).join('|'),
+    )
+
+    // The user's overlay tweaks, stamped with the detection in force when they were made.
+    // When detectionKey moves to a new detection the stamp stops matching, `active` is null,
+    // and the getters fall back to their defaults — the reset, expressed as derived state.
+    const edits = ref<{ key: string; minConfidence: number; hiddenSteps: Set<number> } | null>(null)
+    const active = computed(() => (edits.value?.key === detectionKey.value ? edits.value : null))
+
+    const stamp = (patch: Partial<{ minConfidence: number; hiddenSteps: Set<number> }>) => {
+        edits.value = {
+            key: detectionKey.value,
+            minConfidence:
+                patch.minConfidence ?? active.value?.minConfidence ?? DEFAULT_MIN_CONFIDENCE,
+            hiddenSteps: patch.hiddenSteps ?? active.value?.hiddenSteps ?? new Set(),
+        }
+    }
+
+    const minConfidence = computed<number>({
+        get: () => active.value?.minConfidence ?? DEFAULT_MIN_CONFIDENCE,
+        set: (value) => stamp({ minConfidence: value }),
+    })
+
     // All layers start visible: a detect+segment chain (ML-ADR-003) draws from two steps
     // with different label vocabularies, and the toggle is what makes that legible as two
     // layers instead of one undifferentiated pile of boxes.
-    const hiddenSteps = ref(new Set<number>())
+    const hiddenSteps = computed<Set<number>>({
+        get: () => active.value?.hiddenSteps ?? new Set(),
+        set: (value) => stamp({ hiddenSteps: value }),
+    })
 
     const toggleStep = (id: number) => {
         const next = new Set(hiddenSteps.value)
@@ -45,13 +84,6 @@ export function createDetectionFilters(getSteps: () => DetectionStepLike[]): Det
         else next.add(id)
         hiddenSteps.value = next
     }
-
-    // A new detection is a new set of boxes, so a threshold or a hidden layer carried over
-    // from the previous one would silently hide results the user just asked for.
-    watch(steps, () => {
-        minConfidence.value = 0
-        hiddenSteps.value = new Set()
-    })
 
     const visibleBoxes = computed(() =>
         steps.value

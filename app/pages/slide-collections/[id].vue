@@ -31,12 +31,10 @@ const load = async () => {
 await load()
 
 const breadcrumb = useBreadcrumb()
-watchEffect(() => {
-    breadcrumb.setBreadcrumbs([
-        { label: 'Slide Library', to: '/slide-collections' },
-        { label: collection.value?.name ?? 'Collection' },
-    ])
-})
+breadcrumb.setBreadcrumbs(() => [
+    { label: 'Slide Library', to: '/slide-collections' },
+    { label: collection.value?.name ?? 'Collection' },
+])
 
 // ---- collection edit / delete ----
 const isEditOpen = ref(false)

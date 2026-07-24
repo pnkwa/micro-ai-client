@@ -66,9 +66,9 @@ const reload = () =>
 await reload()
 
 const breadcrumb = useBreadcrumb()
-watchEffect(() => {
+breadcrumb.setBreadcrumbs(() => {
     const s = submission.value
-    breadcrumb.setBreadcrumbs([
+    return [
         { label: 'Classes', to: '/classes' },
         { label: s?.assignment?.class?.name ?? 'Class', to: `/classes/${classId.value}` },
         {
@@ -76,7 +76,7 @@ watchEffect(() => {
             to: `/classes/${classId.value}/assignments/${assignmentId.value}`,
         },
         { label: 'Submission' },
-    ])
+    ]
 })
 
 const studentName = computed(() => {

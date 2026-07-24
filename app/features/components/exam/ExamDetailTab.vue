@@ -45,7 +45,7 @@ const draft = reactive({
     opensAt: '',
     closesAt: '',
     useThreshold: false,
-    threshold: 0.5,
+    threshold: 0.6,
 })
 
 const startEdit = () => {
@@ -56,7 +56,7 @@ const startEdit = () => {
     draft.opensAt = toLocalDateTime(props.exam.exam_opens_at)
     draft.closesAt = toLocalDateTime(props.exam.exam_closes_at)
     draft.useThreshold = props.exam.exam_confidence_threshold != null
-    draft.threshold = props.exam.exam_confidence_threshold ?? 0.5
+    draft.threshold = props.exam.exam_confidence_threshold ?? 0.6
     isEditing.value = true
 }
 

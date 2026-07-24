@@ -14,8 +14,11 @@ const { open, isMobile } = useSidebar()
             !isMobile && open && 'tw:max-w-[calc(100vw-var(--sidebar-width)-12px)]',
         ]"
     >
+        <!-- Sticky so the breadcrumb/trigger bar stays put as the page scrolls (the window is
+             the scroll container — nothing between here and <body> sets overflow). z-30 keeps
+             it above page content and any in-page sticky table headers, below dialogs/popovers. -->
         <div
-            class="tw:flex tw:items-center tw:justify-between tw:bg-white tw:px-4 tw:min-h-12 tw:border-b"
+            class="tw:sticky tw:top-0 tw:z-30 tw:flex tw:items-center tw:justify-between tw:bg-white tw:px-4 tw:min-h-12 tw:border-b"
         >
             <div class="tw:flex tw:items-center tw:flex-wrap tw:gap-0 tw:lg:gap-4">
                 <div class="tw:flex tw:items-center tw:gap-2">

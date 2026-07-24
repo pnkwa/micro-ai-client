@@ -57,12 +57,10 @@ const assignment = computed(() => {
 })
 
 const breadcrumb = useBreadcrumb()
-watchEffect(() => {
-    breadcrumb.setBreadcrumbs([
-        { label: 'Assignments', to: '/assignments' },
-        { label: assignment.value?.name ?? 'Assignment' },
-    ])
-})
+breadcrumb.setBreadcrumbs(() => [
+    { label: 'Assignments', to: '/assignments' },
+    { label: assignment.value?.name ?? 'Assignment' },
+])
 
 const isSubmitDialogOpen = ref(false)
 
