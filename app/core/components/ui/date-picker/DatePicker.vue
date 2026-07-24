@@ -14,9 +14,13 @@ const props = withDefaults(
         placeholder?: string
         class?: string
         disabled?: boolean
+        // Adds a time-of-day input. The stored value then carries the time too, as
+        // "YYYY-MM-DDTHH:mm" (local); without it the value stays a plain "YYYY-MM-DD".
+        withTime?: boolean
     }>(),
     {
         placeholder: 'Pick a date',
+        withTime: false,
     },
 )
 
@@ -25,22 +29,33 @@ const emits = defineEmits<{
 }>()
 
 // Binds to the vee-validate field by `name`, exactly like McSelect. The stored value is a
-// plain "YYYY-MM-DD" string so the form schema (z.string()) is unchanged.
+// plain "YYYY-MM-DD" (or "YYYY-MM-DDTHH:mm" with time) string, so form schemas stay z.string().
 const modelValue = useVeeValidateModel<string>(props, emits)
 
-// Bridge the string field <-> the calendar's DateValue. parseDate throws on a malformed
+// The stored value is date and (optionally) time joined by 'T'; split it for the two controls.
+const datePart = computed(() => (modelValue.value.value ?? '').split('T')[0] ?? '')
+const timePart = computed(() => (modelValue.value.value ?? '').split('T')[1] ?? '')
+
+// Bridge the date string <-> the calendar's DateValue. parseDate throws on a malformed
 // string, so guard it and treat anything unparseable as "no selection".
 const calendarValue = computed<DateValue | undefined>(() => {
-    const raw = modelValue.value.value
-    if (!raw) return undefined
+    if (!datePart.value) return undefined
     try {
-        return parseDate(raw)
+        return parseDate(datePart.value)
     } catch {
         return undefined
     }
 })
 
-const displayLabel = computed(() => {
+const formatTime = (t: string): string => {
+    const [h, m] = t.split(':').map(Number)
+    if (h === undefined || m === undefined) return t
+    const d = new Date()
+    d.setHours(h, m)
+    return d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+const dateLabel = computed(() => {
     const date = calendarValue.value
     if (!date) return ''
     return date.toDate(getLocalTimeZone()).toLocaleDateString('en', {
@@ -50,13 +65,44 @@ const displayLabel = computed(() => {
     })
 })
 
+const displayLabel = computed(() => {
+    if (!dateLabel.value) return ''
+    return props.withTime && timePart.value
+        ? `${dateLabel.value} ${formatTime(timePart.value)}`
+        : dateLabel.value
+})
+
 const errorMessage = computed(() => modelValue.errorMessage.value || '')
 
 const open = ref(false)
 
+// Compose the stored value from the two parts. An empty date clears everything.
+const commit = (date: string, time: string) => {
+    if (!date) {
+        modelValue.value.value = ''
+        return
+    }
+    modelValue.value.value = props.withTime ? `${date}T${time || '00:00'}` : date
+}
+
 const onSelect = (date: DateValue | undefined) => {
     // date.toString() yields "YYYY-MM-DD" for a CalendarDate, the format the form expects.
-    modelValue.value.value = date ? date.toString() : ''
+    const d = date ? date.toString() : ''
+    if (!props.withTime) {
+        modelValue.value.value = d
+        open.value = false
+        return
+    }
+    // Keep the popover open so the time can be set; default to 09:00 on the first pick.
+    commit(d, timePart.value || '09:00')
+}
+
+const onTime = (event: Event) => {
+    commit(datePart.value, (event.target as HTMLInputElement).value)
+}
+
+const clear = () => {
+    modelValue.value.value = ''
     open.value = false
 }
 </script>
@@ -82,11 +128,38 @@ const onSelect = (date: DateValue | undefined) => {
                 </button>
             </PopoverTrigger>
             <PopoverContent class="tw:w-auto tw:p-0" align="start">
+                <!-- Notion-style: the selected date (and a time field) on top, calendar below. -->
+                <div class="tw:flex tw:items-center tw:gap-2 tw:border-b tw:border-navy-10 tw:p-2">
+                    <div
+                        class="tw:min-w-0 tw:flex-1 tw:rounded-md tw:bg-navy-10/50 tw:px-2.5 tw:py-1.5 tw:text-sm tw:font-medium"
+                        :class="dateLabel ? 'tw:text-navy-90' : 'tw:text-muted-foreground'"
+                    >
+                        {{ dateLabel || props.placeholder }}
+                    </div>
+                    <input
+                        v-if="withTime"
+                        type="time"
+                        :value="timePart"
+                        :disabled="!datePart"
+                        class="tw:rounded-md tw:bg-navy-10/50 tw:px-2.5 tw:py-1.5 tw:text-sm tw:font-medium tw:text-navy-90 tw:tabular-nums tw:outline-none tw:focus:ring-2 tw:focus:ring-primary/30 tw:disabled:opacity-50"
+                        @input="onTime"
+                    />
+                </div>
                 <Calendar
                     :model-value="calendarValue"
                     initial-focus
                     @update:model-value="onSelect"
                 />
+                <div class="tw:border-t tw:border-navy-10 tw:p-1.5">
+                    <button
+                        type="button"
+                        :disabled="!datePart"
+                        class="tw:w-full tw:rounded-md tw:px-2 tw:py-1.5 tw:text-left tw:text-sm tw:text-navy-60 tw:hover:bg-navy-10/50 tw:disabled:opacity-40 tw:disabled:hover:bg-transparent"
+                        @click="clear"
+                    >
+                        Clear
+                    </button>
+                </div>
             </PopoverContent>
         </Popover>
         <span v-if="errorMessage" class="tw:text-xs tw:text-red-500">
