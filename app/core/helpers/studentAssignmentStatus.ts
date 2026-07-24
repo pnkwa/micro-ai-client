@@ -10,13 +10,14 @@ import type { SubmissionView } from '~/services/submissionService'
  * instead. Shared so the two surfaces can't drift: the ordering below IS the rule.
  */
 export type StatusBadge = {
-    label: 'New' | 'Overdue' | 'Submitted' | 'Late' | 'Graded'
+    label: 'New' | 'Overdue' | 'Submitted' | 'Late' | 'Graded' | 'Rejected'
     variant: VariantType
 }
 
 const GRADED: StatusBadge = { label: 'Graded', variant: 'success' }
 const LATE: StatusBadge = { label: 'Late', variant: 'warning' }
 const SUBMITTED: StatusBadge = { label: 'Submitted', variant: 'info' }
+const REJECTED: StatusBadge = { label: 'Rejected', variant: 'destructive' }
 
 /** Only the fields the rule reads, so this works on both Assignment and AssignmentListItem. */
 type AssignmentTiming = {
@@ -26,7 +27,7 @@ type AssignmentTiming = {
 
 /** The fields lateness needs, so this works on SubmissionView and SubmissionDetail alike. */
 type SubmissionTiming = {
-    status: 'submitted' | 'graded'
+    status: 'submitted' | 'graded' | 'rejected'
     submitted_at: string
 }
 
@@ -62,6 +63,9 @@ export function submissionBadges(
     dueDate: string | null | undefined,
 ): StatusBadge[] {
     const late = isLateSubmission(submission, dueDate)
+    // Rejected trumps lateness: the work was handed back to redo, so "Late" would only
+    // muddle what the student has to act on.
+    if (submission.status === 'rejected') return [REJECTED]
     if (submission.status === 'graded') return late ? [GRADED, LATE] : [GRADED]
     if (late) return [LATE]
     // Submitted but not released. Grading is saved incrementally, so a submission can

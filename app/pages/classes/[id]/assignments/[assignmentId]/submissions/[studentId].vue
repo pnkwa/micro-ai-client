@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Check, X, MessageSquarePlus } from 'lucide-vue-next'
+import { ArrowLeft, Check, X, MessageSquarePlus, Undo2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { submissionService, type GradingAnswer } from '~/services/submissionService'
 import { submissionBadges } from '~/core/helpers/studentAssignmentStatus'
@@ -32,6 +32,13 @@ const {
 } = useSubmissionDetail(submissionId, assignmentId)
 
 const isSaving = ref(false)
+const isRejecting = ref(false)
+const rejectOpen = ref(false)
+const rejectReason = ref('')
+
+// Only a still-`submitted` submission can be handed back; a graded one is regraded through
+// the answers instead (the server enforces this too).
+const canReject = computed(() => submission.value?.status === 'submitted')
 
 interface Draft {
     is_correct: boolean | null
@@ -154,6 +161,27 @@ const saveGrade = async () => {
         toast.error(apiErrorMessage(e, 'Failed to save grade'))
     } finally {
         isSaving.value = false
+    }
+}
+
+// Hand the submission back to the student to redo. The reason is required (the button below
+// stays disabled until it's non-empty) and shown to the student on their feedback page. On
+// success we leave the grading page — there's nothing left to grade here.
+const rejectSubmission = async () => {
+    if (!submission.value || rejectReason.value.trim() === '') return
+    isRejecting.value = true
+    try {
+        await submissionService.reject(submission.value.id, rejectReason.value.trim())
+        rejectOpen.value = false
+        toast.success('Submission returned to the student')
+        router.push({
+            path: `/classes/${classId.value}/assignments/${assignmentId.value}`,
+            query: { tab: 'submissions' },
+        })
+    } catch (e) {
+        toast.error(apiErrorMessage(e, 'Failed to reject submission'))
+    } finally {
+        isRejecting.value = false
     }
 }
 </script>
@@ -307,14 +335,64 @@ const saveGrade = async () => {
                 </McSubmissionAnswerCard>
             </template>
 
-            <div class="tw:flex tw:items-center tw:justify-end tw:gap-3">
-                <p v-if="!allGraded" class="tw:text-xs tw:text-warning">
-                    Mark every highlighted answer Correct or Incorrect before saving.
-                </p>
-                <McButton :disabled="!allGraded" :loading="isSaving" @click="saveGrade">
-                    Save Grade
+            <div class="tw:flex tw:items-center tw:gap-3">
+                <McButton
+                    v-if="canReject"
+                    variant="outline"
+                    class="tw:text-danger tw:border-danger/40 tw:hover:bg-danger/5"
+                    @click="rejectOpen = true"
+                >
+                    <Undo2 class="tw:size-4" />
+                    Reject &amp; return
                 </McButton>
+                <div class="tw:flex tw:flex-1 tw:items-center tw:justify-end tw:gap-3">
+                    <p v-if="!allGraded" class="tw:text-xs tw:text-warning">
+                        Mark every highlighted answer Correct or Incorrect before saving.
+                    </p>
+                    <McButton :disabled="!allGraded" :loading="isSaving" @click="saveGrade">
+                        Save Grade
+                    </McButton>
+                </div>
             </div>
         </template>
+
+        <!-- Reject: hand the submission back with a reason the student will read. Not a
+             ConfirmDialog because the reason is a required free-text input, not a yes/no. -->
+        <McDialog :open="rejectOpen" @update:open="rejectOpen = $event">
+            <McDialogContent class="tw:sm:max-w-md">
+                <McDialogHeader>
+                    <McDialogTitle>Reject &amp; return submission</McDialogTitle>
+                    <McDialogDescription>
+                        The student will see this reason and can submit again. This does not grade
+                        the work.
+                    </McDialogDescription>
+                </McDialogHeader>
+                <div class="tw:flex tw:flex-col tw:gap-1.5">
+                    <label class="tw:text-xs tw:font-medium tw:text-navy-60">
+                        Reason for the student
+                    </label>
+                    <McTextarea
+                        v-model="rejectReason"
+                        placeholder="e.g. The field-of-view photo is out of focus — please re-photograph and resubmit."
+                        class="tw:text-sm"
+                        :rows="3"
+                    />
+                </div>
+                <McDialogFooter>
+                    <McButton variant="outline" type="button" @click="rejectOpen = false">
+                        Cancel
+                    </McButton>
+                    <McButton
+                        variant="destructive"
+                        type="button"
+                        :loading="isRejecting"
+                        :disabled="rejectReason.trim() === ''"
+                        @click="rejectSubmission"
+                    >
+                        Reject &amp; return
+                    </McButton>
+                </McDialogFooter>
+            </McDialogContent>
+        </McDialog>
     </div>
 </template>

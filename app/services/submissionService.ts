@@ -7,9 +7,12 @@ const submissionBaseSchema = z.object({
     id: z.number(),
     assignment_id: z.number(),
     student_id: z.string(),
-    status: z.enum(['submitted', 'graded']),
+    status: z.enum(['submitted', 'graded', 'rejected']),
     score: z.number().nullable(),
     submitted_at: z.string(),
+    // Why staff returned this submission to the student to redo; set only when
+    // status === 'rejected', absent on the list read.
+    rejection_reason: z.string().nullable().optional(),
     student: z
         .object({
             student_id: z.string(),
@@ -132,5 +135,15 @@ export const submissionService = {
     async finalize(submissionId: number): Promise<void> {
         const { $api } = useNuxtApp()
         await $api(`/submissions/${submissionId}/finalize`, { method: 'PATCH' })
+    },
+
+    // Return the submission to the student to redo, with a required reason (shown to them).
+    // Only valid on a `submitted` submission; the server 400s a graded/already-rejected one.
+    async reject(submissionId: number, reason: string): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(`/submissions/${submissionId}/reject`, {
+            method: 'PATCH',
+            body: { reason },
+        })
     },
 }
