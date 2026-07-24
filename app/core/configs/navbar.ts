@@ -1,11 +1,11 @@
-import { ChartPie, GraduationCap, View } from 'lucide-vue-next'
+import { ChartPie, GraduationCap, View, Layers } from 'lucide-vue-next'
 
 type MenuRole = 'instructor' | 'all' | 'student'
 
 interface MenuItem {
     title: string
     url: string
-    icon: typeof ChartPie | typeof GraduationCap | typeof View
+    icon: typeof ChartPie | typeof GraduationCap | typeof View | typeof Layers
     subMenu?: MenuItem[]
     role: MenuRole
 }
@@ -34,5 +34,11 @@ export const menuItems: MenuItem[] = [
         url: '/image-detection',
         icon: View,
         role: 'all',
+    },
+    {
+        title: 'Slide Library',
+        url: '/slide-collections',
+        icon: Layers,
+        role: 'instructor',
     },
 ]

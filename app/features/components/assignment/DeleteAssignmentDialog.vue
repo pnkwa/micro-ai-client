@@ -14,9 +14,13 @@ import { assignmentService, type Assignment } from '~/services/assignmentService
  */
 const props = defineProps<{
     open: boolean
+    // Accepts an exam too — an exam is an assignment underneath, so it satisfies this shape.
     assignment: Assignment
     /** From the page's already-loaded list, so the warning can name a real number. */
     submissionCount: number
+    /** The delete call. Defaults to assignmentService.remove; exams pass examService.remove,
+     *  which hits DELETE /exams/:id (same 409-with-count / force semantics). */
+    removeFn?: (id: number, force: boolean) => Promise<void>
 }>()
 
 const emit = defineEmits<{ 'update:open': [value: boolean]; deleted: [] }>()
@@ -73,7 +77,8 @@ const onDelete = async () => {
     try {
         // Only force once we've actually told them work will be destroyed, either from the
         // page's own count or from a conflict we've now surfaced.
-        await assignmentService.remove(props.assignment.id, destroysWork.value)
+        const remove = props.removeFn ?? assignmentService.remove
+        await remove(props.assignment.id, destroysWork.value)
         emit('deleted')
     } catch (err) {
         const status = (err as { statusCode?: number; response?: { status?: number } })?.response

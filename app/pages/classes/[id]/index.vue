@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { h } from 'vue'
-import { FileText, Users, Plus, ChevronLeft, UserPlus, Upload } from 'lucide-vue-next'
+import {
+    FileText,
+    Users,
+    Plus,
+    ChevronLeft,
+    UserPlus,
+    Upload,
+    ClipboardCheck,
+} from 'lucide-vue-next'
 import type { ColumnDef } from '@tanstack/vue-table'
 import { toast } from 'vue-sonner'
 import CreateAssignment from '~/features/components/forms/CreateAssignment.vue'
+import CreateExam from '~/features/components/forms/CreateExam.vue'
 import EditClass from '~/features/components/forms/EditClass.vue'
 import AddStudent from '~/features/components/forms/AddStudent.vue'
 import ImportStudentsCsv from '~/features/components/forms/ImportStudentsCsv.vue'
@@ -17,6 +26,7 @@ import {
     type EnrollStudentInput,
 } from '~/services/classService'
 import { assignmentService, type AssignmentListItem } from '~/services/assignmentService'
+import { examService, type ExamListItem, type CreateExamInput } from '~/services/examService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import {
     studentAssignmentBadges,
@@ -35,9 +45,11 @@ const classId = computed(() => Number(route.params.id))
 const classItem = ref<ClassItem | null>(null)
 const students = ref<StudentRosterItem[]>([])
 const assignments = ref<AssignmentListItem[]>([])
+const exams = ref<ExamListItem[]>([])
 const isLoadingClass = ref(false)
 const isLoadingStudents = ref(false)
 const isLoadingAssignments = ref(false)
+const isLoadingExams = ref(false)
 
 const loadClass = async () => {
     isLoadingClass.value = true
@@ -64,11 +76,25 @@ const loadStudents = async () => {
 const loadAssignments = async () => {
     isLoadingAssignments.value = true
     try {
-        assignments.value = await assignmentService.listByClass(classId.value)
+        // GET /assignments returns exams too (is_exam rows); they belong in the Exams tab, so
+        // keep only real assignments here.
+        const all = await assignmentService.listByClass(classId.value)
+        assignments.value = all.filter((a) => !a.is_exam)
     } catch {
         toast.error('Failed to load assignments')
     } finally {
         isLoadingAssignments.value = false
+    }
+}
+
+const loadExams = async () => {
+    isLoadingExams.value = true
+    try {
+        exams.value = await examService.listByClass(classId.value)
+    } catch {
+        toast.error('Failed to load exams')
+    } finally {
+        isLoadingExams.value = false
     }
 }
 
@@ -92,6 +118,7 @@ const loadMySubmissions = async () => {
 await Promise.all([
     loadClass(),
     loadAssignments(),
+    loadExams(),
     ...(isStudent.value ? [loadMySubmissions()] : []),
 ])
 
@@ -104,12 +131,55 @@ breadcrumb.setBreadcrumbs([
 const assignmentStatus = (assignment: AssignmentListItem) =>
     studentAssignmentBadges(assignment, mySubmissions.value.get(assignment.id))
 
-const activeTab = ref<'assignments' | 'students'>('assignments')
+// Exam rows: for a student their own standing (submissions cover exams too — an exam is an
+// assignment); for staff, the exam window state.
+const examStatus = (exam: ExamListItem) =>
+    studentAssignmentBadges(exam, mySubmissions.value.get(exam.id))
 
-const onTabChange = async (tab: 'assignments' | 'students') => {
+// The window as a short human phrase, shown on staff exam rows.
+const examWindow = (exam: ExamListItem): string => {
+    const now = $dayjs()
+    const opens = exam.exam_opens_at ? $dayjs(exam.exam_opens_at) : null
+    const closes = exam.exam_closes_at ? $dayjs(exam.exam_closes_at) : null
+    if (opens && now.isBefore(opens)) return `Opens ${opens.format('MMM D, HH:mm')}`
+    if (closes && now.isAfter(closes)) return `Closed ${closes.format('MMM D')}`
+    if (closes) return `Open · closes ${closes.format('MMM D, HH:mm')}`
+    return opens ? 'Open now' : 'No window'
+}
+
+type ClassTab = 'assignments' | 'exams' | 'students'
+const classTabs = computed(() =>
+    isStudent.value
+        ? [
+              { value: 'assignments', label: 'Assignments' },
+              { value: 'exams', label: 'Exams' },
+          ]
+        : [
+              { value: 'assignments', label: 'Assignments' },
+              { value: 'exams', label: 'Exams' },
+              { value: 'students', label: 'Students' },
+          ],
+)
+
+const activeTab = ref<ClassTab>('assignments')
+
+const onTabChange = async (tab: ClassTab) => {
     activeTab.value = tab
     if (tab === 'students' && students.value.length === 0) {
         await loadStudents()
+    }
+}
+
+const isCreateExamOpen = ref(false)
+
+const handleCreateExam = async (values: CreateExamInput) => {
+    try {
+        const created = await examService.create(values)
+        isCreateExamOpen.value = false
+        toast.success('Exam created')
+        router.push(`/classes/${classId.value}/exams/${created.id}`)
+    } catch (err) {
+        toast.error(apiErrorMessage(err, 'Failed to create exam'))
     }
 }
 
@@ -291,13 +361,9 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
             </div>
 
             <McTabs
-                v-if="!isStudent"
                 :model-value="activeTab"
-                :tabs="[
-                    { value: 'assignments', label: 'Assignments' },
-                    { value: 'students', label: 'Students' },
-                ]"
-                @update:model-value="onTabChange($event as 'assignments' | 'students')"
+                :tabs="classTabs"
+                @update:model-value="onTabChange($event as ClassTab)"
             />
 
             <template v-if="activeTab === 'assignments'">
@@ -364,6 +430,67 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                 >
                     <FileText class="tw:w-8 tw:h-8 tw:text-navy-60 tw:mx-auto tw:mb-2" />
                     <p class="tw:text-sm tw:text-navy-60">No assignments yet</p>
+                </div>
+            </template>
+
+            <template v-else-if="activeTab === 'exams'">
+                <div class="tw:flex tw:justify-between tw:mb-4">
+                    <span class="tw:text-sm tw:text-navy-60">{{ exams.length }} exams</span>
+                    <McButton v-if="!isStudent" @click="isCreateExamOpen = true">
+                        <Plus class="tw:w-4 tw:h-4 tw:mr-1" />
+                        New Exam
+                    </McButton>
+                </div>
+
+                <div
+                    v-if="isLoadingExams"
+                    class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
+                >
+                    Loading exams…
+                </div>
+
+                <div v-else-if="exams.length > 0" class="tw:flex tw:flex-col tw:gap-3">
+                    <div
+                        v-for="exam in exams"
+                        :key="exam.id"
+                        class="tw:flex tw:justify-between tw:items-center tw:p-4 tw:bg-white tw:rounded-lg tw:border tw:border-gray-200 tw:cursor-pointer tw:hover:shadow-md tw:transition-shadow"
+                        @click="router.push(`/classes/${classId}/exams/${exam.id}`)"
+                    >
+                        <div class="tw:flex tw:items-center tw:gap-3">
+                            <ClipboardCheck class="tw:w-5 tw:h-5 tw:text-gray-400" />
+                            <div class="tw:flex tw:flex-col tw:gap-0.5">
+                                <h3 class="tw:text-sm tw:font-medium tw:text-navy-100">
+                                    {{ exam.name }}
+                                </h3>
+                                <p class="tw:text-xs tw:text-navy-60">{{ examWindow(exam) }}</p>
+                            </div>
+                        </div>
+                        <div class="tw:flex tw:items-center tw:gap-4">
+                            <template v-if="isStudent">
+                                <McBadge
+                                    v-for="b in examStatus(exam)"
+                                    :key="b.label"
+                                    :variant="b.variant"
+                                >
+                                    {{ b.label }}
+                                </McBadge>
+                            </template>
+                            <McBadge
+                                v-else
+                                :variant="exam.status === 'active' ? 'default' : 'outline'"
+                            >
+                                {{ exam.status === 'active' ? 'Active' : 'Closed' }}
+                            </McBadge>
+                        </div>
+                    </div>
+                </div>
+
+                <div
+                    v-else
+                    class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center"
+                >
+                    <ClipboardCheck class="tw:w-8 tw:h-8 tw:text-navy-60 tw:mx-auto tw:mb-2" />
+                    <p class="tw:text-sm tw:text-navy-60">No exams yet</p>
                 </div>
             </template>
 
@@ -485,6 +612,16 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                     :default-class-id="classId"
                     @save="handleCreate"
                     @cancel="isCreateDialogOpen = false"
+                />
+            </McDialogContent>
+        </McDialog>
+
+        <McDialog v-model:open="isCreateExamOpen">
+            <McDialogContent class="tw:max-w-lg tw:sm:max-w-2xl">
+                <CreateExam
+                    :class-id="classId"
+                    @save="handleCreateExam"
+                    @cancel="isCreateExamOpen = false"
                 />
             </McDialogContent>
         </McDialog>

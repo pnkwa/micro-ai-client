@@ -38,7 +38,11 @@ const slots = defineSlots<{
 
 const answerLabel = (options: string[]): string => (options.length ? options.join(', ') : '—')
 
-const isImage = computed(() => props.answer.question.type === 'image_detection')
+// Both types carry a submitted photo and a detection run; the exam slide question adds a
+// self-reported slide number and a written diagnosis on top. (For exam students the server
+// strips the detection, but this card is staff-grading only for slide answers — BE-ADR-012.)
+const isSlide = computed(() => props.answer.question.type === 'slide_identification')
+const isImage = computed(() => props.answer.question.type === 'image_detection' || isSlide.value)
 
 const detection = computed(() => props.answer.detection ?? null)
 const steps = computed(() => detection.value?.steps ?? [])
@@ -89,6 +93,22 @@ const clearanceClass = computed(() => {
                 class="tw:absolute tw:top-3 tw:right-3 tw:flex tw:items-center tw:gap-1.5"
             >
                 <slot name="marks" />
+            </div>
+
+            <!-- Exam slide answer: what the student reported (the number and the written
+                 diagnosis) sits above the photo + AI panel below. -->
+            <div v-if="isSlide" class="tw:mb-3 tw:flex tw:flex-col tw:gap-1.5">
+                <div class="tw:flex tw:items-center tw:gap-2">
+                    <span
+                        class="tw:inline-flex tw:items-center tw:rounded tw:bg-navy-10 tw:px-2 tw:py-0.5 tw:text-xs tw:font-medium tw:text-navy-70"
+                    >
+                        Slide #{{ answer.slide_number ?? '—' }}
+                    </span>
+                </div>
+                <p class="tw:text-sm tw:text-navy-90">
+                    <span class="tw:text-navy-40">Diagnosis:</span>
+                    {{ answer.response_text || '—' }}
+                </p>
             </div>
 
             <McDetectionFilterScope

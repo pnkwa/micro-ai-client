@@ -16,6 +16,12 @@ const props = defineProps<{
      * below keys off this one value rather than `ex.released`.
      */
     released: boolean
+    /**
+     * When set (exams pass 'slide_identification'), the question form is locked to this type
+     * and hides its picker — an exam's questions are all one type. Undefined = the normal
+     * assignment picker with every type available.
+     */
+    fixedQuestionType?: string
 }>()
 
 const emit = defineEmits<{ reload: [] }>()
@@ -288,6 +294,7 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                 <QuestionForm
                     v-if="addingQuestionExerciseId === ex.id"
                     heading="New question"
+                    :fixed-type="fixedQuestionType"
                     @submit="handleAddQuestion(ex.id, $event)"
                     @cancel="addingQuestionExerciseId = null"
                 />

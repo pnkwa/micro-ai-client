@@ -56,7 +56,13 @@ export function useSubmissionDetail(submissionId: Ref<number>, assignmentId: Ref
                 .catch(() => {})
 
             for (const answer of detail.answers) {
-                if (answer.question.type === 'image_detection' && answer.detection) {
+                // Both image_detection and exam slide_identification attach a photo, served
+                // via the detection row; the FOV photo must show even when the analysis is
+                // empty, so this keys off the detection existing, not on any steps.
+                const hasPhoto =
+                    answer.question.type === 'image_detection' ||
+                    answer.question.type === 'slide_identification'
+                if (hasPhoto && answer.detection) {
                     imageUrls[answer.question_id] = await detectionService.imageBlobUrl(
                         answer.detection.id,
                     )
