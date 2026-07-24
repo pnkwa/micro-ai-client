@@ -100,7 +100,7 @@ const statusBadges = computed(() =>
         : [],
 )
 
-const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY h:mm A')
+const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm')
 
 /**
  * The correct/incorrect toggle owns the points too. The submission score is Σ

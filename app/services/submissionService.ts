@@ -39,7 +39,13 @@ const gradingQuestionSchema = z.object({
     id: z.number(),
     exercise_id: z.number(),
     position: z.number(),
-    type: z.enum(['multiple_choice', 'multiple_select', 'fill_in', 'image_detection']),
+    type: z.enum([
+        'multiple_choice',
+        'multiple_select',
+        'fill_in',
+        'image_detection',
+        'slide_identification',
+    ]),
     prompt: z.string(),
     points: z.number(),
     options: z.array(z.string()),
@@ -51,7 +57,9 @@ const gradingAnswerSchema = z.object({
     question: gradingQuestionSchema,
     response_text: z.string().nullable(),
     selected_options: z.array(z.string()),
-    // image_detection only; null for every other question type.
+    // Exam slide_identification: the slide number the student self-reported; null otherwise.
+    slide_number: z.number().nullable().optional(),
+    // image_detection / slide_identification: the ML run on the attached image; null otherwise.
     detection: detectionSchema.nullable(),
     // Autograder / detection suggestion: advisory, instructor confirms via is_correct/points_awarded.
     auto_is_correct: z.boolean().nullable(),

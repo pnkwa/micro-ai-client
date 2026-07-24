@@ -83,9 +83,10 @@ watch(() => classFilterStore.selectedClassId, loadAssignments)
 // ---- helpers ----
 
 // Lateness and the badge come from the shared helper, so this table, the submissions tab,
-// the grading header and the student's own pill can't disagree. The instant comparison this
-// replaced (submitted_at > due_date) called every submission made ON the due date late:
-// due_date is stored midnight UTC, so 09:00 local east of Greenwich is already past it.
+// the grading header and the student's own pill can't disagree. It compares instants:
+// due_date carries a real time-of-day deadline (assignmentService sends the form's local
+// 'YYYY-MM-DDTHH:mm' as an ISO instant), so a submission is late the moment it passes that
+// time, not at the next midnight.
 
 // ---- computed: scoping ----
 

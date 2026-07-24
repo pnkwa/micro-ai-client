@@ -13,7 +13,7 @@ const props = defineProps<{
 }>()
 
 const { $dayjs } = useNuxtApp()
-const formatDateTime = (date: string) => $dayjs(date).format('MMM D, h:mm A')
+const formatDateTime = (date: string) => $dayjs(date).format('MMM D, HH:mm')
 
 const searchQuery = ref('')
 const pagination = ref<PaginationState>({ pageIndex: 0, pageSize: 10 })

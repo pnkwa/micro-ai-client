@@ -13,7 +13,15 @@ const attachmentSchema = z.object({
 const questionSchema = z.object({
     id: z.number(),
     exercise_id: z.number(),
-    type: z.enum(['multiple_choice', 'multiple_select', 'fill_in', 'image_detection']),
+    type: z.enum([
+        'multiple_choice',
+        'multiple_select',
+        'fill_in',
+        'image_detection',
+        // Exam mode: the student self-reports a slide number, writes a diagnosis and attaches
+        // a FOV photo. Carries no options or key of its own — the key lives on the slide.
+        'slide_identification',
+    ]),
     prompt: z.string(),
     position: z.number(),
     points: z.number().nullable().optional(),
@@ -38,8 +46,13 @@ const exerciseSchema = z.object({
     questions: z.array(questionSchema),
 })
 
-// Returned by GET /assignments (list): scalars only, no tree
-const assignmentListItemSchema = z.object({
+// Exam authoring reuses the exercise/question tree wholesale, so these are exported for
+// examService to extend rather than re-declare.
+export { exerciseSchema, attachmentSchema }
+
+// Returned by GET /assignments (list): scalars only, no tree. `is_exam` is present because
+// the endpoint returns raw rows and does NOT filter exams out — the client separates them.
+export const assignmentListItemSchema = z.object({
     id: z.number(),
     class_id: z.number(),
     name: z.string(),
@@ -48,12 +61,13 @@ const assignmentListItemSchema = z.object({
     due_date: z.string(),
     points: z.number().nullable(),
     status: z.enum(['active', 'closed']),
+    is_exam: z.boolean().optional().default(false),
     created_at: z.string(),
     updated_at: z.string(),
 })
 
 // Returned by GET /assignments/:id: full tree via toAssignmentView
-const assignmentSchema = assignmentListItemSchema.extend({
+export const assignmentSchema = assignmentListItemSchema.extend({
     attachments: z.array(attachmentSchema),
     exercises: z.array(exerciseSchema),
 })
@@ -104,7 +118,9 @@ export const assignmentService = {
             body: {
                 class_id: payload.classId,
                 name: payload.name,
-                due_date: payload.dueDate,
+                // The form's due date carries a time ('YYYY-MM-DDTHH:mm' local); send an
+                // unambiguous ISO instant.
+                due_date: new Date(payload.dueDate).toISOString(),
                 status: payload.status,
                 description: payload.description,
                 instructions: payload.instructions,
@@ -124,7 +140,7 @@ export const assignmentService = {
         const { $api } = useNuxtApp()
         const body: Record<string, unknown> = {}
         if (payload.name !== undefined) body.name = payload.name
-        if (payload.dueDate !== undefined) body.due_date = payload.dueDate
+        if (payload.dueDate !== undefined) body.due_date = new Date(payload.dueDate).toISOString()
         if (payload.status !== undefined) body.status = payload.status
         if (payload.description !== undefined) body.description = payload.description
         if (payload.instructions !== undefined) body.instructions = payload.instructions

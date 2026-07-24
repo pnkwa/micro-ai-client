@@ -17,11 +17,15 @@ const props = withDefaults(
         lockType?: boolean
         submitLabel?: string
         heading?: string
+        // Forces the question type (exams: 'slide_identification') and hides the type picker.
+        // Such a question is prompt + points only — no options, no key (it lives on the slide).
+        fixedType?: string
     }>(),
     {
         lockType: false,
         submitLabel: 'Add question',
         heading: '',
+        fixedType: undefined,
     },
 )
 
@@ -44,6 +48,7 @@ const typeOptions = [
     { value: 'multiple_select', label: 'Multiple select' },
     { value: 'fill_in', label: 'Fill in' },
     { value: 'image_detection', label: 'Image detection' },
+    { value: 'slide_identification', label: 'Slide identification' },
 ]
 
 const schema = z.object({
@@ -76,7 +81,7 @@ const buildInitial = (): FormValues => {
         }
     }
     return {
-        type: 'multiple_choice',
+        type: props.fixedType ?? 'multiple_choice',
         prompt: '',
         points: undefined,
         options: [{ text: '', correct: false }],
@@ -97,6 +102,8 @@ const {
 } = useFieldArray<{ text: string; correct: boolean }>('options')
 
 const isChoice = computed(() => choiceTypes.has(values.type))
+// slide_identification carries neither options nor a key — just prompt + points.
+const isSlideId = computed(() => values.type === 'slide_identification')
 
 const addOption = () => pushOption({ text: '', correct: false })
 const removeOption = (index: number) => {
@@ -129,16 +136,19 @@ const isCorrect = (index: number) => optionFields.value[index]?.value.correct ??
 
 const onSubmit = handleSubmit((v) => {
     const choice = choiceTypes.has(v.type)
+    const slideId = v.type === 'slide_identification'
     const options = choice ? v.options.map((o) => (o.text ?? '').trim()).filter(Boolean) : undefined
-    const acceptedAnswers = choice
-        ? v.options
-              .filter((o) => o.correct)
-              .map((o) => (o.text ?? '').trim())
-              .filter(Boolean)
-        : v.answers
-              .split('\n')
-              .map((a) => a.trim())
-              .filter(Boolean)
+    const acceptedAnswers = slideId
+        ? [] // the key lives on the slide, not the question
+        : choice
+          ? v.options
+                .filter((o) => o.correct)
+                .map((o) => (o.text ?? '').trim())
+                .filter(Boolean)
+          : v.answers
+                .split('\n')
+                .map((a) => a.trim())
+                .filter(Boolean)
 
     if (choice && (options?.length ?? 0) < 2) return toast.error('Add at least 2 options')
     if (v.type === 'multiple_choice' && acceptedAnswers.length !== 1)
@@ -192,7 +202,7 @@ const onSubmit = handleSubmit((v) => {
                 </label>
                 <McInput name="prompt" class="tw:bg-white" placeholder="Question" />
             </div>
-            <div class="tw:flex tw:flex-col tw:gap-1 tw:sm:w-44">
+            <div v-if="!fixedType" class="tw:flex tw:flex-col tw:gap-1 tw:sm:w-44">
                 <label class="tw:text-xs tw:font-medium tw:text-navy-60">
                     Type
                     <span class="tw:text-red-500">*</span>
@@ -272,6 +282,13 @@ const onSubmit = handleSubmit((v) => {
                         ? 'Click the circle to mark the correct answer.'
                         : 'Tick the boxes to mark the correct answers.'
                 }}
+            </p>
+        </div>
+
+        <div v-else-if="isSlideId" class="tw:rounded-md tw:bg-navy-10/30 tw:px-3 tw:py-2">
+            <p class="tw:text-[11px] tw:leading-relaxed tw:text-navy-50">
+                The answer key for a slide question lives on the slide in its collection, not here.
+                The student self-reports a slide number, writes a diagnosis and attaches a photo.
             </p>
         </div>
 
