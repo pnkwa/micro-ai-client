@@ -3,7 +3,7 @@ import { ArrowLeft, ClipboardCheck, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { examService, type Exam } from '~/services/examService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
-import { classService, type ClassItem } from '~/services/classService'
+import { classService, type ClassItem, type StudentRosterItem } from '~/services/classService'
 import ExamDetailTab from '~/features/components/exam/ExamDetailTab.vue'
 import StudentExamForm from '~/features/components/exam/StudentExamForm.vue'
 import AssignmentExercises from '~/features/components/assignment/AssignmentExercises.vue'
@@ -22,6 +22,8 @@ const examId = computed(() => Number(route.params.examId))
 const exam = ref<Exam | null>(null)
 const classItem = ref<ClassItem | null>(null)
 const submissions = ref<SubmissionView[]>([])
+// The class roster, so the Submissions tab can show who hasn't submitted, not just who has.
+const roster = ref<StudentRosterItem[]>([])
 const isLoadingExam = ref(false)
 const isLoadingSubmissions = ref(false)
 
@@ -48,7 +50,13 @@ const loadClass = async () => {
 const loadSubmissions = async () => {
     isLoadingSubmissions.value = true
     try {
-        submissions.value = await submissionService.listByAssignment(examId.value)
+        // The roster comes too so the tab can list non-submitters, not just submissions.
+        const [subs, students] = await Promise.all([
+            submissionService.listByAssignment(examId.value),
+            classService.getStudents(classId.value),
+        ])
+        submissions.value = subs
+        roster.value = students
     } catch {
         toast.error('Failed to load submissions')
     } finally {
@@ -202,6 +210,7 @@ const onDeleted = async () => {
                 <AssignmentSubmissionsTab
                     v-else
                     :assignment="exam"
+                    :students="roster"
                     :submissions="submissions"
                     :is-loading="isLoadingSubmissions"
                 />

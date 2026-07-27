@@ -200,11 +200,11 @@ onUnmounted(() => {
         </div>
 
         <div class="tw:h-full">
-            <!-- Scopes the overlay's filter state across both columns: the image is on the
-                 left, the controls that drive it are in the CONTROLS panel on the right. -->
-            <!-- Fixed height only on lg, where image and controls sit side-by-side and share it.
-                 Stacked (iPad/mobile) it's height-auto so the controls flow below instead of
-                 squeezing the image; the image panel gets its own height from the aspect ratio. -->
+            <!-- Two columns that share the overlay's filter scope: the viewfinder + its capture
+                 bar on the left, the analysis controls (Model / Run / Display) on the right.
+                 Fixed height only on lg, where they sit side-by-side and share it; stacked on
+                 iPad/mobile it's height-auto so the right column flows below the viewfinder, and
+                 the image panel takes its own height from the aspect ratio. -->
             <McDetectionFilterScope
                 :steps="detectionSteps"
                 class="tw:flex tw:flex-col tw:lg:h-200 tw:lg:flex-row tw:divide-y tw:lg:divide-y-0 tw:lg:divide-x tw:divide-slate-100 tw:flex-1"
@@ -363,6 +363,63 @@ onUnmounted(() => {
                             </Transition>
                         </template>
                     </div>
+
+                    <!-- Capture controls sit right under the viewfinder, camera-app style: a
+                         prominent shutter (captures when live, opens the camera when idle) flanked
+                         by Upload and Clear. -->
+                    <div class="tw:mt-4 tw:flex tw:items-center tw:justify-center tw:gap-10">
+                        <button
+                            type="button"
+                            title="Upload an image"
+                            class="tw:group tw:flex tw:flex-col tw:items-center tw:gap-1.5 tw:text-slate-500 tw:transition-colors hover:tw:text-primary"
+                            @click="triggerUpload"
+                        >
+                            <span
+                                class="tw:flex tw:h-11 tw:w-11 tw:items-center tw:justify-center tw:rounded-full tw:bg-slate-100 tw:transition-colors group-hover:tw:bg-primary/10"
+                            >
+                                <Upload class="tw:h-5 tw:w-5" />
+                            </span>
+                            <span class="tw:text-[10px] tw:font-semibold">Upload</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            :title="mode === 'camera' ? 'Capture photo' : 'Open camera'"
+                            class="tw:flex tw:h-16 tw:w-16 tw:items-center tw:justify-center tw:rounded-full tw:border-4 tw:p-1 tw:transition-all active:tw:scale-95"
+                            :class="
+                                mode === 'camera'
+                                    ? 'tw:border-primary'
+                                    : 'tw:border-slate-200 hover:tw:border-primary/50'
+                            "
+                            @click="mode === 'camera' ? takeSnapshot() : startCamera()"
+                        >
+                            <span
+                                class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center tw:rounded-full tw:transition-colors"
+                                :class="
+                                    mode === 'camera'
+                                        ? 'tw:bg-primary tw:text-white'
+                                        : 'tw:bg-primary/10 tw:text-primary'
+                                "
+                            >
+                                <CameraIcon class="tw:h-6 tw:w-6" />
+                            </span>
+                        </button>
+
+                        <button
+                            type="button"
+                            title="Clear image"
+                            :disabled="mode === 'empty'"
+                            class="tw:group tw:flex tw:flex-col tw:items-center tw:gap-1.5 tw:text-slate-500 tw:transition-colors hover:tw:text-red-500 disabled:tw:opacity-30 disabled:hover:tw:text-slate-500"
+                            @click="clearImage"
+                        >
+                            <span
+                                class="tw:flex tw:h-11 tw:w-11 tw:items-center tw:justify-center tw:rounded-full tw:bg-slate-100 tw:transition-colors group-hover:tw:bg-red-50"
+                            >
+                                <Trash2 class="tw:h-5 tw:w-5" />
+                            </span>
+                            <span class="tw:text-[10px] tw:font-semibold">Clear</span>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- ── Controls sidebar ── -->
@@ -370,77 +427,8 @@ onUnmounted(() => {
                     class="tw:w-full tw:lg:w-[400px] tw:shrink-0 tw:p-5 tw:md:p-6 tw:flex tw:flex-col tw:gap-4 tw:bg-slate-50/60 tw:overflow-y-auto"
                     style="min-height: 0"
                 >
-                    <!-- Source: a camera-app control bar — a prominent shutter (captures when the
-                         camera is live, otherwise opens it) flanked by Upload and Clear. -->
-                    <div class="tw:flex tw:flex-col tw:gap-2">
-                        <span
-                            class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em]"
-                        >
-                            Source
-                        </span>
-                        <div
-                            class="tw:flex tw:items-center tw:justify-between tw:rounded-2xl tw:border tw:border-slate-200 tw:bg-white tw:px-8 tw:py-4"
-                        >
-                            <button
-                                type="button"
-                                title="Upload an image"
-                                class="tw:group tw:flex tw:flex-col tw:items-center tw:gap-1.5 tw:text-slate-500 tw:transition-colors hover:tw:text-primary"
-                                @click="triggerUpload"
-                            >
-                                <span
-                                    class="tw:flex tw:h-11 tw:w-11 tw:items-center tw:justify-center tw:rounded-full tw:bg-slate-100 tw:transition-colors group-hover:tw:bg-primary/10"
-                                >
-                                    <Upload class="tw:h-5 tw:w-5" />
-                                </span>
-                                <span class="tw:text-[10px] tw:font-semibold">Upload</span>
-                            </button>
-
-                            <!-- Shutter: capture when the camera is live, otherwise open it. Live =
-                                 primary ring + solid disc (ready to snap); idle = soft tint + lens. -->
-                            <button
-                                type="button"
-                                :title="mode === 'camera' ? 'Capture photo' : 'Open camera'"
-                                class="tw:flex tw:h-16 tw:w-16 tw:items-center tw:justify-center tw:rounded-full tw:border-4 tw:p-1 tw:transition-all active:tw:scale-95"
-                                :class="
-                                    mode === 'camera'
-                                        ? 'tw:border-primary'
-                                        : 'tw:border-slate-200 hover:tw:border-primary/50'
-                                "
-                                @click="mode === 'camera' ? takeSnapshot() : startCamera()"
-                            >
-                                <span
-                                    class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center tw:rounded-full tw:transition-colors"
-                                    :class="
-                                        mode === 'camera'
-                                            ? 'tw:bg-primary tw:text-white'
-                                            : 'tw:bg-primary/10 tw:text-primary'
-                                    "
-                                >
-                                    <CameraIcon class="tw:h-6 tw:w-6" />
-                                </span>
-                            </button>
-
-                            <button
-                                type="button"
-                                title="Clear image"
-                                :disabled="mode === 'empty'"
-                                class="tw:group tw:flex tw:flex-col tw:items-center tw:gap-1.5 tw:text-slate-500 tw:transition-colors hover:tw:text-red-500 disabled:tw:opacity-30 disabled:hover:tw:text-slate-500"
-                                @click="clearImage"
-                            >
-                                <span
-                                    class="tw:flex tw:h-11 tw:w-11 tw:items-center tw:justify-center tw:rounded-full tw:bg-slate-100 tw:transition-colors group-hover:tw:bg-red-50"
-                                >
-                                    <Trash2 class="tw:h-5 tw:w-5" />
-                                </span>
-                                <span class="tw:text-[10px] tw:font-semibold">Clear</span>
-                            </button>
-                        </div>
-                    </div>
-
                     <!-- Model -->
-                    <div
-                        class="tw:flex tw:flex-col tw:gap-3 tw:pt-4 tw:border-t tw:border-slate-200"
-                    >
+                    <div class="tw:flex tw:flex-col tw:gap-3">
                         <span
                             class="tw:text-[10px] tw:font-bold tw:text-slate-400 tw:uppercase tw:tracking-[0.12em]"
                         >

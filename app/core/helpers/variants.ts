@@ -12,6 +12,8 @@ export type VariantType =
     | 'success'
     | 'info'
     | 'destructive'
+    | 'danger'
+    | 'muted'
     | 'outline'
     | 'default'
     | 'secondary'

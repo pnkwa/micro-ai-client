@@ -19,8 +19,17 @@ export const studentRosterSchema = z.object({
     }),
 })
 
+// Per-student running grade in a class: points earned over points possible, graded work only.
+// Only students with at least one graded submission are returned (the roster fills the rest).
+export const studentGradeSchema = z.object({
+    student_id: z.string(),
+    earned: z.number(),
+    possible: z.number(),
+})
+
 export type ClassItem = z.infer<typeof classSchema>
 export type StudentRosterItem = z.infer<typeof studentRosterSchema>
+export type StudentGrade = z.infer<typeof studentGradeSchema>
 
 export interface EnrollStudentInput {
     student_id: string
@@ -66,6 +75,13 @@ export const classService = {
         const { $api } = useNuxtApp()
         const response = await $api(classRoutes.students(id))
         return z.array(studentRosterSchema).parse(response)
+    },
+
+    // Staff-only: each student's running grade (earned/possible over graded work).
+    async getGrades(id: number): Promise<StudentGrade[]> {
+        const { $api } = useNuxtApp()
+        const response = await $api(classRoutes.grades(id))
+        return z.array(studentGradeSchema).parse(response)
     },
 
     async enroll(id: number, students: EnrollStudentInput[]): Promise<void> {

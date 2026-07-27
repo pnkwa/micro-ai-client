@@ -17,7 +17,9 @@ export type StatusBadge = {
 const GRADED: StatusBadge = { label: 'Graded', variant: 'success' }
 const LATE: StatusBadge = { label: 'Late', variant: 'warning' }
 const SUBMITTED: StatusBadge = { label: 'Submitted', variant: 'info' }
-const REJECTED: StatusBadge = { label: 'Rejected', variant: 'destructive' }
+// Outlined red (not a solid destructive fill), matching the other status badges everywhere
+// submissionBadges is shown — the submissions table, the student's feedback page.
+const REJECTED: StatusBadge = { label: 'Rejected', variant: 'danger' }
 
 /** Only the fields the rule reads, so this works on both Assignment and AssignmentListItem. */
 type AssignmentTiming = {
@@ -97,6 +99,52 @@ export function studentAssignmentBadges(
         return [{ label: 'Overdue', variant: 'destructive' }]
     }
     return [{ label: 'New', variant: 'default' }]
+}
+
+export interface StudentStatus {
+    // A literal union, not `string`: the submissions table builds its status filter from these,
+    // so a new label here surfaces as a type error in that option list rather than a status no
+    // filter can reach.
+    label: 'Not submitted' | 'Overdue' | 'Submitted' | 'Late submission' | 'Rejected'
+    variant: VariantType
+}
+
+/**
+ * A student's *action* status as one outlined badge — deliberately orthogonal to the grade, which
+ * studentGradeText renders separately. Nothing handed in reads a quiet grey "Not submitted" before
+ * the deadline, a red "Overdue" after it; a submission reads by its timing ("Submitted" / "Late
+ * submission") even once graded (grading isn't an action); a returned attempt is "Rejected".
+ * Shared by the class list and the assignment header so the two can't drift.
+ */
+export function studentStatus(
+    assignment: AssignmentTiming,
+    submission: SubmissionTiming | null | undefined,
+): StudentStatus {
+    if (!submission) {
+        const overdue =
+            dayjs().isAfter(dayjs(assignment.due_date)) || assignment.status === 'closed'
+        return overdue
+            ? { label: 'Overdue', variant: 'danger' }
+            : { label: 'Not submitted', variant: 'muted' }
+    }
+    if (submission.status === 'rejected') return { label: 'Rejected', variant: 'danger' }
+    return isLateSubmission(submission, assignment.due_date)
+        ? { label: 'Late submission', variant: 'warning' }
+        : { label: 'Submitted', variant: 'info' }
+}
+
+/**
+ * The grade for a graded submission, as the small "Graded: 2/5" line shown beneath the status
+ * badge. Null until graded. `total` is whatever point total the caller has — the submission's
+ * max_score on a list read, or the summed question points on a fully-loaded assignment.
+ */
+export function studentGradeText(
+    submission: { status: string; score: number | null } | null | undefined,
+    total: number | null | undefined,
+): string | null {
+    if (submission?.status !== 'graded') return null
+    const earned = submission.score ?? 0
+    return total != null ? `Graded: ${earned}/${total}` : `Graded: ${earned}`
 }
 
 /**

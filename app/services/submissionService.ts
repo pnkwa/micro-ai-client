@@ -9,6 +9,9 @@ const submissionBaseSchema = z.object({
     student_id: z.string(),
     status: z.enum(['submitted', 'graded', 'rejected']),
     score: z.number().nullable(),
+    // Total possible points (Σ question points), from the list read — lets a list surface show
+    // "score / max_score" without loading the question tree. Absent on the detail read.
+    max_score: z.number().nullable().optional(),
     submitted_at: z.string(),
     // Why staff returned this submission to the student to redo; set only when
     // status === 'rejected', absent on the list read.
