@@ -56,7 +56,7 @@ const loadSubmissions = async () => {
             classService.getStudents(classId.value),
         ])
         submissions.value = subs
-        roster.value = students
+        roster.value = students.data
     } catch {
         toast.error('Failed to load submissions')
     } finally {

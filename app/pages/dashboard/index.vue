@@ -52,9 +52,10 @@ const loadSubmissions = async () => {
 const loadAllStudents = async () => {
     const classes = classFilterStore.classes
     if (!classes.length) return
+    // Unpaged on purpose: these feed student COUNTS, so a page of the roster would undercount.
     const results = await Promise.all(classes.map((c) => classService.getStudents(c.id)))
     const map = new Map<number, StudentRosterItem[]>()
-    classes.forEach((c, i) => map.set(c.id, results[i] ?? []))
+    classes.forEach((c, i) => map.set(c.id, results[i]?.data ?? []))
     classStudents.value = map
 }
 

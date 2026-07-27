@@ -19,6 +19,13 @@ export const studentRosterSchema = z.object({
     }),
 })
 
+// The roster read is paged: `total` counts what the search matched before paging, which is what
+// a pager needs — the rows in `data` are only the requested page.
+export const studentRosterPageSchema = z.object({
+    data: z.array(studentRosterSchema),
+    total: z.number(),
+})
+
 // Per-student running grade in a class: points earned over points possible, graded work only.
 // Only students with at least one graded submission are returned (the roster fills the rest).
 export const studentGradeSchema = z.object({
@@ -61,8 +68,10 @@ export const classService = {
 
     async listEnrolled(userId: number): Promise<ClassItem[]> {
         const all = await this.list()
-        const rosters = await Promise.all(all.map((c) => this.getStudents(c.id).catch(() => [])))
-        return all.filter((_, i) => rosters[i]?.some((s) => s.userID === userId))
+        const rosters = await Promise.all(
+            all.map((c) => this.getStudents(c.id).catch(() => ({ data: [], total: 0 }))),
+        )
+        return all.filter((_, i) => rosters[i]?.data.some((s) => s.userID === userId))
     },
 
     async getById(id: number): Promise<ClassItem> {
@@ -71,10 +80,26 @@ export const classService = {
         return classSchema.parse(response)
     },
 
-    async getStudents(id: number): Promise<StudentRosterItem[]> {
+    /**
+     * A class roster. `total` is what the search matched before paging, so a pager can be sized
+     * from it; omit `perPage` and the whole roster comes back with `total` equal to its length.
+     *
+     * Search belongs to the query, not the caller: filtering a fetched page client-side would
+     * only ever match the rows that page happened to hold.
+     */
+    async getStudents(
+        id: number,
+        params: { page?: number; perPage?: number; q?: string } = {},
+    ): Promise<{ data: StudentRosterItem[]; total: number }> {
         const { $api } = useNuxtApp()
-        const response = await $api(classRoutes.students(id))
-        return z.array(studentRosterSchema).parse(response)
+        const response = await $api(classRoutes.students(id), {
+            query: {
+                ...(params.page !== undefined && { page: params.page }),
+                ...(params.perPage !== undefined && { per_page: params.perPage }),
+                ...(params.q ? { q: params.q } : {}),
+            },
+        })
+        return studentRosterPageSchema.parse(response)
     },
 
     // Staff-only: each student's running grade (earned/possible over graded work).

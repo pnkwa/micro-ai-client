@@ -68,14 +68,24 @@ const loadClass = async () => {
 // staff-only, both feed the Students tab). A student with no graded work isn't in the map → "—".
 const grades = ref<Map<string, StudentGrade>>(new Map())
 
+// The roster is read one page at a time, so this holds only the page on screen; `studentTotal`
+// is what the server matched, which is what sizes the pager. Grades cover the whole class and
+// are keyed by student, so one read still serves every page.
+const studentTotal = ref(0)
+
 const loadStudents = async () => {
     isLoadingStudents.value = true
     try {
         const [roster, grade] = await Promise.all([
-            classService.getStudents(classId.value),
+            classService.getStudents(classId.value, {
+                page: studentPage.value,
+                perPage: studentPerPage.value,
+                q: studentSearch.value.trim(),
+            }),
             classService.getGrades(classId.value),
         ])
-        students.value = roster
+        students.value = roster.data
+        studentTotal.value = roster.total
         grades.value = new Map(grade.map((g) => [g.student_id, g]))
     } catch {
         toast.error('Failed to load students')
@@ -281,23 +291,28 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 
 const studentSearch = ref('')
 
-const filteredStudents = computed(() => {
-    const q = studentSearch.value.trim().toLowerCase()
-    if (!q) return students.value
-    return students.value.filter((s) =>
-        [s.student_id, s.user.firstname, s.user.lastname, s.user.email]
-            .join(' ')
-            .toLowerCase()
-            .includes(q),
-    )
+// Page and search live server-side: the table shows one page, so filtering what arrived would
+// only ever match the rows that page happened to hold. `page` is 1-based to match the query.
+const studentPage = ref(1)
+const studentPerPage = ref(15)
+
+// Writable rather than a ref the table owns, so changing the page IS the refetch — no watcher
+// mirroring table state back into a request. TanStack counts pages from 0; the API from 1.
+const studentPagination = computed<PaginationState>({
+    get: () => ({ pageIndex: studentPage.value - 1, pageSize: studentPerPage.value }),
+    set: (next) => {
+        studentPage.value = next.pageIndex + 1
+        studentPerPage.value = next.pageSize
+        void loadStudents()
+    },
 })
 
-// The whole roster is already in memory, so the table paginates it itself — no serverSide.
-const studentPagination = ref<PaginationState>({ pageIndex: 0, pageSize: 15 })
-
-const onStudentSearch = () => {
-    studentPagination.value = { ...studentPagination.value, pageIndex: 0 }
-}
+// Debounced so a request isn't fired per keystroke, and back to page 1 because the result set
+// changes under the pager — page 4 of the old search is meaningless for the new one.
+const onStudentSearch = useDebounceFn(() => {
+    studentPage.value = 1
+    void loadStudents()
+}, 300)
 
 // A fixed height, not a cap: the roster region fills the screen whether it holds 200 students,
 // three, or the empty-state message, so the card doesn't shrink to a stub above dead space. The
@@ -607,17 +622,20 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                     ref="studentCard"
                     class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:overflow-hidden"
                 >
+                    <!-- server-side: `students` IS the page, so the table must not slice it
+                         again, and `total` comes from the server's match count. -->
                     <McDataTable
-                        v-if="filteredStudents.length > 0"
+                        v-if="students.length > 0"
                         v-model:pagination="studentPagination"
                         :columns="studentColumns"
-                        :data="filteredStudents"
-                        :total="filteredStudents.length"
+                        :data="students"
+                        :total="studentTotal"
                         :body-height="studentTableHeight"
+                        server-side
                     >
                         <template #body-no="{ row }">
                             <div class="tw:text-left tw:text-sm tw:text-navy-40 tw:pl-4">
-                                {{ row.index + 1 }}
+                                {{ (studentPage - 1) * studentPerPage + row.index + 1 }}
                             </div>
                         </template>
                         <template #body-student_id="{ row }">
@@ -657,10 +675,12 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                         class="tw:flex tw:items-center tw:justify-center tw:text-center tw:text-sm tw:text-navy-50"
                         :style="{ height: studentTableHeight }"
                     >
+                        <!-- `students` is a page, so an empty one no longer distinguishes the two
+                             cases; the search term does. -->
                         {{
-                            students.length === 0
-                                ? 'No students enrolled'
-                                : 'No students match your search'
+                            studentSearch.trim()
+                                ? 'No students match your search'
+                                : 'No students enrolled'
                         }}
                     </div>
                 </div>
