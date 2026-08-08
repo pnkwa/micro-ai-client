@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ArrowLeft, Plus, Pencil, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, Plus, Pencil, Trash2, Upload } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import {
     slideCollectionService,
     type SlideCollection,
     type Slide,
     type SlideInput,
+    type BulkImportMode,
 } from '~/services/slideCollectionService'
 import SlideCollectionForm from '~/features/components/slide/SlideCollectionForm.vue'
 import SlideForm from '~/features/components/slide/SlideForm.vue'
+import ImportAnswerKeyXlsx from '~/features/components/slide/ImportAnswerKeyXlsx.vue'
 
 definePageMeta({ role: 'instructor' })
 
@@ -121,6 +123,26 @@ const slideInitial = computed(() =>
           }
         : undefined,
 )
+
+// ---- Excel answer-key import (2.1) ----
+// The workbook is parsed in the dialog; only validated rows arrive here, and the server applies
+// them all-or-nothing, so a failure leaves the existing key exactly as it was.
+const isImportOpen = ref(false)
+const importRef = useTemplateRef<{ stopSubmitting: () => void }>('importDialog')
+
+const handleImport = async (payload: { mode: BulkImportMode; slides: SlideInput[] }) => {
+    try {
+        const result = await slideCollectionService.bulkImportSlides(collectionId.value, payload)
+        isImportOpen.value = false
+        await load()
+        const removed = result.deleted > 0 ? `, ${result.deleted} removed` : ''
+        toast.success(`Imported: ${result.created} added, ${result.updated} updated${removed}`)
+    } catch (err) {
+        // Nothing was written; the import is one transaction server-side.
+        toast.error(apiErrorMessage(err, 'Import failed, no changes were made'))
+        importRef.value?.stopSubmitting()
+    }
+}
 </script>
 
 <template>
@@ -175,10 +197,16 @@ const slideInitial = computed(() =>
                     class="tw:flex tw:items-center tw:justify-between tw:gap-3 tw:border-b tw:border-navy-10 tw:px-5 tw:py-3"
                 >
                     <span class="tw:text-sm tw:font-semibold tw:text-navy-90">Slides</span>
-                    <McButton size="sm" @click="openAddSlide">
-                        <Plus class="tw:size-3.5 tw:mr-1" />
-                        Add slide
-                    </McButton>
+                    <div class="tw:flex tw:items-center tw:gap-2">
+                        <McButton size="sm" variant="outline" @click="isImportOpen = true">
+                            <Upload class="tw:size-3.5 tw:mr-1" />
+                            Import from Excel
+                        </McButton>
+                        <McButton size="sm" @click="openAddSlide">
+                            <Plus class="tw:size-3.5 tw:mr-1" />
+                            Add slide
+                        </McButton>
+                    </div>
                 </div>
 
                 <p
@@ -188,12 +216,14 @@ const slideInitial = computed(() =>
                     No slides yet. Add one to build the answer key.
                 </p>
 
+                <!-- Rows arrive in natural order (V2 before V10) from the server, see
+                     getCollection in slide-collections.service.ts. Don't re-sort here. -->
                 <table v-else class="tw:w-full tw:text-sm">
                     <thead>
                         <tr
                             class="tw:text-left tw:text-xs tw:text-navy-50 tw:border-b tw:border-navy-10"
                         >
-                            <th class="tw:px-5 tw:py-2 tw:font-medium tw:w-16">#</th>
+                            <th class="tw:px-5 tw:py-2 tw:font-medium tw:w-16">Slide</th>
                             <th class="tw:px-5 tw:py-2 tw:font-medium">Accepted answers</th>
                             <th class="tw:px-5 tw:py-2 tw:font-medium">Notes</th>
                             <th class="tw:px-5 tw:py-2 tw:w-20"></th>
@@ -277,6 +307,17 @@ const slideInitial = computed(() =>
                     :submit-label="editingSlide ? 'Save' : 'Add'"
                     @submit="handleSlideSubmit"
                     @cancel="isSlideFormOpen = false"
+                />
+            </McDialogContent>
+        </McDialog>
+
+        <McDialog v-model:open="isImportOpen">
+            <McDialogContent class="tw:sm:max-w-2xl">
+                <ImportAnswerKeyXlsx
+                    ref="importDialog"
+                    :existing="collection?.slides ?? []"
+                    @submit="handleImport"
+                    @cancel="isImportOpen = false"
                 />
             </McDialogContent>
         </McDialog>

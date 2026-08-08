@@ -6,7 +6,9 @@ import { slideCollectionRoutes } from './routes/slideCollectionRoutes'
 const slideSchema = z.object({
     id: z.number(),
     slide_collection_id: z.number(),
-    slide_number: z.number(),
+    // Text, not a number: labels carry letter codes ("V7"). Server-normalized, so it arrives in
+    // canonical form. See core/helpers/slideNumber.ts.
+    slide_number: z.string(),
     accepted_answers: z.array(z.string()),
     notes: z.string().nullable().optional(),
     created_at: z.string(),
@@ -33,9 +35,23 @@ export type SlideCollection = z.infer<typeof slideCollectionSchema>
 export type SlideCollectionListItem = z.infer<typeof slideCollectionListItemSchema>
 
 export interface SlideInput {
-    slide_number: number
+    slide_number: string
     accepted_answers: string[]
     notes?: string
+}
+
+/**
+ * How an import reconciles with the slides already in the collection.
+ *  - `replace`: the sheet becomes the whole answer key; slides it omits are deleted.
+ *  - `merge`:   upsert on the slide label; slides the sheet omits are left alone.
+ */
+export type BulkImportMode = 'replace' | 'merge'
+
+export interface BulkImportResult {
+    mode: BulkImportMode
+    created: number
+    updated: number
+    deleted: number
 }
 
 export const slideCollectionService = {
@@ -84,6 +100,22 @@ export const slideCollectionService = {
             body: payload,
         })
         return slideSchema.parse(response)
+    },
+
+    /**
+     * Bulk answer-key import (2.1). The .xlsx never leaves the browser; it is parsed and
+     * validated in the import dialog, so this only ever posts rows as JSON (BE-ADR-006/007).
+     * All-or-nothing server-side: either every row lands or none does.
+     */
+    async bulkImportSlides(
+        collectionId: number,
+        payload: { mode: BulkImportMode; slides: SlideInput[] },
+    ): Promise<BulkImportResult> {
+        const { $api } = useNuxtApp()
+        return await $api<BulkImportResult>(slideCollectionRoutes.slidesBulk(collectionId), {
+            method: 'POST',
+            body: payload,
+        })
     },
 
     async updateSlide(slideId: number, payload: Partial<SlideInput>): Promise<Slide> {

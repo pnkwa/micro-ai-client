@@ -8,30 +8,13 @@ import {
     Paperclip,
     Trophy,
 } from 'lucide-vue-next'
-
-import assignmentsData from '~/data/assignments.json'
-import submissionsData from '~/data/submissions.json'
-import SubmitAssignment from '~/features/components/forms/SubmitAssignment.vue'
-import type { SubmitAssignmentFormData } from '~/features/types/forms/submit-assignment'
-
-interface AssignmentItem {
-    id: number
-    name: string
-    dueDate: string
-    classId: number
-    submissions: number
-    description?: string
-    instructions?: string
-    points?: number
-    attachments?: string[]
-}
-
-interface SubmissionItem {
-    id: number
-    studentId: number
-    assignment: string
-    status: 'submitted' | 'graded'
-}
+import {
+    assignmentService,
+    assignmentTotalPoints,
+    type Assignment,
+} from '~/services/assignmentService'
+import { submissionService, type SubmissionView } from '~/services/submissionService'
+import { studentStatus, studentGradeText } from '~/core/helpers/studentAssignmentStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,54 +24,78 @@ const authStore = useAuth()
 
 const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
 
-const allSubmissions = ref<SubmissionItem[]>(submissionsData.submissions as SubmissionItem[])
-const mySubmission = computed(() =>
-    allSubmissions.value.find(
-        (s) => s.studentId === authStore.user?.id && s.assignment === assignment.value?.name,
-    ),
-)
-const alreadySubmitted = computed(() => !!mySubmission.value)
-
 const assignmentId = computed(() => Number(route.params.id))
-const assignment = computed(() => {
-    return (assignmentsData.assignments as AssignmentItem[]).find(
-        (a) => a.id === assignmentId.value,
-    )
-})
+
+const assignment = ref<Assignment | null>(null)
+const mySubmission = ref<SubmissionView | null>(null)
+
+const loadAssignment = async () => {
+    try {
+        assignment.value = await assignmentService.getById(assignmentId.value)
+    } catch {
+        // Left null so the template falls through to "Assignment not found" — which covers
+        // a deleted id and a class the caller isn't on alike, since the server answers both
+        // the same way.
+        assignment.value = null
+    }
+}
+
+// Students only: staff have no submission of their own here, and the list endpoint would
+// just hand back every submission they're allowed to see.
+const loadMySubmission = async () => {
+    try {
+        const all = await submissionService.listByAssignment(assignmentId.value)
+        // The student list endpoint returns all of their submissions and ignores the
+        // assignment_id filter, so match on assignment_id rather than taking the first row.
+        mySubmission.value = all.find((s) => s.assignment_id === assignmentId.value) ?? null
+    } catch {
+        // Couldn't determine. Leave it null: the page then reads from the due date alone
+        // rather than telling a student something wrong about their own work.
+        mySubmission.value = null
+    }
+}
+
+await Promise.all([loadAssignment(), ...(isStudent.value ? [loadMySubmission()] : [])])
+
+// This route carries no class in its path, so everything class-scoped — the way back, and
+// the exercise tree a student actually answers — is reachable only once the assignment has
+// told us which class it belongs to.
+const classId = computed(() => assignment.value?.class_id ?? null)
 
 const breadcrumb = useBreadcrumb()
-breadcrumb.setBreadcrumbs(() => [
-    { label: 'Assignments', to: '/assignments' },
+// Plain array: the awaits above already resolved, so there is nothing left to react to.
+breadcrumb.setBreadcrumbs([
+    { label: 'Classes', to: '/classes' },
     { label: assignment.value?.name ?? 'Assignment' },
 ])
 
-const isSubmitDialogOpen = ref(false)
+// Σ question points — assignments.points is a manually-typed field that goes stale as soon
+// as questions are edited, and the backend's own scoring never reads it.
+const totalPoints = computed(() => (assignment.value ? assignmentTotalPoints(assignment.value) : 0))
+
+const status = computed(() =>
+    assignment.value ? studentStatus(assignment.value, mySubmission.value) : null,
+)
+const gradeText = computed(() => studentGradeText(mySubmission.value, totalPoints.value))
+
+// A rejected submission has been handed back to be redone, so it does not count as in.
+const alreadySubmitted = computed(
+    () => mySubmission.value != null && mySubmission.value.status !== 'rejected',
+)
 
 const goBack = () => {
-    router.push('/assignments')
+    router.push(classId.value ? `/classes/${classId.value}` : '/classes')
 }
 
-const openSubmitDialog = () => {
-    isSubmitDialogOpen.value = true
+// The answer form lives on the class-scoped route: submitting means one image part per
+// image_detection question across the whole exercise tree, which is StudentExerciseForm's
+// job. This page is the summary, so it hands off rather than reimplementing that.
+const openAnswerForm = () => {
+    if (!classId.value) return
+    router.push(`/classes/${classId.value}/assignments/${assignmentId.value}`)
 }
 
-const handleSubmitAssignment = (
-    _values: SubmitAssignmentFormData & { assignmentFile?: File | null },
-) => {
-    allSubmissions.value.push({
-        id: allSubmissions.value.length + 1,
-        studentId: authStore.user?.id ?? 0,
-        assignment: assignment.value?.name ?? '',
-        status: 'submitted',
-    })
-    isSubmitDialogOpen.value = false
-}
-
-const handleCancel = () => {
-    isSubmitDialogOpen.value = false
-}
-
-const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY')
+const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY HH:mm')
 </script>
 
 <template>
@@ -98,7 +105,7 @@ const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY')
             @click="goBack"
         >
             <ArrowLeft class="tw:w-5 tw:h-5" />
-            <span>Back to Assignments</span>
+            <span>Back to Class</span>
         </button>
 
         <template v-if="assignment">
@@ -113,11 +120,19 @@ const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY')
                         <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:mb-0.5">
                             {{ assignment.name }}
                         </h1>
+                        <div v-if="isStudent" class="tw:flex tw:items-center tw:gap-2 tw:mt-1">
+                            <McBadge v-if="status" :variant="status.variant">
+                                {{ status.label }}
+                            </McBadge>
+                            <span v-if="gradeText" class="tw:text-sm tw:text-navy-60">
+                                {{ gradeText }}
+                            </span>
+                        </div>
                     </div>
                 </div>
-                <McButton v-if="isStudent" :disabled="alreadySubmitted" @click="openSubmitDialog">
+                <McButton v-if="isStudent" @click="openAnswerForm">
                     <Send class="tw:w-4 tw:h-4 tw:mr-1" />
-                    {{ alreadySubmitted ? 'Already Submitted' : 'Submit Assignment' }}
+                    {{ alreadySubmitted ? 'View Submission' : 'Answer Assignment' }}
                 </McButton>
             </div>
 
@@ -129,18 +144,18 @@ const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY')
                     <div>
                         <p class="tw:text-sm tw:text-navy-60">Due Date</p>
                         <p class="tw:text-base tw:font-medium">
-                            {{ formatDate(assignment.dueDate) }}
+                            {{ formatDate(assignment.due_date) }}
                         </p>
                     </div>
                 </div>
                 <div
-                    v-if="assignment.points"
+                    v-if="totalPoints > 0"
                     class="tw:flex tw:items-center tw:gap-4 tw:p-4 tw:bg-white tw:rounded-md tw:border tw:border-gray-200"
                 >
                     <Trophy class="tw:w-5 tw:h-5 tw:text-navy-60" />
                     <div>
                         <p class="tw:text-sm tw:text-navy-60">Points</p>
-                        <p class="tw:text-base tw:font-medium">{{ assignment.points }} pts</p>
+                        <p class="tw:text-base tw:font-medium">{{ totalPoints }} pts</p>
                     </div>
                 </div>
             </div>
@@ -169,7 +184,7 @@ const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY')
             </div>
 
             <div
-                v-if="assignment.attachments && assignment.attachments.length > 0"
+                v-if="assignment.attachments.length > 0"
                 class="tw:bg-white tw:rounded-md tw:border tw:border-gray-200 tw:p-6 tw:mb-6"
             >
                 <h2 class="section-title">
@@ -177,14 +192,17 @@ const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY')
                     Attachments
                 </h2>
                 <div class="tw:flex tw:flex-col tw:gap-2">
-                    <div
-                        v-for="file in assignment.attachments"
-                        :key="file"
-                        class="tw:flex tw:items-center tw:gap-2 tw:p-2 tw:bg-gray-50 tw:rounded-md tw:cursor-pointer hover:tw:bg-gray-100 tw:hover:bg-gray-100"
+                    <a
+                        v-for="att in assignment.attachments"
+                        :key="att.id"
+                        :href="att.path"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="tw:flex tw:items-center tw:gap-2 tw:p-2 tw:bg-gray-50 tw:rounded-md tw:cursor-pointer tw:hover:bg-gray-100"
                     >
                         <FileText class="tw:w-4 tw:h-4 tw:text-primary" />
-                        <span>{{ file }}</span>
-                    </div>
+                        <span>{{ att.filename }}</span>
+                    </a>
                 </div>
             </div>
         </template>
@@ -196,12 +214,6 @@ const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY')
                 <McButton @click="goBack">Go Back</McButton>
             </div>
         </template>
-
-        <McDialog v-model:open="isSubmitDialogOpen">
-            <McDialogContent class="tw:sm:max-w-xl">
-                <SubmitAssignment @save="handleSubmitAssignment" @cancel="handleCancel" />
-            </McDialogContent>
-        </McDialog>
     </div>
 </template>
 
