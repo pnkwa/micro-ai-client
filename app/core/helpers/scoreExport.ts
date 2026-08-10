@@ -96,12 +96,50 @@ export function buildCanvasGradebook(rows: ScoreRow[], meta: ScoreExportMeta): X
     return book
 }
 
+export interface ClassGradeRow {
+    studentId: string
+    name: string
+    /**
+     * Running totals over GRADED work only, or null when the student has nothing graded yet.
+     * Null rather than 0 for the same reason as `score` above.
+     */
+    earned: number | null
+    possible: number | null
+}
+
+/**
+ * A class's running grades: every enrolled student, one row.
+ *
+ * NO CANVAS VARIANT, and this is not an oversight. `possible` is per-student - it sums the points
+ * of whatever that student has had graded so far - while a Canvas gradebook column carries a
+ * single Points Possible for everyone. A class total therefore cannot be expressed as a column,
+ * and the per-assignment export is the right route into a gradebook.
+ */
+export function buildClassGradeReport(rows: ClassGradeRow[]): XLSX.WorkBook {
+    const percent = (r: ClassGradeRow): number | string =>
+        r.earned === null || !r.possible ? '' : Math.round((r.earned / r.possible) * 100)
+
+    const sheet = XLSX.utils.aoa_to_sheet([
+        ['Student ID', 'Name', 'Earned', 'Possible', 'Percent'],
+        ...rows.map((r) => [r.studentId, r.name, cell(r.earned), cell(r.possible), percent(r)]),
+    ])
+    sheet['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 9 }]
+
+    const book = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(book, sheet, 'Grades')
+    return book
+}
+
 /**
  * A filename derived from the assignment, so several exports don't overwrite each other in the
  * downloads folder. Deterministic (no timestamp) so it stays testable and a re-export replaces the
  * previous file rather than piling up.
  */
-export function exportFilename(assignmentName: string, extension: 'xlsx' | 'csv'): string {
+export function exportFilename(
+    name: string,
+    extension: 'xlsx' | 'csv',
+    kind: 'scores' | 'grades' = 'scores',
+): string {
     // Only filesystem-unsafe characters are stripped, not everything non-ASCII. Assignment names
     // here are frequently Thai, and an [^a-z0-9] slug reduced "ปฏิบัติการ 3" to "3" - a filename
     // that tells the instructor nothing. Browsers and every current OS handle Unicode filenames.
@@ -114,7 +152,7 @@ export function exportFilename(assignmentName: string, extension: 'xlsx' | 'csv'
     const unsafe = /[/\\:*?"<>|\u0000-\u001f]/g
 
     const slug =
-        assignmentName
+        name
             .toLowerCase()
             .replace(unsafe, '')
             .replace(/\s+/g, '-')
@@ -123,5 +161,5 @@ export function exportFilename(assignmentName: string, extension: 'xlsx' | 'csv'
             .slice(0, 60)
             .replace(/-+$/, '') || 'assignment'
 
-    return `${slug}-scores.${extension}`
+    return `${slug}-${kind}.${extension}`
 }

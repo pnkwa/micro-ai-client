@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { h } from 'vue'
+import * as XLSX from 'xlsx'
 import {
     FileText,
     Users,
@@ -8,7 +9,13 @@ import {
     UserPlus,
     Upload,
     ClipboardCheck,
+    Download,
 } from 'lucide-vue-next'
+import {
+    buildClassGradeReport,
+    exportFilename,
+    type ClassGradeRow,
+} from '~/core/helpers/scoreExport'
 import type { ColumnDef, PaginationState } from '@tanstack/vue-table'
 import { toast } from 'vue-sonner'
 import CreateAssignment from '~/features/components/forms/CreateAssignment.vue'
@@ -102,6 +109,47 @@ const loadStudents = async () => {
 // a Map, so this is an O(1) lookup for the 15 rows on screen, where precomputing would format the
 // whole roster (up to a few hundred) on every reload and add an invalidation point for nothing.
 const gradeText = (studentId: string): string => classGradeText(grades.value.get(studentId))
+
+/**
+ * Export every enrolled student's running grade.
+ *
+ * Re-fetches the roster UNPAGED rather than exporting `students`, which holds only the page on
+ * screen: an export of 15 of 200 students that looks complete is worse than no export. Omitting
+ * per_page returns the whole roster (classes.controller.ts). `grades` already covers the class,
+ * so it does not need re-reading.
+ *
+ * Excel only, no Canvas variant. `possible` is per-student - it sums whatever that student has had
+ * graded so far - and a Canvas gradebook column carries one Points Possible for everyone, so a
+ * class total cannot be a column. The per-assignment export on the Submissions tab is the route
+ * into a gradebook.
+ */
+const isExportingGrades = ref(false)
+
+const exportClassGrades = async () => {
+    isExportingGrades.value = true
+    try {
+        const roster = await classService.getStudents(classId.value)
+        const rows: ClassGradeRow[] = roster.data.map((s) => {
+            const grade = grades.value.get(s.student_id)
+            return {
+                studentId: s.student_id,
+                name: `${s.user.firstname} ${s.user.lastname}`,
+                // null, not 0: only students with graded work are in the map, and "nothing graded
+                // yet" is not a mark of zero.
+                earned: grade?.earned ?? null,
+                possible: grade?.possible ?? null,
+            }
+        })
+        XLSX.writeFile(
+            buildClassGradeReport(rows),
+            exportFilename(classItem.value?.name ?? 'class', 'xlsx', 'grades'),
+        )
+    } catch (err) {
+        toast.error(apiErrorMessage(err, 'Failed to export grades'))
+    } finally {
+        isExportingGrades.value = false
+    }
+}
 
 const loadAssignments = async () => {
     isLoadingAssignments.value = true
@@ -592,6 +640,20 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                             @update:model-value="onStudentSearch"
                         />
                         <div class="tw:flex tw:gap-2 tw:shrink-0">
+                            <!-- Exports the whole class, not the page on screen: see
+                                 exportClassGrades. Disabled while empty so it can't produce a
+                                 header-only file. -->
+                            <McButton
+                                variant="outline"
+                                size="sm"
+                                class="tw:flex-1 tw:sm:flex-none"
+                                :loading="isExportingGrades"
+                                :disabled="studentTotal === 0"
+                                @click="exportClassGrades"
+                            >
+                                <Download class="tw:w-4 tw:h-4 tw:mr-1" />
+                                Export grades
+                            </McButton>
                             <McButton
                                 variant="outline"
                                 size="sm"

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import * as XLSX from 'xlsx'
 import {
     buildCanvasGradebook,
+    buildClassGradeReport,
     buildScoreReport,
     exportFilename,
+    type ClassGradeRow,
     type ScoreRow,
 } from './scoreExport'
 
@@ -109,6 +111,49 @@ describe('buildCanvasGradebook', () => {
             'csv',
         )
         expect(rows[0]?.[2]).toBe('Lab 3, part 2')
+    })
+})
+
+describe('buildClassGradeReport', () => {
+    const grade = (over: Partial<ClassGradeRow> = {}): ClassGradeRow => ({
+        studentId: '652000090',
+        name: 'Jane Doe',
+        earned: 18,
+        possible: 25,
+        ...over,
+    })
+
+    it('writes earned, possible and a rounded percent', () => {
+        const rows = rowsOf(buildClassGradeReport([grade()]))
+
+        expect(rows[0]).toEqual(['Student ID', 'Name', 'Earned', 'Possible', 'Percent'])
+        expect(rows[1]).toEqual(['652000090', 'Jane Doe', '18', '25', '72'])
+    })
+
+    // Only students with graded work come back from GET /classes/:id/grades; the rest are roster
+    // rows with nothing yet, and that is not a zero.
+    it('leaves a student with no graded work blank, not 0%', () => {
+        const rows = rowsOf(buildClassGradeReport([grade({ earned: null, possible: null })]))
+        expect(rows[1]?.[2]).toBe('')
+        expect(rows[1]?.[3]).toBe('')
+        expect(rows[1]?.[4]).toBe('')
+    })
+
+    it('keeps a real zero, which is a mark rather than an absence', () => {
+        const rows = rowsOf(buildClassGradeReport([grade({ earned: 0, possible: 25 })]))
+        expect(rows[1]?.[2]).toBe('0')
+        expect(rows[1]?.[4]).toBe('0')
+    })
+
+    // possible is per-student, so a 0 denominator is reachable and must not produce Infinity/NaN.
+    it('does not divide by zero', () => {
+        const rows = rowsOf(buildClassGradeReport([grade({ earned: 0, possible: 0 })]))
+        expect(rows[1]?.[4]).toBe('')
+    })
+
+    it('handles an empty class', () => {
+        const rows = rowsOf(buildClassGradeReport([]))
+        expect(rows).toHaveLength(1)
     })
 })
 
