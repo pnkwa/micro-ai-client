@@ -23,7 +23,7 @@ import {
     type AnswerKeyRowError,
 } from '~/core/helpers/answerKeySheet'
 import type { Slide, SlideInput, BulkImportMode } from '~/services/slideCollectionService'
-import { detectionService } from '~/services/detectionService'
+import { fetchDiagnosisOptions, vocabularyTerms } from '~/core/helpers/classVocabulary'
 
 const props = defineProps<{ existing: Slide[] }>()
 
@@ -55,23 +55,15 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 const isDragging = ref(false)
 
 /**
- * The known class vocabulary, from the model manifest (GET /models), never a hardcoded list,
- * which would be a third copy alongside the server's manifest and the worker's manifest.py.
- * `elements` maps a code ("BV") to its display text ("Bacterial vaginosis"); the grader accepts
- * either (BE-ADR-018), so both are legitimate answers.
+ * Every answer the grader will recognise. Same source as the student's answer picker (3.1), so an
+ * answer an instructor may author and an answer a student may pick are the same set by
+ * construction. See core/helpers/classVocabulary.ts.
  */
 const vocabulary = ref<Set<string> | null>(null)
 
 onMounted(async () => {
     try {
-        const models = await detectionService.listModels()
-        const terms = new Set<string>()
-        for (const model of models) {
-            for (const [code, text] of Object.entries(model.elements ?? {})) {
-                terms.add(code.trim().toLowerCase())
-                terms.add(text.trim().toLowerCase())
-            }
-        }
+        const terms = vocabularyTerms(await fetchDiagnosisOptions())
         vocabulary.value = terms.size > 0 ? terms : null
     } catch {
         // Couldn't load it, so skip the check rather than block an import on it.
