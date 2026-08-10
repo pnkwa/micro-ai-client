@@ -9,7 +9,7 @@ import {
     Upload,
     ClipboardCheck,
 } from 'lucide-vue-next'
-import type { ColumnDef } from '@tanstack/vue-table'
+import type { ColumnDef, PaginationState } from '@tanstack/vue-table'
 import { toast } from 'vue-sonner'
 import CreateAssignment from '~/features/components/forms/CreateAssignment.vue'
 import CreateExam from '~/features/components/forms/CreateExam.vue'
@@ -23,13 +23,16 @@ import {
     classService,
     type ClassItem,
     type StudentRosterItem,
+    type StudentGrade,
     type EnrollStudentInput,
 } from '~/services/classService'
 import { assignmentService, type AssignmentListItem } from '~/services/assignmentService'
 import { examService, type ExamListItem, type CreateExamInput } from '~/services/examService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import {
-    studentAssignmentBadges,
+    studentStatus,
+    studentGradeText,
+    classGradeText,
     indexSubmissionsByAssignment,
 } from '~/core/helpers/studentAssignmentStatus'
 
@@ -62,16 +65,43 @@ const loadClass = async () => {
     }
 }
 
+// Each student's running grade in the class, keyed by student_id. Loaded with the roster (both
+// staff-only, both feed the Students tab). A student with no graded work isn't in the map → "—".
+const grades = ref<Map<string, StudentGrade>>(new Map())
+
+// The roster is read one page at a time, so this holds only the page on screen; `studentTotal`
+// is what the server matched, which is what sizes the pager. Grades cover the whole class and
+// are keyed by student, so one read still serves every page.
+const studentTotal = ref(0)
+
 const loadStudents = async () => {
     isLoadingStudents.value = true
     try {
-        students.value = await classService.getStudents(classId.value)
+        const [roster, grade] = await Promise.all([
+            classService.getStudents(classId.value, {
+                page: studentPage.value,
+                perPage: studentPerPage.value,
+                q: studentSearch.value.trim(),
+            }),
+            classService.getGrades(classId.value),
+        ])
+        students.value = roster.data
+        studentTotal.value = roster.total
+        grades.value = new Map(grade.map((g) => [g.student_id, g]))
     } catch {
         toast.error('Failed to load students')
     } finally {
         isLoadingStudents.value = false
     }
 }
+
+// "18/25" over graded work, or a dash when the student has nothing graded yet. The formatting
+// lives in classGradeText, next to the per-submission formatter it has to stay consistent with.
+//
+// Deliberately still a function called per row rather than a precomputed map: `grades` is already
+// a Map, so this is an O(1) lookup for the 15 rows on screen, where precomputing would format the
+// whole roster (up to a few hundred) on every reload and add an invalidation point for nothing.
+const gradeText = (studentId: string): string => classGradeText(grades.value.get(studentId))
 
 const loadAssignments = async () => {
     isLoadingAssignments.value = true
@@ -128,13 +158,15 @@ breadcrumb.setBreadcrumbs([
     { label: classItem.value?.name ?? 'Class' },
 ])
 
-const assignmentStatus = (assignment: AssignmentListItem) =>
-    studentAssignmentBadges(assignment, mySubmissions.value.get(assignment.id))
+// Status badge + grade text come from the shared helper so this list and the assignment header
+// stay identical. The grade total prefers the list read's max_score over the assignment's `points`.
+const rowStatus = (item: AssignmentListItem | ExamListItem) =>
+    studentStatus(item, mySubmissions.value.get(item.id))
 
-// Exam rows: for a student their own standing (submissions cover exams too — an exam is an
-// assignment); for staff, the exam window state.
-const examStatus = (exam: ExamListItem) =>
-    studentAssignmentBadges(exam, mySubmissions.value.get(exam.id))
+const rowScore = (item: AssignmentListItem | ExamListItem): string | null => {
+    const sub = mySubmissions.value.get(item.id)
+    return studentGradeText(sub, sub ? (sub.max_score ?? item.points) : null)
+}
 
 // The window as a short human phrase, shown on staff exam rows.
 const examWindow = (exam: ExamListItem): string => {
@@ -262,62 +294,79 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 
 const studentSearch = ref('')
 
-const filteredStudents = computed(() => {
-    const q = studentSearch.value.trim().toLowerCase()
-    if (!q) return students.value
-    return students.value.filter((s) =>
-        [s.student_id, s.user.firstname, s.user.lastname, s.user.email]
-            .join(' ')
-            .toLowerCase()
-            .includes(q),
-    )
+// Page and search live server-side: the table shows one page, so filtering what arrived would
+// only ever match the rows that page happened to hold. `page` is 1-based to match the query.
+const studentPage = ref(1)
+const studentPerPage = ref(15)
+
+// Writable rather than a ref the table owns, so changing the page IS the refetch — no watcher
+// mirroring table state back into a request. TanStack counts pages from 0; the API from 1.
+const studentPagination = computed<PaginationState>({
+    get: () => ({ pageIndex: studentPage.value - 1, pageSize: studentPerPage.value }),
+    set: (next) => {
+        studentPage.value = next.pageIndex + 1
+        studentPerPage.value = next.pageSize
+        void loadStudents()
+    },
 })
 
-const LAZY_STEP = 15
-const visibleCount = ref(LAZY_STEP)
-const visibleStudents = computed(() => filteredStudents.value.slice(0, visibleCount.value))
-const hasMoreStudents = computed(() => visibleCount.value < filteredStudents.value.length)
+// Debounced so a request isn't fired per keystroke, and back to page 1 because the result set
+// changes under the pager — page 4 of the old search is meaningless for the new one.
+const onStudentSearch = useDebounceFn(() => {
+    studentPage.value = 1
+    void loadStudents()
+}, 300)
 
-const onStudentSearch = () => {
-    visibleCount.value = LAZY_STEP
-}
+// A fixed height, not a cap: the roster region fills the screen whether it holds 200 students,
+// three, or the empty-state message, so the card doesn't shrink to a stub above dead space. The
+// gap leaves room for the pagination bar below the rows, which has to stay in view.
+const studentCard = useTemplateRef<HTMLElement>('studentCard')
+const studentTableHeight = useViewportFillHeight(studentCard, { gap: 76 })
 
-const studentScroll = useTemplateRef<HTMLElement>('studentScroll')
-const { top: studentScrollTop } = useElementBounding(studentScroll)
-const { height: windowHeight } = useWindowSize()
-const tableMaxHeight = computed(
-    () => `${Math.max(240, Math.round(windowHeight.value - studentScrollTop.value - 24))}px`,
-)
+// The assignments and exams tabs swap their empty state into the same region, so both measure
+// the same way and can't drift apart.
+const assignmentsEmpty = useTemplateRef<HTMLElement>('assignmentsEmpty')
+const assignmentsEmptyHeight = useViewportFillHeight(assignmentsEmpty)
+const examsEmpty = useTemplateRef<HTMLElement>('examsEmpty')
+const examsEmptyHeight = useViewportFillHeight(examsEmpty)
 
-const loadMoreEl = useTemplateRef<HTMLElement>('loadMoreEl')
-useIntersectionObserver(
-    loadMoreEl,
-    (entries) => {
-        if (entries[0]?.isIntersecting && hasMoreStudents.value) {
-            visibleCount.value = Math.min(
-                visibleCount.value + LAZY_STEP,
-                filteredStudents.value.length,
-            )
-        }
-    },
-    { root: studentScroll },
-)
-
-const stickyHead = 'tw:text-left tw:sticky tw:top-0 tw:z-10 tw:bg-white tw:text-navy-100'
+// Header stickiness comes from the table's own bodyHeight mode; this is only the alignment and
+// colour the roster's headers want.
+const stickyHead = 'tw:text-left tw:text-navy-100'
 const leftHead = (label: string) => () => h('div', { class: 'tw:text-left' }, label)
+// The sizes matter under the table's fixed layout: they are the column widths, and holding them
+// steady is what stops the columns shifting as you page through longer and shorter names.
 const studentColumns: ColumnDef<StudentRosterItem>[] = [
     {
         accessorKey: 'no',
         header: () => h('div', { class: 'tw:text-left tw:pl-4' }, 'No.'),
+        size: 70,
         meta: { headerClass: stickyHead },
     },
     {
         accessorKey: 'student_id',
         header: leftHead('Student ID'),
+        size: 150,
         meta: { headerClass: stickyHead },
     },
-    { accessorKey: 'name', header: leftHead('Name'), meta: { headerClass: stickyHead } },
-    { accessorKey: 'email', header: leftHead('Email'), meta: { headerClass: stickyHead } },
+    {
+        accessorKey: 'name',
+        header: leftHead('Name'),
+        size: 220,
+        meta: { headerClass: stickyHead },
+    },
+    {
+        accessorKey: 'email',
+        header: leftHead('Email'),
+        size: 280,
+        meta: { headerClass: stickyHead },
+    },
+    {
+        accessorKey: 'grade',
+        header: () => h('div', { class: 'tw:text-right tw:pr-4' }, 'Grade'),
+        size: 110,
+        meta: { headerClass: stickyHead },
+    },
 ]
 </script>
 
@@ -388,16 +437,22 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                     <div
                         v-for="assignment in assignments"
                         :key="assignment.id"
-                        class="tw:flex tw:justify-between tw:items-center tw:p-4 tw:bg-white tw:rounded-lg tw:border tw:border-gray-200 tw:cursor-pointer tw:hover:shadow-md tw:transition-shadow"
+                        class="tw:flex tw:justify-between tw:items-center tw:gap-4 tw:p-4 tw:bg-white tw:rounded-xl tw:border tw:border-navy-10 tw:cursor-pointer tw:hover:border-primary/30 tw:hover:shadow-md tw:transition-all"
                         @click="router.push(`/classes/${classId}/assignments/${assignment.id}`)"
                     >
-                        <div class="tw:flex tw:items-center tw:gap-3">
-                            <FileText class="tw:w-5 tw:h-5 tw:text-gray-400" />
-                            <div class="tw:flex tw:flex-col tw:gap-0.5">
-                                <h3 class="tw:text-sm tw:font-medium tw:text-navy-100">
+                        <div class="tw:flex tw:min-w-0 tw:items-center tw:gap-3">
+                            <span
+                                class="tw:flex tw:h-10 tw:w-10 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-full tw:bg-primary/10 tw:text-primary"
+                            >
+                                <FileText class="tw:h-5 tw:w-5" />
+                            </span>
+                            <div class="tw:flex tw:min-w-0 tw:flex-col tw:gap-0.5">
+                                <h3
+                                    class="tw:truncate tw:text-sm tw:font-semibold tw:text-navy-100"
+                                >
                                     {{ assignment.name }}
                                 </h3>
-                                <p class="tw:text-xs tw:text-navy-60">
+                                <p class="tw:text-xs tw:text-navy-50">
                                     Due {{ formatDate(assignment.due_date) }}
                                 </p>
                             </div>
@@ -406,13 +461,20 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                             <!-- Students get their own standing on the work; instructors get
                                  the assignment's own state, which is what they author. -->
                             <template v-if="isStudent">
-                                <McBadge
-                                    v-for="b in assignmentStatus(assignment)"
-                                    :key="b.label"
-                                    :variant="b.variant"
-                                >
-                                    {{ b.label }}
-                                </McBadge>
+                                <!-- Status badge (the action) with the grade as smaller text just
+                                     below it — "Graded: 2/5", only once graded. -->
+                                <div class="tw:flex tw:flex-col tw:items-end tw:gap-1">
+                                    <McBadge :variant="rowStatus(assignment).variant">
+                                        {{ rowStatus(assignment).label }}
+                                    </McBadge>
+                                    <span
+                                        v-if="rowScore(assignment)"
+                                        data-testid="row-score"
+                                        class="tw:text-[11px] tw:font-medium tw:text-navy-60 tw:tabular-nums"
+                                    >
+                                        {{ rowScore(assignment) }}
+                                    </span>
+                                </div>
                             </template>
                             <McBadge
                                 v-else
@@ -426,9 +488,11 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
 
                 <div
                     v-else
-                    class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center"
+                    ref="assignmentsEmpty"
+                    class="tw:flex tw:flex-col tw:items-center tw:justify-center tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:text-center"
+                    :style="{ height: assignmentsEmptyHeight }"
                 >
-                    <FileText class="tw:w-8 tw:h-8 tw:text-navy-60 tw:mx-auto tw:mb-2" />
+                    <FileText class="tw:w-8 tw:h-8 tw:text-navy-60 tw:mb-2" />
                     <p class="tw:text-sm tw:text-navy-60">No assignments yet</p>
                 </div>
             </template>
@@ -453,27 +517,38 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                     <div
                         v-for="exam in exams"
                         :key="exam.id"
-                        class="tw:flex tw:justify-between tw:items-center tw:p-4 tw:bg-white tw:rounded-lg tw:border tw:border-gray-200 tw:cursor-pointer tw:hover:shadow-md tw:transition-shadow"
+                        class="tw:flex tw:justify-between tw:items-center tw:gap-4 tw:p-4 tw:bg-white tw:rounded-xl tw:border tw:border-navy-10 tw:cursor-pointer tw:hover:border-amber-300 tw:hover:shadow-md tw:transition-all"
                         @click="router.push(`/classes/${classId}/exams/${exam.id}`)"
                     >
-                        <div class="tw:flex tw:items-center tw:gap-3">
-                            <ClipboardCheck class="tw:w-5 tw:h-5 tw:text-gray-400" />
-                            <div class="tw:flex tw:flex-col tw:gap-0.5">
-                                <h3 class="tw:text-sm tw:font-medium tw:text-navy-100">
+                        <div class="tw:flex tw:min-w-0 tw:items-center tw:gap-3">
+                            <span
+                                class="tw:flex tw:h-10 tw:w-10 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-full tw:bg-amber-100 tw:text-amber-600"
+                            >
+                                <ClipboardCheck class="tw:h-5 tw:w-5" />
+                            </span>
+                            <div class="tw:flex tw:min-w-0 tw:flex-col tw:gap-0.5">
+                                <h3
+                                    class="tw:truncate tw:text-sm tw:font-semibold tw:text-navy-100"
+                                >
                                     {{ exam.name }}
                                 </h3>
-                                <p class="tw:text-xs tw:text-navy-60">{{ examWindow(exam) }}</p>
+                                <p class="tw:text-xs tw:text-navy-50">{{ examWindow(exam) }}</p>
                             </div>
                         </div>
                         <div class="tw:flex tw:items-center tw:gap-4">
                             <template v-if="isStudent">
-                                <McBadge
-                                    v-for="b in examStatus(exam)"
-                                    :key="b.label"
-                                    :variant="b.variant"
-                                >
-                                    {{ b.label }}
-                                </McBadge>
+                                <div class="tw:flex tw:flex-col tw:items-end tw:gap-1">
+                                    <McBadge :variant="rowStatus(exam).variant">
+                                        {{ rowStatus(exam).label }}
+                                    </McBadge>
+                                    <span
+                                        v-if="rowScore(exam)"
+                                        data-testid="row-score"
+                                        class="tw:text-[11px] tw:font-medium tw:text-navy-60 tw:tabular-nums"
+                                    >
+                                        {{ rowScore(exam) }}
+                                    </span>
+                                </div>
                             </template>
                             <McBadge
                                 v-else
@@ -487,9 +562,11 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
 
                 <div
                     v-else
-                    class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center"
+                    ref="examsEmpty"
+                    class="tw:flex tw:flex-col tw:items-center tw:justify-center tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:text-center"
+                    :style="{ height: examsEmptyHeight }"
                 >
-                    <ClipboardCheck class="tw:w-8 tw:h-8 tw:text-navy-60 tw:mx-auto tw:mb-2" />
+                    <ClipboardCheck class="tw:w-8 tw:h-8 tw:text-navy-60 tw:mb-2" />
                     <p class="tw:text-sm tw:text-navy-60">No exams yet</p>
                 </div>
             </template>
@@ -545,60 +622,69 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
 
                 <div
                     v-else
+                    ref="studentCard"
                     class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:overflow-hidden"
                 >
-                    <div
-                        ref="studentScroll"
-                        class="tw:overflow-y-auto tw:[&>div]:overflow-visible tw:**:data-[slot=table-container]:overflow-visible"
-                        :style="{ maxHeight: tableMaxHeight }"
+                    <!-- server-side: `students` IS the page, so the table must not slice it
+                         again, and `total` comes from the server's match count. -->
+                    <McDataTable
+                        v-if="students.length > 0"
+                        v-model:pagination="studentPagination"
+                        :columns="studentColumns"
+                        :data="students"
+                        :total="studentTotal"
+                        :body-height="studentTableHeight"
+                        server-side
                     >
-                        <McDataTable
-                            v-if="filteredStudents.length > 0"
-                            :columns="studentColumns"
-                            :data="visibleStudents"
-                            :total="filteredStudents.length"
-                            server-side
-                        >
-                            <template #body-no="{ row }">
-                                <div class="tw:text-left tw:text-sm tw:text-navy-40 tw:pl-4">
-                                    {{ row.index + 1 }}
-                                </div>
-                            </template>
-                            <template #body-student_id="{ row }">
-                                <div class="tw:text-left tw:text-sm tw:text-navy-60">
-                                    {{ row.original.student_id }}
-                                </div>
-                            </template>
-                            <template #body-name="{ row }">
-                                <div
-                                    class="tw:text-left tw:text-sm tw:font-medium tw:text-navy-100"
-                                >
-                                    {{ row.original.user.firstname }}
-                                    {{ row.original.user.lastname }}
-                                </div>
-                            </template>
-                            <template #body-email="{ row }">
-                                <div class="tw:text-left tw:text-sm tw:text-navy-60">
-                                    {{ row.original.user.email }}
-                                </div>
-                            </template>
-                        </McDataTable>
+                        <template #body-no="{ row }">
+                            <div class="tw:text-left tw:text-sm tw:text-navy-40 tw:pl-4">
+                                {{ (studentPage - 1) * studentPerPage + row.index + 1 }}
+                            </div>
+                        </template>
+                        <template #body-student_id="{ row }">
+                            <div class="tw:text-left tw:text-sm tw:text-navy-60">
+                                {{ row.original.student_id }}
+                            </div>
+                        </template>
+                        <template #body-name="{ row }">
+                            <div class="tw:text-left tw:text-sm tw:font-medium tw:text-navy-100">
+                                {{ row.original.user.firstname }}
+                                {{ row.original.user.lastname }}
+                            </div>
+                        </template>
+                        <template #body-email="{ row }">
+                            <div class="tw:text-left tw:text-sm tw:text-navy-60">
+                                {{ row.original.user.email }}
+                            </div>
+                        </template>
+                        <template #body-grade="{ row }">
+                            <div
+                                class="tw:pr-4 tw:text-right tw:text-sm tw:font-semibold tw:tabular-nums"
+                                :class="
+                                    grades.has(row.original.student_id)
+                                        ? 'tw:text-navy-100'
+                                        : 'tw:text-navy-40'
+                                "
+                            >
+                                {{ gradeText(row.original.student_id) }}
+                            </div>
+                        </template>
+                    </McDataTable>
 
-                        <div v-else class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-50">
-                            {{
-                                students.length === 0
-                                    ? 'No students enrolled'
-                                    : 'No students match your search'
-                            }}
-                        </div>
-
-                        <div
-                            v-if="hasMoreStudents"
-                            ref="loadMoreEl"
-                            class="tw:py-3 tw:text-center tw:text-xs tw:text-navy-40"
-                        >
-                            Loading more…
-                        </div>
+                    <!-- Centred in the full-height region rather than pinned near its top, so an
+                         empty roster reads as a deliberate state, not a cut-off table. -->
+                    <div
+                        v-else
+                        class="tw:flex tw:items-center tw:justify-center tw:text-center tw:text-sm tw:text-navy-50"
+                        :style="{ height: studentTableHeight }"
+                    >
+                        <!-- `students` is a page, so an empty one no longer distinguishes the two
+                             cases; the search term does. -->
+                        {{
+                            studentSearch.trim()
+                                ? 'No students match your search'
+                                : 'No students enrolled'
+                        }}
                     </div>
                 </div>
             </template>

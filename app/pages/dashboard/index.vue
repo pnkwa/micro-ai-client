@@ -14,9 +14,10 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import { BarChart } from '~/core/components/bar-chart'
 import { getStatusVariant } from '~/core/helpers/variants'
 import {
-    submissionBadges,
+    studentStatus,
+    studentGradeText,
     isLateSubmission,
-    type StatusBadge,
+    type StudentStatus,
 } from '~/core/helpers/studentAssignmentStatus'
 import { useClassFilterStore } from '~/core/store/useClassFilterStore'
 import { classService, type StudentRosterItem } from '~/services/classService'
@@ -51,9 +52,10 @@ const loadSubmissions = async () => {
 const loadAllStudents = async () => {
     const classes = classFilterStore.classes
     if (!classes.length) return
+    // Unpaged on purpose: these feed student COUNTS, so a page of the roster would undercount.
     const results = await Promise.all(classes.map((c) => classService.getStudents(c.id)))
     const map = new Map<number, StudentRosterItem[]>()
-    classes.forEach((c, i) => map.set(c.id, results[i] ?? []))
+    classes.forEach((c, i) => map.set(c.id, results[i]?.data ?? []))
     classStudents.value = map
 }
 
@@ -215,7 +217,8 @@ interface AssessmentData {
     assignmentId: number
     classId: number | null
     submittedAt: string
-    status: StatusBadge[]
+    status: StudentStatus
+    grade: string | null
 }
 
 const columns: ColumnDef<AssessmentData>[] = [
@@ -239,7 +242,14 @@ const filteredSubmissions = computed((): AssessmentData[] =>
         assignmentId: s.assignment_id,
         classId: s.assignment?.class?.id ?? null,
         submittedAt: s.submitted_at,
-        status: submissionBadges(s, s.assignment?.due_date),
+        // Shared with every other surface: an action badge + "Graded: 2/5". Every row here has a
+        // submission, so studentStatus only reads the due date (for lateness), not the assignment's
+        // own status. The grade total prefers the read's max_score, then the assignment's points.
+        status: studentStatus({ due_date: s.assignment?.due_date ?? '', status: 'active' }, s),
+        grade: studentGradeText(
+            s,
+            s.max_score ?? assignmentPointsMap.value.get(s.assignment_id) ?? null,
+        ),
     })),
 )
 
@@ -364,14 +374,16 @@ const formatSubmittedAt = (dateString: string) => dayjs(dateString).fromNow()
                         </span>
                     </template>
                     <template #body-status="{ row }">
-                        <div class="tw:flex tw:items-center tw:justify-center tw:gap-1.5">
-                            <McBadge
-                                v-for="b in row.original.status"
-                                :key="b.label"
-                                :variant="b.variant"
-                            >
-                                {{ b.label }}
+                        <div class="tw:flex tw:flex-col tw:items-center tw:gap-1">
+                            <McBadge :variant="row.original.status.variant">
+                                {{ row.original.status.label }}
                             </McBadge>
+                            <span
+                                v-if="row.original.grade"
+                                class="tw:text-[11px] tw:font-medium tw:text-navy-60 tw:tabular-nums"
+                            >
+                                {{ row.original.grade }}
+                            </span>
                         </div>
                     </template>
                     <template #body-actions="{ row }">

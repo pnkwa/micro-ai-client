@@ -10,6 +10,12 @@ const props = defineProps<DataTablePaginationProps>()
 const handleChangePagination = (page: number) => {
     props.table.setPageIndex(page - 1)
 }
+
+// Includes 15, the size the screen-filling tables start on, so the select shows a match rather
+// than sitting blank.
+const pageSizeOptions = computed(() =>
+    [10, 15, 20, 30, 40, 50].map((value) => ({ label: String(value), value })),
+)
 </script>
 
 <template>
@@ -25,13 +31,7 @@ const handleChangePagination = (page: number) => {
                     class="tw:w-[80px]"
                     :model-value="table.getState().pagination.pageSize"
                     width="70"
-                    :options="[
-                        { label: '10', value: 10 },
-                        { label: '20', value: 20 },
-                        { label: '30', value: 30 },
-                        { label: '40', value: 40 },
-                        { label: '50', value: 50 },
-                    ]"
+                    :options="pageSizeOptions"
                     @update:model-value="table.setPageSize as any"
                 />
             </div>

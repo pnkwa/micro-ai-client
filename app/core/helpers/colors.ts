@@ -34,10 +34,10 @@ const PALETTE: LabelColor[] = [
         dot: 'tw:bg-violet-500',
     },
     {
-        border: 'tw:border-rose-500',
-        bg: 'tw:bg-rose-50',
-        text: 'tw:text-rose-700',
-        dot: 'tw:bg-rose-500',
+        border: 'tw:border-indigo-500',
+        bg: 'tw:bg-indigo-50',
+        text: 'tw:text-indigo-700',
+        dot: 'tw:bg-indigo-500',
     },
     {
         border: 'tw:border-sky-500',

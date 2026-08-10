@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { ArrowLeft, FileText, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import { assignmentService, type Assignment } from '~/services/assignmentService'
+import {
+    assignmentService,
+    assignmentTotalPoints,
+    type Assignment,
+} from '~/services/assignmentService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
-import { classService, type ClassItem } from '~/services/classService'
+import { classService, type ClassItem, type StudentRosterItem } from '~/services/classService'
 import AssignmentDetailTab from '~/features/components/assignment/AssignmentDetailTab.vue'
 import AssignmentExercises from '~/features/components/assignment/AssignmentExercises.vue'
 import AssignmentReleaseBar from '~/features/components/assignment/AssignmentReleaseBar.vue'
 import AssignmentSubmissionsTab from '~/features/components/assignment/AssignmentSubmissionsTab.vue'
 import StudentExerciseForm from '~/features/components/assignment/StudentExerciseForm.vue'
-import { studentAssignmentBadges } from '~/core/helpers/studentAssignmentStatus'
+import { studentStatus, studentGradeText } from '~/core/helpers/studentAssignmentStatus'
 import DeleteAssignmentDialog from '~/features/components/assignment/DeleteAssignmentDialog.vue'
 
 const route = useRoute()
@@ -23,6 +27,8 @@ const assignmentId = computed(() => Number(route.params.assignmentId))
 const assignment = ref<Assignment | null>(null)
 const classItem = ref<ClassItem | null>(null)
 const submissions = ref<SubmissionView[]>([])
+// The class roster, so the Submissions tab can show every student — including who hasn't submitted.
+const roster = ref<StudentRosterItem[]>([])
 const isLoadingAssignment = ref(false)
 const isLoadingSubmissions = ref(false)
 
@@ -53,7 +59,13 @@ const loadClass = async () => {
 const loadSubmissions = async () => {
     isLoadingSubmissions.value = true
     try {
-        submissions.value = await submissionService.listByAssignment(assignmentId.value)
+        // The roster comes too so the tab can list non-submitters, not just submissions.
+        const [subs, students] = await Promise.all([
+            submissionService.listByAssignment(assignmentId.value),
+            classService.getStudents(classId.value),
+        ])
+        submissions.value = subs
+        roster.value = students.data
     } catch {
         toast.error('Failed to load submissions')
     } finally {
@@ -128,11 +140,18 @@ const isReleased = computed(() => {
     return exercises.length > 0 && exercises.every((ex) => ex.released)
 })
 
-// The header pill(s), from the student's point of view. The rule lives in the helper so this
-// page and the class list can't drift apart on it. Usually one badge; a late-then-graded
-// assignment reads Graded + Late.
-const studentBadges = computed(() =>
-    assignment.value ? studentAssignmentBadges(assignment.value, mySubmission.value) : [],
+// The student's header standing — status badge + grade line — from the SAME shared helper the
+// class list uses, so the two never drift. The grade total is the summed question points (the
+// full assignment is loaded here), or the submission's max_score if present.
+const studentBadge = computed(() =>
+    assignment.value ? studentStatus(assignment.value, mySubmission.value) : null,
+)
+const studentScore = computed<string | null>(() =>
+    studentGradeText(
+        mySubmission.value,
+        mySubmission.value?.max_score ??
+            (assignment.value ? assignmentTotalPoints(assignment.value) : null),
+    ),
 )
 
 const isDeleteOpen = ref(false)
@@ -182,10 +201,20 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                      authoring-side badges are instructor-only. An unreleased assignment is
                      invisible to students, so Draft/Released could only ever read "Released"
                      for them anyway. -->
+                <!-- Student header standing: the action badge with the grade as smaller text
+                     below — identical to the class list (shared helper). -->
                 <template v-if="isStudent">
-                    <McBadge v-for="b in studentBadges" :key="b.label" :variant="b.variant">
-                        {{ b.label }}
-                    </McBadge>
+                    <div class="tw:flex tw:flex-col tw:items-end tw:gap-1">
+                        <McBadge v-if="studentBadge" :variant="studentBadge.variant">
+                            {{ studentBadge.label }}
+                        </McBadge>
+                        <span
+                            v-if="studentScore"
+                            class="tw:text-[11px] tw:font-medium tw:text-navy-60 tw:tabular-nums"
+                        >
+                            {{ studentScore }}
+                        </span>
+                    </div>
                 </template>
                 <div v-else class="tw:flex tw:items-center tw:gap-2">
                     <McBadge :variant="isReleased ? 'info' : 'outline'">
@@ -255,6 +284,7 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                 <AssignmentSubmissionsTab
                     v-else
                     :assignment="assignment"
+                    :students="roster"
                     :submissions="submissions"
                     :is-loading="isLoadingSubmissions"
                 />

@@ -19,35 +19,28 @@ const { steps, visibleBoxes, shownableBoxCount } = useDetectionFilters()
 // rendered rectangle, computed the same way the browser lays the image out.
 const container = useTemplateRef<HTMLElement>('container')
 const { width: containerW, height: containerH } = useElementSize(container)
-const naturalW = ref(0)
-const naturalH = ref(0)
+// The natural size, tagged with the src it was measured from. A new source hasn't been
+// measured yet, so the tag won't match and this reads as unmeasured, so the overlay hides
+// rather than briefly drawing the previous image's boxes at the wrong scale.
+const measured = ref<{ src: string; w: number; h: number } | null>(null)
 
 const onImgLoad = (event: Event) => {
     const img = event.target as HTMLImageElement
-    naturalW.value = img.naturalWidth
-    naturalH.value = img.naturalHeight
+    measured.value = { src: props.src, w: img.naturalWidth, h: img.naturalHeight }
 }
 
-// A new source hasn't been measured yet; drop the old dimensions so the overlay hides rather
-// than briefly drawing the previous image's boxes at the wrong scale.
-//todo: this is a bit of a hack, but it works for now. We should probably refactor the submissionScore and scoreFraction functions to return an object with both the score and the total points, so we don't have to compute the total points twice.
-watch(
-    () => props.src,
-    () => {
-        naturalW.value = 0
-        naturalH.value = 0
-    },
-)
+const natural = computed(() => (measured.value?.src === props.src ? measured.value : null))
 
 // The rendered image rect within the container. object-scale-down is object-contain that
 // never upscales past natural size, so the scale is min(fit-both-axes, 1); the image is then
 // centred, which is where the letterbox offsets come from. Null until both the container and
 // the image have real dimensions.
 const imageRect = computed(() => {
-    if (!containerW.value || !containerH.value || !naturalW.value || !naturalH.value) return null
-    const scale = Math.min(containerW.value / naturalW.value, containerH.value / naturalH.value, 1)
-    const width = naturalW.value * scale
-    const height = naturalH.value * scale
+    const nat = natural.value
+    if (!containerW.value || !containerH.value || !nat?.w || !nat?.h) return null
+    const scale = Math.min(containerW.value / nat.w, containerH.value / nat.h, 1)
+    const width = nat.w * scale
+    const height = nat.h * scale
     return {
         left: (containerW.value - width) / 2,
         top: (containerH.value - height) / 2,
@@ -106,17 +99,30 @@ const boxStyle = (box: DetectionBox) => ({
                     viewBox="0 0 100 100"
                     preserveAspectRatio="none"
                 >
-                    <polygon
+                    <g
                         v-for="box in polygonBoxes"
                         :key="`poly-${box.id}`"
-                        :points="polygonPoints(box)"
-                        :class="colorForLabel(box.label).border"
-                        fill="currentColor"
-                        fill-opacity="0.15"
-                        stroke="currentColor"
-                        stroke-width="0.4"
-                        vector-effect="non-scaling-stroke"
-                    />
+                        class="tw:text-green-400"
+                    >
+                        <polygon
+                            :points="polygonPoints(box)"
+                            fill="none"
+                            stroke="#0f172a"
+                            stroke-opacity="0.5"
+                            stroke-width="3.5"
+                            stroke-linejoin="round"
+                            vector-effect="non-scaling-stroke"
+                        />
+                        <polygon
+                            :points="polygonPoints(box)"
+                            fill="currentColor"
+                            fill-opacity="0.14"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linejoin="round"
+                            vector-effect="non-scaling-stroke"
+                        />
+                    </g>
                 </svg>
 
                 <div

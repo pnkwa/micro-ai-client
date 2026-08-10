@@ -31,6 +31,15 @@ const props = withDefaults(
         sequentialNumber?: boolean
         stickyLeftColumns?: number
         stickyRightColumns?: number
+        /**
+         * Hold the table to a fixed height (any CSS length) instead of growing with the rows: the
+         * rows scroll inside it under a stuck header, the pagination bar below stays in view, and
+         * the footprint is the same whether it holds two rows, two hundred, or none — the loading
+         * and empty placeholders fill the same space rather than sitting in a short card above
+         * dead space. Unset — the default everywhere else — lets the table grow and the window
+         * scroll it.
+         */
+        bodyHeight?: string
     }>(),
     {
         loading: false,
@@ -181,6 +190,8 @@ const columnClass = (headerIndex: number, header: Header<TData, unknown>) => {
 const columnStyle = (headerIndex: number, header: Header<TData, unknown>) => {
     const baseStyle = {
         minWidth: `${header.getSize()}px`,
+        // Fixed layout sizes every column from the header row, so the width has to be stated there.
+        ...(props.bodyHeight && { width: `${header.getSize()}px` }),
         ...(header.column.columnDef.meta?.headerStyle || {}),
     }
 
@@ -327,7 +338,7 @@ const cellStyle = (cellIndex: number, cell: Cell<TData, unknown>) => {
 }
 
 const cellClass = (cellIndex: number, cell: Cell<TData, unknown>) => {
-    const classNames = [cell.column.columnDef.meta?.cellClass || '']
+    const classNames = [fixedCellClass.value, cell.column.columnDef.meta?.cellClass || '']
 
     const totalSequentialColumns = props.sequentialNumber ? 1 : 0
     const adjustedIndex = cellIndex + totalSequentialColumns
@@ -357,6 +368,37 @@ const cellClass = (cellIndex: number, cell: Cell<TData, unknown>) => {
     return cn(classNames)
 }
 
+// Only meaningful once the height is fixed: the header rides the top of that scroll container
+// rather than the window. z-20 keeps it above the body's sticky columns (z-9) but below the
+// layout's sticky breadcrumb bar (z-30), which owns the top of the viewport.
+const stickyHeaderClass = computed(() =>
+    props.bodyHeight ? 'tw:sticky tw:top-0 tw:z-20 tw:bg-background' : '',
+)
+
+const hasRows = computed(() => !props.loading && (table.value.getRowModel().rows?.length ?? 0) > 0)
+
+// A fixed-height table takes a fixed layout too, so each column's width comes from its declared
+// size rather than from whatever text this particular page happens to hold — otherwise the
+// columns jump as you step through pages of longer and shorter names. A cell can no longer
+// stretch to fit, so overflow is clipped to an ellipsis instead of spilling into its neighbour.
+const fixedLayoutClass = computed(() => (props.bodyHeight ? 'tw:table-fixed' : ''))
+const fixedCellClass = computed(() =>
+    props.bodyHeight ? 'tw:overflow-hidden tw:text-ellipsis' : '',
+)
+
+// Only the table with rows in it takes the leftover space. With none, it keeps its natural
+// height — the header row alone — and the placeholder below claims the rest, so the message
+// lands in the middle of the card rather than halfway down an empty grid.
+const tableRegionStyle = computed(() => {
+    if (!props.bodyHeight) return undefined
+    // Hold the scrollbar's gutter whether or not this page overflows. A full page scrolls and a
+    // short last page doesn't, so without this the table is wider on the last page and every
+    // column shifts as you step through the pages.
+    const gutter = { scrollbarGutter: 'stable' }
+    return hasRows.value ? { ...gutter, flex: '1 1 0%', minHeight: '0' } : gutter
+})
+const placeholderClass = computed(() => (props.bodyHeight ? 'tw:flex-1' : 'tw:h-55'))
+
 const sequentialNumberColumnStyle = computed(() => {
     if (!props.sequentialNumber) return {}
 
@@ -383,13 +425,25 @@ defineExpose({
 </script>
 
 <template>
-    <div class="tw:rounded-md tw:overflow-hidden">
-        <McTable ref="scrollContainer" @scroll="handleScroll">
+    <div
+        class="tw:rounded-md tw:overflow-hidden"
+        :class="bodyHeight && 'tw:flex tw:flex-col'"
+        :style="bodyHeight ? { height: bodyHeight } : undefined"
+    >
+        <!-- style falls through to McTable's scroll container (its only declared prop is
+             `class`, which it puts on the inner <table>), so this sizes the same element that
+             already owns overflow. -->
+        <McTable
+            ref="scrollContainer"
+            :class="fixedLayoutClass"
+            :style="tableRegionStyle"
+            @scroll="handleScroll"
+        >
             <McTableHeader>
                 <McTableRow v-for="headerGroup in table.getHeaderGroups()" :key="headerGroup.id">
                     <McTableHead
                         v-if="sequentialNumber"
-                        class="tw:text-center"
+                        :class="cn('tw:text-center', stickyHeaderClass)"
                         :style="sequentialNumberColumnStyle"
                     >
                         No.
@@ -397,7 +451,13 @@ defineExpose({
                     <McTableHead
                         v-for="header in headerGroup.headers"
                         :key="header.id"
-                        :class="cn('tw:text-center', columnClass(header.index, header))"
+                        :class="
+                            cn(
+                                'tw:text-center',
+                                stickyHeaderClass,
+                                columnClass(header.index, header),
+                            )
+                        "
                         :style="{
                             ...columnStyle(header.index, header),
                         }"
@@ -483,12 +543,16 @@ defineExpose({
             </McTableBody>
         </McTable>
         <template v-if="props.loading">
-            <div class="tw:h-55 tw:w-full tw:flex tw:items-center tw:justify-center">
+            <div
+                :class="cn('tw:w-full tw:flex tw:items-center tw:justify-center', placeholderClass)"
+            >
                 <McLoading :width="125" :height="125" />
             </div>
         </template>
         <template v-else-if="table.getRowModel().rows?.length === 0">
-            <div class="tw:h-55 tw:w-full tw:flex tw:items-center tw:justify-center">
+            <div
+                :class="cn('tw:w-full tw:flex tw:items-center tw:justify-center', placeholderClass)"
+            >
                 <span>No results.</span>
             </div>
         </template>
