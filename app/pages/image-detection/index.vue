@@ -27,6 +27,9 @@ const currentSource = ref<'upload' | 'camera'>('upload')
 const isAnalyzing = ref(false)
 const hasResults = ref(false)
 const detectionSteps = ref<DetectionStep[]>([])
+// The model that produced the steps on screen — not `selectedModel`, which the user can change
+// after a run. Only read while there are steps, so the clear paths don't have to reset it.
+const resultModel = ref('')
 
 // Model picker (FE-ADR-007): never hardcode a model name. Split in two because chaining
 // (ML-ADR-003) combines two independently-choosable models, not one: a classify/detect
@@ -89,6 +92,24 @@ const fungalConfidence = computed(() => {
 const classSteps = computed(() => detectionSteps.value.filter((s) => s.predicted_class !== 'none'))
 
 const pct = (n: number) => Math.round(n * 100)
+
+// Students get the morphology, not the diagnosis. Naming the class ("Bacterial vaginosis") hands
+// over the answer they are here to reach themselves; the element the detector boxes — "Clue
+// cell", "Pseudohyphae / budding yeast" — describes what it recognised and leaves the reading to
+// them. Staff see the class outright, since they are checking the model rather than learning
+// from it. Same principle as the server withholding exam detection from students (BE-ADR-012).
+const authStore = useAuth()
+const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
+
+// Sourced from the manifest the server reports (GET /models), keyed by the model that actually
+// ran — never a copy of the vocabulary kept here, so a model that adds a class needs no client
+// change. Null when the class carries no element, including the 'none' of a pass that found
+// nothing.
+const detectedElement = computed(() => {
+    const predicted = detectStep.value?.predicted_class
+    if (!predicted || predicted === 'none') return null
+    return models.value.find((m) => m.name === resultModel.value)?.elements[predicted] ?? null
+})
 
 const startCamera = () => {
     imageUrl.value = null
@@ -177,6 +198,7 @@ const runDetection = async () => {
             segmentModel,
         )
         detectionSteps.value = result.steps
+        resultModel.value = result.model
         hasResults.value = result.steps.length > 0
     } catch {
         toast.error('Detection failed. Please try again.')
@@ -600,7 +622,61 @@ onUnmounted(() => {
                             >
                                 "
                             </span>
-                            <p class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative">
+                            <!-- Students read the morphology; staff read the class. See
+                                 `detectedElement`. -->
+                            <p
+                                v-if="isStudent"
+                                class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative"
+                            >
+                                <template v-if="detectedElement">
+                                    The strongest morphological signal the model found in this field
+                                    is
+                                    <span class="tw:font-bold tw:text-primary">
+                                        {{ detectedElement }}
+                                    </span>
+                                    , which it recognised with
+                                    <span class="tw:font-bold tw:text-primary">
+                                        {{ pct(detectStep.confidence) }}% confidence
+                                    </span>
+                                    . Each outlined element on the image is one instance of it.
+                                </template>
+                                <template v-else>
+                                    The model found
+                                    <span class="tw:font-bold tw:text-primary">
+                                        no recognisable diagnostic element
+                                    </span>
+                                    in this field.
+                                </template>
+                                <template v-if="segmentStep">
+                                    A separate model looked for fungal elements:
+                                    <template v-if="fungalCount > 0">
+                                        it outlined
+                                        <span class="tw:font-bold tw:text-primary">
+                                            {{ fungalCount }}
+                                        </span>
+                                        of them ({{ pct(fungalConfidence) }}% confidence on the
+                                        strongest), so look for hyphae and budding forms among the
+                                        cells.
+                                    </template>
+                                    <template v-else>
+                                        it outlined
+                                        <span class="tw:font-bold tw:text-primary">none</span>
+                                        , so the elements here are bacterial and cellular rather
+                                        than fungal.
+                                    </template>
+                                </template>
+                                <template v-else>
+                                    No fungal segmentation was run, so nothing here speaks to fungal
+                                    elements either way.
+                                </template>
+                                These are the features the model keyed on, not a diagnosis — read
+                                them against the field yourself and reach your own.
+                            </p>
+
+                            <p
+                                v-else
+                                class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative"
+                            >
                                 The classification model examined this slide and determined its most
                                 likely class as
                                 <span class="tw:font-bold tw:text-primary">
