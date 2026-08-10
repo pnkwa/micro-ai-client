@@ -49,7 +49,15 @@ const modelSpecSchema = z.object({
     step: z.string(),
     displayName: z.string(),
     description: z.string(),
+    // Two different maps, both keyed by class code, and picking the wrong one is a real mistake:
+    //   elements    -> the morphology the box is drawn around ("Clue cell"). Showing this rather
+    //                  than the diagnosis is what satisfies "without giving an explicit
+    //                  diagnosis" (ML-ADR-001), so it is what a student mid-assessment sees.
+    //   displayText -> the diagnosis name ("Bacterial vaginosis"), for surfaces allowed to name
+    //                  the finding, and the vocabulary a human answers or authors a key in
+    //                  (BE-ADR-018).
     elements: z.record(z.string(), z.string()),
+    displayText: z.record(z.string(), z.string()),
 })
 
 export type ModelSpec = z.infer<typeof modelSpecSchema>
