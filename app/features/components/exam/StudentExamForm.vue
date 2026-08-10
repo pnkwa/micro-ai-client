@@ -4,6 +4,7 @@ import { toast } from 'vue-sonner'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { assignmentTotalPoints } from '~/services/assignmentService'
 import type { Exam } from '~/services/examService'
+import { isValidSlideNumber, normalizeSlideNumber } from '~/core/helpers/slideNumber'
 
 const props = defineProps<{
     exam: Exam
@@ -25,9 +26,9 @@ const stations = props.exam.exercises.flatMap((ex, exIndex) =>
     })),
 )
 
-// Per-station answer: the self-reported slide number and the written diagnosis. slideNumber
-// is typed loosely because v-model on <input type="number"> yields a number, '' when cleared.
-const answers = reactive<Record<number, { slideNumber: string | number; diagnosis: string }>>({})
+// Per-station answer: the self-reported slide label and the written diagnosis. The label is free
+// text: it may carry a letter code ("V7") as easily as a bare number.
+const answers = reactive<Record<number, { slideNumber: string; diagnosis: string }>>({})
 const images = reactive<
     Record<number, { file: File | null; name: string; previewUrl: string | null }>
 >({})
@@ -73,9 +74,10 @@ const countdown = computed(() => {
     return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
 })
 
+// A station counts as answered once the slide label is one we can resolve, checked against the
+// canonical pattern, not Number(), which would reject every letter code.
 const isAnswered = (id: number): boolean =>
-    String(answers[id]!.slideNumber).trim() !== '' &&
-    !Number.isNaN(Number(answers[id]!.slideNumber)) &&
+    isValidSlideNumber(answers[id]!.slideNumber) &&
     answers[id]!.diagnosis.trim() !== '' &&
     images[id]?.file != null
 
@@ -122,7 +124,9 @@ const onSubmit = async () => {
         const payload = stations.map((s) => ({
             question_id: s.id,
             response_text: answers[s.id]!.diagnosis.trim(),
-            slide_number: Number(answers[s.id]!.slideNumber),
+            // Normalized before sending so the grade-time lookup matches the stored key whatever
+            // the student typed. The server normalizes again; this is belt and braces, not trust.
+            slide_number: normalizeSlideNumber(answers[s.id]!.slideNumber),
         }))
         fd.append('answers', JSON.stringify(payload))
         for (const s of stations) {
@@ -213,12 +217,13 @@ const onSubmit = async () => {
 
             <div class="tw:mt-3 tw:grid tw:grid-cols-1 tw:gap-3 tw:sm:grid-cols-[8rem_1fr]">
                 <div class="tw:flex tw:flex-col tw:gap-1">
-                    <label class="tw:text-xs tw:font-medium tw:text-navy-60">Slide number</label>
+                    <label class="tw:text-xs tw:font-medium tw:text-navy-60">Slide</label>
                     <input
                         v-model="answers[s.id]!.slideNumber"
-                        type="number"
-                        min="0"
-                        placeholder="e.g. 4"
+                        type="text"
+                        inputmode="text"
+                        autocapitalize="characters"
+                        placeholder="e.g. V7"
                         class="tw:rounded-md tw:border tw:border-navy-20 tw:px-3 tw:py-2 tw:text-sm tw:outline-none tw:focus:border-primary"
                         @input="invalidIds.delete(s.id)"
                     />

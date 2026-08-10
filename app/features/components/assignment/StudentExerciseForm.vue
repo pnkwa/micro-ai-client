@@ -56,8 +56,8 @@ const { fields: answerFields, update: updateAnswer } = useFieldArray<{
     text: string
 }>('answers')
 
-// image_detection answers stay outside the vee-validate schema, same as the file input
-// in SubmitAssignment.vue: files aren't schema values, they're appended to FormData directly.
+// image_detection answers stay outside the vee-validate schema: files aren't schema values,
+// they're appended to FormData directly.
 const images = reactive<
     Record<number, { file: File | null; name: string; previewUrl: string | null }>
 >({})

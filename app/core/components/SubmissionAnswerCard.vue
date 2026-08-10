@@ -102,7 +102,7 @@ const clearanceClass = computed(() => {
                     <span
                         class="tw:inline-flex tw:items-center tw:rounded tw:bg-navy-10 tw:px-2 tw:py-0.5 tw:text-xs tw:font-medium tw:text-navy-70"
                     >
-                        Slide #{{ answer.slide_number ?? '—' }}
+                        Slide {{ answer.slide_number ?? '—' }}
                     </span>
                 </div>
                 <p class="tw:text-sm tw:text-navy-90">
