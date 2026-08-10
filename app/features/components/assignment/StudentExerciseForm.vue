@@ -6,6 +6,7 @@ import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { assignmentTotalPoints, type Assignment } from '~/services/assignmentService'
+import { rejectUnusableImage } from '~/core/helpers/imageUpload'
 
 const props = defineProps<{
     assignment: Assignment
@@ -106,7 +107,21 @@ const toggleSelect = (q: QuestionMeta, opt: string) => {
 }
 
 const onImage = (q: QuestionMeta, e: Event) => {
-    const file = (e.target as HTMLInputElement).files?.[0] ?? null
+    const input = e.target as HTMLInputElement
+    const file = input.files?.[0] ?? null
+
+    // Rejected before it replaces anything, so swapping a good photo for an unusable one doesn't
+    // lose the one that worked. Clearing the input lets the same file be picked again after it is
+    // fixed, which the browser otherwise treats as "no change". Shared with the exam form.
+    if (file) {
+        const rejection = rejectUnusableImage(file)
+        if (rejection) {
+            toast.error(rejection.message)
+            input.value = ''
+            return
+        }
+    }
+
     const prev = images[q.id]
     if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl)
     images[q.id] = {
@@ -351,7 +366,8 @@ const onSubmit = handleSubmit(async (v) => {
                                 Change
                                 <input
                                     type="file"
-                                    accept="image/*"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    capture="environment"
                                     class="tw:hidden"
                                     @change="onImage(q, $event)"
                                 />
@@ -374,7 +390,8 @@ const onSubmit = handleSubmit(async (v) => {
                             <span>Upload microscopy image</span>
                             <input
                                 type="file"
-                                accept="image/*"
+                                accept="image/jpeg,image/png,image/webp"
+                                capture="environment"
                                 class="tw:hidden"
                                 @change="onImage(q, $event)"
                             />
