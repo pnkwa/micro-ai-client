@@ -6,6 +6,8 @@ import { assignmentTotalPoints } from '~/services/assignmentService'
 import type { Exam } from '~/services/examService'
 import { isValidSlideNumber, normalizeSlideNumber } from '~/core/helpers/slideNumber'
 import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
+import { rejectUnusableImage } from '~/core/helpers/imageUpload'
+import { fetchDiagnosisOptions, type DiagnosisOption } from '~/core/helpers/classVocabulary'
 
 const props = defineProps<{
     exam: Exam
@@ -16,6 +18,26 @@ const emit = defineEmits<{ submitted: [] }>()
 // Shared with the sidebar and the detection page, so submitting releases the tool everywhere at
 // once rather than waiting for a reload (request 5.2).
 const { refresh: refreshAiAvailability } = useDetectionAvailability()
+
+/**
+ * The rubric's diagnoses, offered as quick-pick options (client request 3.1).
+ *
+ * Offered, not enforced: the field stays free text underneath. BE-ADR-018 routes an answer outside
+ * the vocabulary to instructor review rather than marking it wrong, and that branch only exists
+ * while something outside the list can be submitted. A closed list would delete it silently.
+ *
+ * An empty list (manifest unreachable) just leaves the plain text field, which is what this form
+ * was before.
+ */
+const diagnosisOptions = ref<DiagnosisOption[]>([])
+
+onMounted(async () => {
+    try {
+        diagnosisOptions.value = await fetchDiagnosisOptions()
+    } catch {
+        diagnosisOptions.value = []
+    }
+})
 
 const { $dayjs } = useNuxtApp()
 
@@ -118,6 +140,15 @@ const SLIDE_INPUT_CLASS = `tw:h-9 ${SHARED_FIELD_TOKENS}`
 // min-h rather than h, plus resize-y: 4rem is a floor here, not a cap.
 const TEXTAREA_CLASS = `tw:min-h-16 tw:py-2 tw:resize-y ${SHARED_FIELD_TOKENS}`
 
+// Fills the field rather than holding a separate selection, so there is one answer per station and
+// the submit path stays exactly as it was: a string, graded by canonicalizeClass server-side.
+// Tapping the chosen option again clears it, which is how a student changes their mind to free text.
+const pickDiagnosis = (id: number, option: DiagnosisOption) => {
+    const current = answers[id]!.diagnosis.trim().toLowerCase()
+    answers[id]!.diagnosis = current === option.label.toLowerCase() ? '' : option.label
+    invalidIds.delete(id)
+}
+
 const setImage = (id: number, file: File | null) => {
     const prev = images[id]
     if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl)
@@ -129,8 +160,27 @@ const setImage = (id: number, file: File | null) => {
     if (file) invalidIds.delete(id)
 }
 
+// True when the file is unusable, having already told the student why. Both entry points below go
+// through it, so a photo that a drop would accept is exactly the set the picker accepts.
+const wasRejected = (file: File): boolean => {
+    const rejection = rejectUnusableImage(file)
+    if (rejection) toast.error(rejection.message)
+    return rejection !== null
+}
+
 const onImage = (id: number, e: Event) => {
-    setImage(id, (e.target as HTMLInputElement).files?.[0] ?? null)
+    const input = e.target as HTMLInputElement
+    const file = input.files?.[0] ?? null
+
+    // Rejected before it replaces anything: a student swapping a good photo for a HEIC should not
+    // lose the one that worked. Clearing the input lets them pick the same file again after
+    // fixing it, which the browser otherwise treats as "no change".
+    if (file && wasRejected(file)) {
+        input.value = ''
+        return
+    }
+
+    setImage(id, file)
 }
 
 // Which station is being dragged over, so only that tile lights up.
@@ -150,13 +200,9 @@ const onDrop = (id: number, e: DragEvent) => {
     dragOverId.value = null
     const file = e.dataTransfer?.files?.[0]
     if (!file) return
-    // Parity with the file input's accept="image/*", which a drop bypasses entirely. This is not
-    // the full upload guard (HEIC, size bounds) - that helper lives on the lab-report branch and
-    // duplicating it here would collide on merge.
-    if (!file.type.startsWith('image/')) {
-        toast.error('That file is not an image')
-        return
-    }
+    // A drop bypasses the input's `accept` entirely, so it needs the same guard - and the full one,
+    // not a type check: dragging a HEIC off the desktop is as easy as picking one.
+    if (wasRejected(file)) return
     setImage(id, file)
 }
 
@@ -358,6 +404,22 @@ const onSubmit = async () => {
                     is not enough to tell a good field of view from a blurred one. Desktop keeps the
                     square in both states, so the row height never jumps as stations get filled.
                 -->
+                <!-- 3.2 (Slide 18) is handled at the input below and in
+                     core/helpers/imageUpload.ts: HEIC is rejected at selection with instructions
+                     (the worker has no pillow-heif, so it would otherwise fail AFTER a submit that
+                     looked fine), the size is checked against FILE_SIZE.MAX, and capture="environment"
+                     opens the rear camera on a phone rather than a file browser. The drop handler
+                     runs the same guard, since a drop bypasses `accept` entirely.
+
+                     TODO(3.2): two gaps are NOT fixable from here.
+                       - NO SERVER-SIDE SIZE LIMIT. Neither FileInterceptor('image') on /detections
+                         nor AnyFilesInterceptor() on /submissions sets limits.fileSize. The check
+                         below is client-side and therefore advisory: anything posting directly is
+                         unbounded, and an exam sends one photo per station in a single request.
+                       - EXIF ORIENTATION. PIL does not auto-rotate, so a portrait phone photo can
+                         reach the model sideways. It degrades detection silently rather than
+                         failing. Needs ImageOps.exif_transpose in the worker
+                         (micro-ai-image-processor). -->
                 <div
                     class="tw:relative tw:w-full tw:shrink-0 tw:transition-[height] tw:sm:size-44"
                     :class="images[s.id]?.file ? 'tw:h-64' : 'tw:h-32'"
@@ -432,7 +494,8 @@ const onSubmit = async () => {
                         </span>
                         <input
                             type="file"
-                            accept="image/*"
+                            accept="image/jpeg,image/png,image/webp"
+                            capture="environment"
                             class="tw:hidden"
                             @change="onImage(s.id, $event)"
                         />
@@ -466,13 +529,59 @@ const onSubmit = async () => {
                     </div>
 
                     <!-- flex-1 so the diagnosis takes up whatever height the photo leaves. -->
+                    <!-- 3.1 (Slide 18) is the options below: the rubric's diagnoses, from
+                         `displayText` on GET /models via core/helpers/classVocabulary.ts. Same
+                         source as the answer-key importer, so what a student may pick and what an
+                         instructor may author are the same set by construction.
+
+                         TODO(3.1): one thing is still unsettled, and it is not a UI detail.
+                         BE-ADR-018 is titled "Per-class display_text" but the implementation is
+                         per-MODEL, in the manifest. "Matched to the instructor's rubric" reads
+                         per-class. If the client means a vocabulary an instructor edits per class,
+                         that is a schema change and an ADR amendment, and this list would read from
+                         it instead. Confirm before anyone builds that. -->
                     <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-1.5">
                         <label class="tw:text-xs tw:font-medium tw:text-navy-60">
                             Your diagnosis
                         </label>
+
+                        <!-- Buttons rather than a dropdown: five options on a phone are quicker to
+                             tap than to open, and every option stays visible while the student
+                             decides. shrink-0 so they keep their height when the row stretches -
+                             the textarea below is the flexible one. -->
+                        <div
+                            v-if="diagnosisOptions.length > 0"
+                            class="tw:flex tw:shrink-0 tw:flex-wrap tw:gap-1.5"
+                            role="group"
+                            aria-label="Diagnoses from the rubric"
+                        >
+                            <button
+                                v-for="option in diagnosisOptions"
+                                :key="option.code"
+                                type="button"
+                                class="tw:cursor-pointer tw:rounded-full tw:border tw:px-3 tw:py-1.5 tw:text-xs tw:transition-colors"
+                                :class="
+                                    answers[s.id]!.diagnosis.trim().toLowerCase() ===
+                                    option.label.toLowerCase()
+                                        ? 'tw:border-primary tw:bg-primary/10 tw:font-medium tw:text-primary'
+                                        : 'tw:border-navy-20 tw:text-navy-70 tw:hover:border-primary tw:hover:text-primary'
+                                "
+                                @click="pickDiagnosis(s.id, option)"
+                            >
+                                {{ option.label }}
+                            </button>
+                        </div>
+
+                        <!-- Still editable after a pick. This is the free-text escape that keeps
+                             the instructor-review branch reachable, so it must not become
+                             readonly. -->
                         <textarea
                             v-model="answers[s.id]!.diagnosis"
-                            placeholder="What is this slide?"
+                            :placeholder="
+                                diagnosisOptions.length > 0
+                                    ? 'Pick one above, or type a different answer'
+                                    : 'What is this slide?'
+                            "
                             :class="[TEXTAREA_CLASS, 'tw:sm:flex-1']"
                             @input="invalidIds.delete(s.id)"
                         ></textarea>
