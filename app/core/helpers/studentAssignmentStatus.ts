@@ -148,6 +148,22 @@ export function studentGradeText(
 }
 
 /**
+ * A student's running grade in a class, as the "18/25" in the roster's Grade column: points
+ * earned over points possible, across graded work only.
+ *
+ * Only students with at least one graded submission come back from `GET /classes/:id/grades`, so
+ * a missing entry means "nothing graded yet" rather than zero, and reads as a dash.
+ *
+ * Sits beside studentGradeText deliberately: that one formats a single submission's mark, this
+ * one a class total. Keeping the two together is what stops them drifting into different shapes.
+ */
+export function classGradeText(
+    grade: { earned: number; possible: number } | undefined | null,
+): string {
+    return grade ? `${grade.earned}/${grade.possible}` : '-'
+}
+
+/**
  * Index a student's submissions by assignment, for list views.
  *
  * `GET /submissions` ignores every filter for a student and returns all of their own rows

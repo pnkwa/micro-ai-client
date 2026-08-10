@@ -32,6 +32,7 @@ import { submissionService, type SubmissionView } from '~/services/submissionSer
 import {
     studentStatus,
     studentGradeText,
+    classGradeText,
     indexSubmissionsByAssignment,
 } from '~/core/helpers/studentAssignmentStatus'
 
@@ -94,11 +95,13 @@ const loadStudents = async () => {
     }
 }
 
-// "18/25" over graded work, or "—" when the student has nothing graded yet.
-const gradeText = (studentId: string): string => {
-    const g = grades.value.get(studentId)
-    return g ? `${g.earned}/${g.possible}` : '-'
-}
+// "18/25" over graded work, or a dash when the student has nothing graded yet. The formatting
+// lives in classGradeText, next to the per-submission formatter it has to stay consistent with.
+//
+// Deliberately still a function called per row rather than a precomputed map: `grades` is already
+// a Map, so this is an O(1) lookup for the 15 rows on screen, where precomputing would format the
+// whole roster (up to a few hundred) on every reload and add an invalidation point for nothing.
+const gradeText = (studentId: string): string => classGradeText(grades.value.get(studentId))
 
 const loadAssignments = async () => {
     isLoadingAssignments.value = true
