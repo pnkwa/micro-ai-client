@@ -1,11 +1,11 @@
-import { ChartPie, GraduationCap, View, Layers } from 'lucide-vue-next'
+import { ChartPie, GraduationCap, View, Layers, Dumbbell } from 'lucide-vue-next'
 
 type MenuRole = 'instructor' | 'all' | 'student'
 
 interface MenuItem {
     title: string
     url: string
-    icon: typeof ChartPie | typeof GraduationCap | typeof View | typeof Layers
+    icon: typeof ChartPie | typeof GraduationCap | typeof View | typeof Layers | typeof Dumbbell
     subMenu?: MenuItem[]
     role: MenuRole
 }
@@ -29,6 +29,15 @@ export const menuItems: MenuItem[] = [
         icon: GraduationCap,
         role: 'student',
     },
+    {
+        title: 'Practice',
+        url: '/practice',
+        icon: Dumbbell,
+        role: 'all',
+    },
+    // Students reach this in practice only. That rule is enforced SERVER-SIDE - POST /detections
+    // 403s a student with an exam open (BE-ADR-012, request 5.2) - because a hidden nav item has
+    // never stopped anyone typing a URL, and the labels here are the diagnosis.
     {
         title: 'Image Detection',
         url: '/image-detection',
