@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import * as XLSX from 'xlsx'
 import {
     buildCanvasGradebook,
+    buildClassGradeCanvas,
     buildClassGradeReport,
     buildScoreReport,
     exportFilename,
@@ -154,6 +155,48 @@ describe('buildClassGradeReport', () => {
     it('handles an empty class', () => {
         const rows = rowsOf(buildClassGradeReport([]))
         expect(rows).toHaveLength(1)
+    })
+})
+
+describe('buildClassGradeCanvas', () => {
+    const grade = (over: Partial<ClassGradeRow> = {}): ClassGradeRow => ({
+        studentId: '652000090',
+        name: 'Jane Doe',
+        earned: 18,
+        possible: 25,
+        ...over,
+    })
+    const cls = { className: 'HRP 68 Lab' }
+
+    // The whole reason this export can exist: a per-student denominator cannot be a Canvas
+    // column, so the mark is normalized to a percentage and Points Possible is a constant 100.
+    it('writes the mark as a percentage out of 100', () => {
+        const rows = rowsOf(buildClassGradeCanvas([grade()], cls), 'csv')
+
+        expect(rows[0]).toEqual(['Student', 'SIS User ID', 'HRP 68 Lab (overall %)'])
+        expect(rows[1]?.[0]).toBe('    Points Possible')
+        expect(rows[1]?.[2]).toBe('100')
+        expect(rows[2]).toEqual(['Jane Doe', '652000090', '72'])
+    })
+
+    it('agrees with the percent in the readable report', () => {
+        const row = grade({ earned: 7, possible: 9 })
+        const report = rowsOf(buildClassGradeReport([row]))
+        const canvas = rowsOf(buildClassGradeCanvas([row], cls), 'csv')
+        expect(canvas[2]?.[2]).toBe(report[1]?.[4])
+    })
+
+    it('leaves a student with nothing graded blank, not 0%', () => {
+        const rows = rowsOf(
+            buildClassGradeCanvas([grade({ earned: null, possible: null })], cls),
+            'csv',
+        )
+        expect(rows[2]?.[2]).toBe('')
+    })
+
+    it('does not divide by zero', () => {
+        const rows = rowsOf(buildClassGradeCanvas([grade({ earned: 0, possible: 0 })], cls), 'csv')
+        expect(rows[2]?.[2]).toBe('')
     })
 })
 
