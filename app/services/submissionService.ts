@@ -63,8 +63,9 @@ const gradingAnswerSchema = z.object({
     question: gradingQuestionSchema,
     response_text: z.string().nullable(),
     selected_options: z.array(z.string()),
-    // Exam slide_identification: the slide number the student self-reported; null otherwise.
-    slide_number: z.number().nullable().optional(),
+    // Exam slide_identification: the slide label the student self-reported; null otherwise.
+    // Text, matching slideCollectionService's slideSchema; a label may carry a letter code.
+    slide_number: z.string().nullable().optional(),
     // image_detection / slide_identification: the ML run on the attached image; null otherwise.
     detection: detectionSchema.nullable(),
     // Autograder / detection suggestion: advisory, instructor confirms via is_correct/points_awarded.

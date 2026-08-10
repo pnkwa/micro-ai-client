@@ -19,6 +19,9 @@ const { $dayjs } = useNuxtApp()
 const formatDateTime = (date: string) => $dayjs(date).format('MMM D, HH:mm')
 
 const searchQuery = ref('')
+// The input stays instant; the filtering runs off a debounced copy, so a class roster isn't
+// re-scanned and the table re-rendered on every keystroke. Same delay as the other search boxes.
+const searchTerm = refDebounced(searchQuery, SEARCH_DEBOUNCE_MS)
 // Default to the whole roster (completion tracking); the dropdown narrows to one status.
 type StatusFilter = 'all' | StudentStatus['label']
 
@@ -59,8 +62,8 @@ const statusFor = (r: RosterRow) => studentStatus(props.assignment, r.submission
 const filteredRows = computed<RosterRow[]>(() => {
     let list = rows.value
     if (filter.value !== 'all') list = list.filter((r) => statusFor(r).label === filter.value)
-    if (searchQuery.value) {
-        const q = searchQuery.value.toLowerCase()
+    if (searchTerm.value) {
+        const q = searchTerm.value.toLowerCase()
         list = list.filter((r) => r.name.toLowerCase().includes(q) || r.studentId.includes(q))
     }
     return list
@@ -77,6 +80,9 @@ const pagination = ref<PaginationState>({ pageIndex: 0, pageSize: 15 })
 const resetToFirstPage = () => {
     pagination.value = { ...pagination.value, pageIndex: 0 }
 }
+// Debounced to the same delay as `searchTerm`, so the reset and the narrowed rows land together.
+// The status dropdown keeps the undebounced version: that is one deliberate click, not a burst.
+const onSearchInput = useDebounceFn(resetToFirstPage, SEARCH_DEBOUNCE_MS)
 const onFilterChange = (value: unknown) => {
     if (isStatusFilter(value)) {
         filter.value = value
@@ -156,7 +162,7 @@ function getScoreColor(score: number) {
                     type="text"
                     placeholder="Search student..."
                     class="tw:outline-none tw:w-full tw:text-sm tw:text-slate-700 tw:placeholder-slate-400 tw:bg-transparent"
-                    @input="resetToFirstPage"
+                    @input="onSearchInput"
                 />
             </div>
         </div>
