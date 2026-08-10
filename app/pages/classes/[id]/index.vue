@@ -315,7 +315,7 @@ const studentPagination = computed<PaginationState>({
 const onStudentSearch = useDebounceFn(() => {
     studentPage.value = 1
     void loadStudents()
-}, 300)
+}, SEARCH_DEBOUNCE_MS)
 
 // A fixed height, not a cap: the roster region fills the screen whether it holds 200 students,
 // three, or the empty-state message, so the card doesn't shrink to a stub above dead space. The
