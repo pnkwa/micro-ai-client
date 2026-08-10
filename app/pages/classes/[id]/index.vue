@@ -12,6 +12,7 @@ import {
     Download,
 } from 'lucide-vue-next'
 import {
+    buildClassGradeCanvas,
     buildClassGradeReport,
     exportFilename,
     type ClassGradeRow,
@@ -118,32 +119,44 @@ const gradeText = (studentId: string): string => classGradeText(grades.value.get
  * per_page returns the whole roster (classes.controller.ts). `grades` already covers the class,
  * so it does not need re-reading.
  *
- * Excel only, no Canvas variant. `possible` is per-student - it sums whatever that student has had
- * graded so far - and a Canvas gradebook column carries one Points Possible for everyone, so a
- * class total cannot be a column. The per-assignment export on the Submissions tab is the route
- * into a gradebook.
+ * Two formats, matching the assignment's Submissions tab. The Canvas one carries a PERCENTAGE out
+ * of 100 rather than raw points: `possible` is per-student, since it sums whatever that student
+ * has had graded so far, and a Canvas column has one Points Possible for everyone. Normalizing is
+ * what makes a class total expressible as a column at all. For per-assignment marks, where the
+ * denominator really is shared, use the Submissions tab export instead.
  */
 const isExportingGrades = ref(false)
 
-const exportClassGrades = async () => {
+/** Both exports read the same rows, so the two files can never disagree. */
+const collectGradeRows = async (): Promise<ClassGradeRow[]> => {
+    const roster = await classService.getStudents(classId.value)
+    return roster.data.map((s) => {
+        const grade = grades.value.get(s.student_id)
+        return {
+            studentId: s.student_id,
+            name: `${s.user.firstname} ${s.user.lastname}`,
+            // null, not 0: only students with graded work are in the map, and "nothing graded
+            // yet" is not a mark of zero.
+            earned: grade?.earned ?? null,
+            possible: grade?.possible ?? null,
+        }
+    })
+}
+
+const exportGrades = async (format: 'xlsx' | 'csv') => {
     isExportingGrades.value = true
     try {
-        const roster = await classService.getStudents(classId.value)
-        const rows: ClassGradeRow[] = roster.data.map((s) => {
-            const grade = grades.value.get(s.student_id)
-            return {
-                studentId: s.student_id,
-                name: `${s.user.firstname} ${s.user.lastname}`,
-                // null, not 0: only students with graded work are in the map, and "nothing graded
-                // yet" is not a mark of zero.
-                earned: grade?.earned ?? null,
-                possible: grade?.possible ?? null,
-            }
-        })
-        XLSX.writeFile(
-            buildClassGradeReport(rows),
-            exportFilename(classItem.value?.name ?? 'class', 'xlsx', 'grades'),
-        )
+        const rows = await collectGradeRows()
+        const className = classItem.value?.name ?? 'class'
+        if (format === 'xlsx') {
+            XLSX.writeFile(buildClassGradeReport(rows), exportFilename(className, 'xlsx', 'grades'))
+        } else {
+            XLSX.writeFile(
+                buildClassGradeCanvas(rows, { className }),
+                exportFilename(className, 'csv', 'grades'),
+                { bookType: 'csv' },
+            )
+        }
     } catch (err) {
         toast.error(apiErrorMessage(err, 'Failed to export grades'))
     } finally {
@@ -640,20 +653,45 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                             @update:model-value="onStudentSearch"
                         />
                         <div class="tw:flex tw:gap-2 tw:shrink-0">
-                            <!-- Exports the whole class, not the page on screen: see
-                                 exportClassGrades. Disabled while empty so it can't produce a
-                                 header-only file. -->
-                            <McButton
-                                variant="outline"
-                                size="sm"
-                                class="tw:flex-1 tw:sm:flex-none"
-                                :loading="isExportingGrades"
-                                :disabled="studentTotal === 0"
-                                @click="exportClassGrades"
-                            >
-                                <Download class="tw:w-4 tw:h-4 tw:mr-1" />
-                                Export grades
-                            </McButton>
+                            <!-- Same two-format menu as the assignment's Submissions tab. Exports
+                                 the whole class, not the page on screen: see collectGradeRows.
+                                 Disabled while empty so it can't produce a header-only file. -->
+                            <McDropdownMenu>
+                                <McDropdownMenuTrigger as-child>
+                                    <McButton
+                                        variant="outline"
+                                        size="sm"
+                                        class="tw:flex-1 tw:sm:flex-none"
+                                        :loading="isExportingGrades"
+                                        :disabled="studentTotal === 0"
+                                    >
+                                        <Download class="tw:w-4 tw:h-4 tw:mr-1" />
+                                        Export grades
+                                    </McButton>
+                                </McDropdownMenuTrigger>
+                                <McDropdownMenuContent align="end" class="tw:w-64">
+                                    <McDropdownMenuItem @select="exportGrades('xlsx')">
+                                        <div class="tw:flex tw:flex-col">
+                                            <span class="tw:text-sm">Excel report (.xlsx)</span>
+                                            <span class="tw:text-xs tw:text-navy-50">
+                                                Earned, possible and percent
+                                            </span>
+                                        </div>
+                                    </McDropdownMenuItem>
+                                    <McDropdownMenuItem @select="exportGrades('csv')">
+                                        <div class="tw:flex tw:flex-col">
+                                            <span class="tw:text-sm">Canvas / Mango (.csv)</span>
+                                            <span class="tw:text-xs tw:text-navy-50">
+                                                Overall percentage, out of 100
+                                            </span>
+                                        </div>
+                                    </McDropdownMenuItem>
+                                    <McDropdownMenuSeparator />
+                                    <div class="tw:px-2 tw:py-1.5 tw:text-xs tw:text-navy-50">
+                                        All {{ studentTotal }} students
+                                    </div>
+                                </McDropdownMenuContent>
+                            </McDropdownMenu>
                             <McButton
                                 variant="outline"
                                 size="sm"

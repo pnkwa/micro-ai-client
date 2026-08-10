@@ -108,16 +108,17 @@ export interface ClassGradeRow {
 }
 
 /**
- * A class's running grades: every enrolled student, one row.
+ * A student's class grade as a percentage, or '' when they have nothing graded yet.
  *
- * NO CANVAS VARIANT, and this is not an oversight. `possible` is per-student - it sums the points
- * of whatever that student has had graded so far - while a Canvas gradebook column carries a
- * single Points Possible for everyone. A class total therefore cannot be expressed as a column,
- * and the per-assignment export is the right route into a gradebook.
+ * Shared by both class exports so the number in the readable report and the number pushed to the
+ * gradebook are the same one, computed once.
  */
+const classPercent = (r: ClassGradeRow): number | string =>
+    r.earned === null || !r.possible ? '' : Math.round((r.earned / r.possible) * 100)
+
+/** A class's running grades: every enrolled student, one row. */
 export function buildClassGradeReport(rows: ClassGradeRow[]): XLSX.WorkBook {
-    const percent = (r: ClassGradeRow): number | string =>
-        r.earned === null || !r.possible ? '' : Math.round((r.earned / r.possible) * 100)
+    const percent = classPercent
 
     const sheet = XLSX.utils.aoa_to_sheet([
         ['Student ID', 'Name', 'Earned', 'Possible', 'Percent'],
@@ -127,6 +128,36 @@ export function buildClassGradeReport(rows: ClassGradeRow[]): XLSX.WorkBook {
 
     const book = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(book, sheet, 'Grades')
+    return book
+}
+
+/**
+ * A class's running grades in Canvas gradebook shape.
+ *
+ * THE MARK IS A PERCENTAGE, out of 100 - not raw points, and not by accident. `possible` is
+ * per-student here, since it sums whatever that student has had graded so far, while a Canvas
+ * column carries one Points Possible for everyone. Normalizing to a percentage is what makes a
+ * class total expressible as a column at all.
+ *
+ * So this is the right export for pushing an overall lab mark into the gradebook, and the WRONG
+ * one for per-assignment marks: use buildCanvasGradebook from the Submissions tab for those, where
+ * the denominator really is shared and the raw points survive.
+ *
+ * The same TODO(4.1) applies as on buildCanvasGradebook: without Canvas's internal assignment id
+ * in the header, an import creates a new column rather than filling an existing one.
+ */
+export function buildClassGradeCanvas(
+    rows: ClassGradeRow[],
+    meta: { className: string },
+): XLSX.WorkBook {
+    const sheet = XLSX.utils.aoa_to_sheet([
+        ['Student', 'SIS User ID', `${meta.className} (overall %)`],
+        ['    Points Possible', '', 100],
+        ...rows.map((r) => [r.name, r.studentId, classPercent(r)]),
+    ])
+
+    const book = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(book, sheet, 'Gradebook')
     return book
 }
 
