@@ -13,20 +13,20 @@ const props = withDefaults(defineProps<{ exam: Exam; isStudent?: boolean }>(), {
 const emit = defineEmits<{ reload: [] }>()
 
 const { $dayjs } = useNuxtApp()
-const fmt = (d: string | null) => (d ? $dayjs(d).format('MMM D, YYYY HH:mm') : '—')
+const fmt = (d: string | null) => (d ? $dayjs(d).format('MMM D, YYYY HH:mm') : '-')
 
 // The slide collection and AI threshold are staff answer-key concerns; students only get the
 // window. The collection list endpoint is staff-only, so students don't call it at all.
 const collections = ref<SlideCollectionListItem[]>([])
 const collectionName = computed(
-    () => collections.value.find((c) => c.id === props.exam.slide_collection_id)?.name ?? '—',
+    () => collections.value.find((c) => c.id === props.exam.slide_collection_id)?.name ?? '-',
 )
 onMounted(async () => {
     if (props.isStudent) return
     try {
         collections.value = await slideCollectionService.list()
     } catch {
-        /* names just fall back to the id-less em dash */
+        /* names just fall back to the placeholder dash */
     }
 })
 
