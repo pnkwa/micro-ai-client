@@ -5,6 +5,7 @@ import { submissionService, type SubmissionView } from '~/services/submissionSer
 import { assignmentTotalPoints } from '~/services/assignmentService'
 import type { Exam } from '~/services/examService'
 import { isValidSlideNumber, normalizeSlideNumber } from '~/core/helpers/slideNumber'
+import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
 
 const props = defineProps<{
     exam: Exam
@@ -85,8 +86,39 @@ const isAnswered = (id: number): boolean =>
     answers[id]!.diagnosis.trim() !== '' &&
     images[id]?.file != null
 
-const onImage = (id: number, e: Event) => {
-    const file = (e.target as HTMLInputElement).files?.[0] ?? null
+// Progress and urgency, both of which the student otherwise has to work out by scrolling. The
+// count is what tells them whether they are done; a station they skipped is easy to lose in a
+// long form, and the first feedback they get today is the error on submit.
+const answeredCount = computed(() => stations.filter((s) => isAnswered(s.id)).length)
+const allAnswered = computed(() => answeredCount.value === stations.length)
+
+// Escalate the countdown in the last five minutes. Same information, but warning-coloured text
+// stops reading as urgent once it has been on screen for an hour.
+const ENDING_SOON_SECONDS = 5 * 60
+const isEndingSoon = computed(
+    () =>
+        closesAt.value !== null && closesAt.value.diff(now.value, 'second') <= ENDING_SOON_SECONDS,
+)
+
+// Input.vue's / Textarea.vue's own tokens rather than a call to inputVariants(), because cn()'s
+// tailwind-merge does not recognise this project's `tw:` prefix: it cannot tell that h-9 and h-11
+// conflict, so both survive and stylesheet order picks the winner.
+//
+// Written out in full rather than composed, because Tailwind scans source text for class names -
+// a class assembled at runtime is a class that never gets generated.
+const SHARED_FIELD_TOKENS =
+    'tw:w-full tw:rounded-md tw:border tw:border-input tw:bg-transparent tw:px-3 tw:text-sm tw:shadow-xs tw:outline-none tw:transition-[color,box-shadow] tw:placeholder:text-muted-foreground tw:focus-visible:border-ring tw:focus-visible:ring-ring/50 tw:focus-visible:ring-[3px]'
+
+// A plain input, matching every other field in the app. Safe to drop the tw:uppercase that used to
+// be here: isValidSlideNumber and normalizeSlideNumber both uppercase before matching, so "v7"
+// validates and is stored as "V7" either way - the transform was only ever cosmetic. Dropping it
+// also lets the placeholder go back to "e.g. V7", which uppercase rendered as "E.G. V7".
+const SLIDE_INPUT_CLASS = `tw:h-9 ${SHARED_FIELD_TOKENS}`
+
+// min-h rather than h, plus resize-y: 4rem is a floor here, not a cap.
+const TEXTAREA_CLASS = `tw:min-h-16 tw:py-2 tw:resize-y ${SHARED_FIELD_TOKENS}`
+
+const setImage = (id: number, file: File | null) => {
     const prev = images[id]
     if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl)
     images[id] = {
@@ -97,10 +129,47 @@ const onImage = (id: number, e: Event) => {
     if (file) invalidIds.delete(id)
 }
 
+const onImage = (id: number, e: Event) => {
+    setImage(id, (e.target as HTMLInputElement).files?.[0] ?? null)
+}
+
+// Which station is being dragged over, so only that tile lights up.
+const dragOverId = ref<number | null>(null)
+
+// dragleave fires every time the cursor crosses onto a child element, so clearing on it
+// unconditionally makes the highlight flicker as you move across the tile. Only clear when the
+// pointer has actually left the tile's subtree.
+const onDragLeave = (e: DragEvent) => {
+    const tile = e.currentTarget as HTMLElement
+    const goingTo = e.relatedTarget as Node | null
+    if (goingTo && tile.contains(goingTo)) return
+    dragOverId.value = null
+}
+
+const onDrop = (id: number, e: DragEvent) => {
+    dragOverId.value = null
+    const file = e.dataTransfer?.files?.[0]
+    if (!file) return
+    // Parity with the file input's accept="image/*", which a drop bypasses entirely. This is not
+    // the full upload guard (HEIC, size bounds) - that helper lives on the lab-report branch and
+    // duplicating it here would collide on merge.
+    if (!file.type.startsWith('image/')) {
+        toast.error('That file is not an image')
+        return
+    }
+    setImage(id, file)
+}
+
 const removeImage = (id: number) => {
     const prev = images[id]
     if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl)
     delete images[id]
+}
+
+const scrollToStation = (id: number) => {
+    document
+        .getElementById(`station-${id}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 const onSubmit = async () => {
@@ -115,9 +184,7 @@ const onSubmit = async () => {
     }
     if (firstUnanswered !== null) {
         toast.error('Complete every slide: number, diagnosis and a photo')
-        document
-            .getElementById(`station-${firstUnanswered}`)
-            ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        scrollToStation(firstUnanswered)
         return
     }
 
@@ -204,12 +271,33 @@ const onSubmit = async () => {
 
     <!-- open: the exam form -->
     <form v-else class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="onSubmit">
-        <div
-            v-if="countdown"
-            class="tw:flex tw:items-center tw:justify-center tw:gap-2 tw:rounded-lg tw:border tw:border-warning/40 tw:bg-warning/5 tw:py-2 tw:text-sm tw:font-medium tw:text-warning"
-        >
-            <Clock class="tw:size-4" />
-            Closes in {{ countdown }}
+        <!--
+            A plain line rather than a card: it reads as a caption for the stations below it.
+
+            Not sticky, which it cannot be without a background - the station cards would scroll
+            through the text. If it should follow the scroll again it needs bg-white back, plus
+            top-12 to clear SidebarMain's own sticky header (min-h-12, z-30), since the page
+            scrolls at body level and top-0 would park it underneath.
+        -->
+        <div class="tw:flex tw:flex-wrap tw:items-center tw:justify-between tw:gap-2 tw:px-1">
+            <div class="tw:flex tw:items-center tw:gap-2 tw:text-sm">
+                <CheckCircle2
+                    class="tw:size-4 tw:transition-colors"
+                    :class="allAnswered ? 'tw:text-primary' : 'tw:text-navy-30'"
+                />
+                <span class="tw:text-navy-70">
+                    <span class="tw:font-semibold tw:text-navy-100">{{ answeredCount }}</span>
+                    of {{ stations.length }} complete
+                </span>
+            </div>
+            <div
+                v-if="countdown"
+                class="tw:flex tw:items-center tw:gap-1.5 tw:text-sm tw:font-medium tw:tabular-nums"
+                :class="isEndingSoon ? 'tw:text-danger' : 'tw:text-warning'"
+            >
+                <Clock class="tw:size-4" />
+                Closes in {{ countdown }}
+            </div>
         </div>
 
         <div
@@ -221,56 +309,127 @@ const onSubmit = async () => {
                 invalidIds.has(s.id) ? 'tw:border-danger/50 tw:bg-danger/5' : 'tw:border-navy-15'
             "
         >
-            <p class="tw:font-medium tw:text-navy-100">
-                {{ s.prompt }}
-                <span class="tw:text-danger" aria-label="required">*</span>
-            </p>
-
-            <div class="tw:mt-3 tw:grid tw:grid-cols-1 tw:gap-3 tw:sm:grid-cols-[8rem_1fr]">
-                <div class="tw:flex tw:flex-col tw:gap-1">
-                    <label class="tw:text-xs tw:font-medium tw:text-navy-60">Slide</label>
-                    <input
-                        v-model="answers[s.id]!.slideNumber"
-                        type="text"
-                        inputmode="text"
-                        autocapitalize="characters"
-                        placeholder="e.g. V7"
-                        class="tw:rounded-md tw:border tw:border-navy-20 tw:px-3 tw:py-2 tw:text-sm tw:outline-none tw:focus:border-primary"
-                        @input="invalidIds.delete(s.id)"
-                    />
-                </div>
-                <div class="tw:flex tw:flex-col tw:gap-1">
-                    <label class="tw:text-xs tw:font-medium tw:text-navy-60">Your diagnosis</label>
-                    <textarea
-                        v-model="answers[s.id]!.diagnosis"
-                        rows="2"
-                        placeholder="What is this slide?"
-                        class="tw:rounded-md tw:border tw:border-navy-20 tw:px-3 tw:py-2 tw:text-sm tw:outline-none tw:focus:border-primary"
-                        @input="invalidIds.delete(s.id)"
-                    ></textarea>
-                </div>
+            <!--
+                The number is the anchor: stations are identical-looking cards, and without it a
+                student cross-referencing the bench has nothing to count against. It flips to a
+                check once the station is complete, so scanning the column shows what is left.
+            -->
+            <div class="tw:flex tw:items-start tw:gap-3">
+                <span
+                    class="tw:mt-0.5 tw:flex tw:size-6 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-full tw:text-xs tw:font-semibold tw:transition-colors"
+                    :class="
+                        isAnswered(s.id)
+                            ? 'tw:bg-primary tw:text-white'
+                            : 'tw:bg-navy-10 tw:text-navy-60'
+                    "
+                >
+                    <CheckCircle2 v-if="isAnswered(s.id)" class="tw:size-4" />
+                    <template v-else>{{ s.index + 1 }}</template>
+                </span>
+                <p class="tw:font-medium tw:text-navy-100">
+                    {{ s.prompt }}
+                    <span class="tw:text-danger" aria-label="required">*</span>
+                </p>
             </div>
 
-            <div class="tw:mt-3">
+            <!--
+                Photo left, answers right, both the same height. The photo is the evidence at a
+                microscope station and the only thing that tells two otherwise identical stations
+                apart, so it gets real size instead of the squat strip it used to sit in. A field
+                of view is round, so a square frame crops it far better than a wide one.
+
+                Stacks on mobile with the photo on top, which is where it gets taken.
+            -->
+            <div class="tw:mt-4 tw:flex tw:flex-col tw:gap-4 tw:sm:flex-row tw:sm:pl-9">
+                <!--
+                    The remove button is a sibling of the label, not a child: nested inside it,
+                    clicking it would also re-open the file picker it just cleared.
+                -->
+                <!--
+                    Square, and 11rem rather than 9: the square is what sets the row height, so it
+                    has to be at least as tall as the answers beside it or the tile ends short.
+                    Those come to ~9.75rem (label + 2.25rem input + gap + label + 4rem textarea),
+                    so 9rem left it short. At 11rem the tile is the taller side, the row stretches
+                    the answers column to match, and the textarea's flex-1 absorbs the difference.
+                -->
+                <!--
+                    On mobile the tile grows once a photo is attached: an empty dropzone only has
+                    to be tappable, but a preview has to be checkable, and 10rem of full-width strip
+                    is not enough to tell a good field of view from a blurred one. Desktop keeps the
+                    square in both states, so the row height never jumps as stations get filled.
+                -->
                 <div
-                    v-if="images[s.id]?.file"
-                    class="tw:flex tw:items-center tw:gap-3 tw:rounded-md tw:border tw:border-primary/30 tw:bg-primary/5 tw:px-3 tw:py-2"
+                    class="tw:relative tw:w-full tw:shrink-0 tw:transition-[height] tw:sm:size-44"
+                    :class="images[s.id]?.file ? 'tw:h-64' : 'tw:h-32'"
+                    @dragover.prevent="dragOverId = s.id"
+                    @dragenter.prevent="dragOverId = s.id"
+                    @dragleave="onDragLeave"
+                    @drop.prevent="onDrop(s.id, $event)"
                 >
-                    <img
-                        :src="images[s.id]?.previewUrl ?? undefined"
-                        alt=""
-                        class="tw:size-10 tw:shrink-0 tw:rounded tw:border tw:border-navy-15 tw:object-cover"
-                    />
-                    <div class="tw:flex tw:min-w-0 tw:flex-1 tw:items-center tw:gap-1.5">
-                        <CheckCircle2 class="tw:size-4 tw:shrink-0 tw:text-primary" />
-                        <span class="tw:truncate tw:text-sm tw:text-navy-90">
-                            {{ images[s.id]?.name }}
-                        </span>
-                    </div>
                     <label
-                        class="tw:shrink-0 tw:cursor-pointer tw:rounded tw:px-2 tw:py-1 tw:text-xs tw:font-medium tw:text-primary tw:hover:bg-primary/10"
+                        class="tw:group/photo tw:block tw:size-full tw:cursor-pointer tw:overflow-hidden tw:rounded-lg"
+                        :aria-label="
+                            images[s.id]?.file ? 'Change photo' : 'Attach field-of-view photo'
+                        "
                     >
-                        Change
+                        <template v-if="images[s.id]?.file">
+                            <!--
+                                object-contain, not cover: cover crops to fill the tile, so a
+                                portrait phone photo loses its top and bottom and the student is
+                                checking a centre crop rather than the frame they actually
+                                submitted. Contain letterboxes it against navy-5 instead, which is
+                                what makes this a preview of the real image.
+                            -->
+                            <img
+                                :src="images[s.id]?.previewUrl ?? undefined"
+                                alt=""
+                                class="tw:size-full tw:rounded-lg tw:border tw:bg-navy-5 tw:object-contain tw:transition-colors"
+                                :class="
+                                    dragOverId === s.id
+                                        ? 'tw:border-primary'
+                                        : 'tw:border-primary/40'
+                                "
+                            />
+                            <!--
+                                Nothing otherwise says a filled tile is still clickable, and the
+                                only other control on it is the remove x - easy to read as "delete
+                                and start again" being the only way to swap the photo.
+                            -->
+                            <span
+                                class="tw:pointer-events-none tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-lg tw:bg-navy-100/55 tw:text-xs tw:font-medium tw:text-white tw:opacity-0 tw:transition-opacity tw:group-hover/photo:opacity-100"
+                            >
+                                <ImageUp class="tw:size-4" />
+                                Change photo
+                            </span>
+                            <!--
+                                The overlay above is hover-only, so on touch nothing says the
+                                preview is still interactive. This says it in place, and is hidden
+                                from sm up where the hover state does the job.
+                            -->
+                            <span
+                                class="tw:pointer-events-none tw:absolute tw:bottom-1.5 tw:left-1.5 tw:rounded tw:bg-navy-100/65 tw:px-1.5 tw:py-0.5 tw:text-[0.6875rem] tw:font-medium tw:text-white tw:sm:hidden"
+                            >
+                                Tap to change
+                            </span>
+                        </template>
+                        <span
+                            v-else
+                            class="tw:flex tw:size-full tw:flex-col tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-lg tw:border tw:border-dashed tw:text-center tw:transition-colors"
+                            :class="
+                                dragOverId === s.id
+                                    ? 'tw:border-primary tw:bg-primary/10 tw:text-primary'
+                                    : 'tw:border-navy-20 tw:text-navy-60 tw:hover:border-primary tw:hover:bg-primary/5'
+                            "
+                        >
+                            <ImageUp class="tw:size-5" />
+                            <span class="tw:text-xs tw:font-medium">
+                                {{ dragOverId === s.id ? 'Drop to attach' : 'Add photo' }}
+                            </span>
+                            <!-- Hidden on touch, where there is nothing to drag from. -->
+                            <span class="tw:hidden tw:text-[0.6875rem] tw:text-navy-50 tw:sm:block">
+                                or drop it here
+                            </span>
+                        </span>
                         <input
                             type="file"
                             accept="image/*"
@@ -279,35 +438,68 @@ const onSubmit = async () => {
                         />
                     </label>
                     <button
+                        v-if="images[s.id]?.file"
                         type="button"
                         aria-label="Remove photo"
-                        class="tw:shrink-0 tw:cursor-pointer tw:rounded tw:p-1 tw:text-navy-50 tw:hover:bg-danger/10 tw:hover:text-danger"
+                        class="tw:absolute tw:top-1.5 tw:right-1.5 tw:cursor-pointer tw:rounded-full tw:bg-white/90 tw:p-1 tw:text-navy-60 tw:shadow-sm tw:transition-colors tw:hover:bg-danger tw:hover:text-white"
                         @click="removeImage(s.id)"
                     >
-                        <X class="tw:size-4" />
+                        <X class="tw:size-3.5" />
                     </button>
                 </div>
-                <label
-                    v-else
-                    class="tw:inline-flex tw:items-center tw:gap-2 tw:rounded-md tw:border tw:border-navy-20 tw:px-3 tw:py-2 tw:text-sm tw:text-navy-70 tw:cursor-pointer tw:hover:border-primary tw:hover:bg-primary/5"
-                >
-                    <ImageUp class="tw:size-4" />
-                    <span>Attach field-of-view photo</span>
-                    <input
-                        type="file"
-                        accept="image/*"
-                        class="tw:hidden"
-                        @change="onImage(s.id, $event)"
-                    />
-                </label>
+
+                <div class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col tw:gap-3">
+                    <div class="tw:flex tw:flex-col tw:gap-1.5">
+                        <label class="tw:text-xs tw:font-medium tw:text-navy-60">Slide</label>
+                        <!-- Capped: full-width would make a 2-4 character code look like a lost sentence. -->
+                        <div class="tw:w-28">
+                            <input
+                                v-model="answers[s.id]!.slideNumber"
+                                type="text"
+                                inputmode="text"
+                                autocapitalize="characters"
+                                placeholder="e.g. V7"
+                                :class="SLIDE_INPUT_CLASS"
+                                @input="invalidIds.delete(s.id)"
+                            />
+                        </div>
+                    </div>
+
+                    <!-- flex-1 so the diagnosis takes up whatever height the photo leaves. -->
+                    <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-1.5">
+                        <label class="tw:text-xs tw:font-medium tw:text-navy-60">
+                            Your diagnosis
+                        </label>
+                        <textarea
+                            v-model="answers[s.id]!.diagnosis"
+                            placeholder="What is this slide?"
+                            :class="[TEXTAREA_CLASS, 'tw:sm:flex-1']"
+                            @input="invalidIds.delete(s.id)"
+                        ></textarea>
+                    </div>
+                </div>
             </div>
 
-            <p v-if="invalidIds.has(s.id)" class="tw:mt-2 tw:text-xs tw:font-medium tw:text-danger">
+            <p
+                v-if="invalidIds.has(s.id)"
+                class="tw:mt-2 tw:text-xs tw:font-medium tw:text-danger tw:sm:pl-9"
+            >
                 Enter a slide number, a diagnosis and a photo.
             </p>
         </div>
 
-        <div class="tw:flex tw:justify-end">
+        <!--
+            The button stays enabled when stations are missing: submit is what runs the validation
+            and scrolls to the first gap, so disabling it would strand a student with no way to
+            find out which station they missed. The hint says what is outstanding beforehand.
+        -->
+        <div class="tw:flex tw:flex-wrap tw:items-center tw:justify-end tw:gap-3">
+            <p v-if="!allAnswered" class="tw:mr-auto tw:text-sm tw:text-navy-60">
+                {{ stations.length - answeredCount }} station{{
+                    stations.length - answeredCount === 1 ? '' : 's'
+                }}
+                still need a slide, a diagnosis and a photo.
+            </p>
             <McButton type="submit" :loading="submitting">
                 <Send class="tw:size-4 tw:mr-1.5" />
                 Submit exam
