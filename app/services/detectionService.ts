@@ -54,6 +54,15 @@ const modelSpecSchema = z.object({
 
 export type ModelSpec = z.infer<typeof modelSpecSchema>
 
+// `reason` is null when available; 'exam_open' is the only refusal today, but it is a string so a
+// second reason (a suspended account, a closed term) doesn't need a new shape.
+const detectionAvailabilitySchema = z.object({
+    available: z.boolean(),
+    reason: z.string().nullable(),
+})
+
+export type DetectionAvailability = z.infer<typeof detectionAvailabilitySchema>
+
 export const detectionService = {
     // Naming a detector auto-chains a segmenter behind it server-side (ML-ADR-003,
     // DetectionsService.buildJob). `segmentModel` overrides which one:
@@ -96,6 +105,19 @@ export const detectionService = {
             responseType: 'blob',
         })
         return URL.createObjectURL(blob)
+    },
+
+    /**
+     * May this caller use the AI tool right now? (Request 5.2.)
+     *
+     * Lets the UI hide the tool and turn a student away at the door rather than after they have
+     * picked a model and uploaded a photo. NOT a security check: POST /detections re-derives the
+     * same rule server-side, so a client that skips or fakes this gains nothing.
+     */
+    async availability(): Promise<DetectionAvailability> {
+        const { $api } = useNuxtApp()
+        const response = await $api(detectionRoutes.availability)
+        return detectionAvailabilitySchema.parse(response)
     },
 
     async listModels(): Promise<ModelSpec[]> {

@@ -8,11 +8,28 @@ import {
     ScanSearch,
     Target,
     Sparkles,
+    Lock,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { detectionService, type DetectionStep, type ModelSpec } from '~/services/detectionService'
 
 type ViewerMode = 'empty' | 'camera' | 'preview'
+
+/**
+ * Turned away at the door while an exam is open (client request 5.2, BE-ADR-012).
+ *
+ * The server refuses the run regardless — this is so a student meets a clear message here rather
+ * than after picking a model and uploading a photo. Checked before the page renders anything, so
+ * the tool is never briefly usable.
+ */
+const {
+    available: aiAvailable,
+    message: aiUnavailableMessage,
+    refresh: refreshAvailability,
+} = useDetectionAvailability()
+await refreshAvailability()
+
+const router = useRouter()
 
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([{ label: 'Image Detection', to: '/image-detection' }])
@@ -213,7 +230,21 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div class="tw:space-y-5 tw:flex tw:flex-col tw:min-h-[calc(100vh-80px)]">
+    <!-- Blocked outright rather than disabled in place: a half-usable page invites a student to
+         try, and the tool's whole surface is the answer they are being examined on. -->
+    <div
+        v-if="!aiAvailable"
+        class="tw:mx-auto tw:flex tw:w-full tw:max-w-lg tw:flex-col tw:items-center tw:gap-3 tw:rounded-md tw:border tw:border-navy-10 tw:bg-white tw:px-6 tw:py-16 tw:text-center"
+    >
+        <Lock class="tw:size-8 tw:text-navy-30" />
+        <p class="tw:text-sm tw:font-medium tw:text-navy-80">Image Detection is unavailable</p>
+        <p class="tw:text-sm tw:text-navy-60">{{ aiUnavailableMessage }}</p>
+        <McButton variant="outline" size="sm" class="tw:mt-1" @click="router.push('/')">
+            Back
+        </McButton>
+    </div>
+
+    <div v-else class="tw:space-y-5 tw:flex tw:flex-col tw:min-h-[calc(100vh-80px)]">
         <div>
             <h1 class="tw:text-2xl tw:font-bold tw:text-primary">Image Detection</h1>
             <p class="tw:text-sm tw:text-slate-500 tw:mt-1">

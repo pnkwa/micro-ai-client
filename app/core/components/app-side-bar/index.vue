@@ -20,11 +20,22 @@ const { open, isMobile } = useSidebar()
 
 const isInstructor = computed(() => authStore.user?.user_type === 'staff')
 
+// Hides Image Detection from a student sitting an exam (request 5.2). Cosmetic by design: the
+// page turns them away and POST /detections 403s them regardless, because a nav item nobody can
+// see is not a control. Checked once on mount; a student who starts an exam mid-session still
+// meets both of those.
+const { available: aiAvailable, refresh: refreshAiAvailability } = useDetectionAvailability()
+onMounted(() => {
+    if (authStore.isSignedIn) void refreshAiAvailability()
+})
+
 const filteredMenuItems = computed(() => {
-    if (isInstructor.value) {
-        return menuItems.filter((item) => item.role === 'instructor' || item.role === 'all')
-    }
-    return menuItems.filter((item) => item.role === 'student' || item.role === 'all')
+    const forRole = isInstructor.value
+        ? menuItems.filter((item) => item.role === 'instructor' || item.role === 'all')
+        : menuItems.filter((item) => item.role === 'student' || item.role === 'all')
+
+    if (aiAvailable.value) return forRole
+    return forRole.filter((item) => item.url !== '/image-detection')
 })
 
 const isCollapsed = computed(() => !open.value && !isMobile.value)
