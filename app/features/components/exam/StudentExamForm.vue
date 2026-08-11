@@ -12,6 +12,10 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ submitted: [] }>()
 
+// Shared with the sidebar and the detection page, so submitting releases the tool everywhere at
+// once rather than waiting for a reload (request 5.2).
+const { refresh: refreshAiAvailability } = useDetectionAvailability()
+
 const { $dayjs } = useNuxtApp()
 
 // Flatten the slide_identification questions; each is one slide "station".
@@ -137,6 +141,13 @@ const onSubmit = async () => {
         submitted.value = true
         toast.success('Exam submitted')
         emit('submitted')
+
+        // Submitting is exactly when the AI tool becomes available again (request 5.2), and this
+        // is the one moment the client knows that for certain. Forced past the throttle: making a
+        // student who has just finished wait it out is the lockout this is meant to prevent.
+        // Not awaited - the submission has succeeded either way, and a failure here only means
+        // the sidebar catches up on the next navigation.
+        void refreshAiAvailability({ force: true })
     } catch (e) {
         // The server 403s a submission outside the window even if the client clock drifted.
         toast.error(apiErrorMessage(e, 'Failed to submit exam'))

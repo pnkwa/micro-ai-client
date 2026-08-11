@@ -27,7 +27,12 @@ const {
     message: aiUnavailableMessage,
     refresh: refreshAvailability,
 } = useDetectionAvailability()
-await refreshAvailability()
+
+// FORCED, unlike the sidebar's throttled checks. This page is the door: entering on a cached
+// "available" from moments ago would render the tool to a student whose exam opened in the
+// meantime, and they would only find out after uploading. The sidebar can afford to be briefly
+// stale because it is decoration; this cannot.
+await refreshAvailability({ force: true })
 
 const router = useRouter()
 

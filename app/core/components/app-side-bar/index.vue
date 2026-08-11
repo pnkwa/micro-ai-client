@@ -22,11 +22,31 @@ const isInstructor = computed(() => authStore.user?.user_type === 'staff')
 
 // Hides Image Detection from a student sitting an exam (request 5.2). Cosmetic by design: the
 // page turns them away and POST /detections 403s them regardless, because a nav item nobody can
-// see is not a control. Checked once on mount; a student who starts an exam mid-session still
-// meets both of those.
+// see is not a control.
+//
+// RE-CHECKED, not checked once. This component mounts once around NuxtPage for the whole signed-in
+// session, so a single onMounted call would answer at sign-in and never again — a student who
+// entered mid-exam would keep the item hidden after submitting, until a full reload. That fails in
+// the direction that locks someone out of a tool they are entitled to.
+//
+// Two triggers, both cheap: every navigation, and the tab regaining focus (which covers finishing
+// an exam in another tab, and an exam simply closing while they were away). The composable
+// throttles, so neither can turn into a request per click.
 const { available: aiAvailable, refresh: refreshAiAvailability } = useDetectionAvailability()
-onMounted(() => {
-    if (authStore.isSignedIn) void refreshAiAvailability()
+
+onMounted(() => void refreshAiAvailability())
+
+// afterEach returns its own unregister; the component outlives the session, but leaving a stray
+// global hook behind on teardown is the kind of thing that only shows up under tests.
+const stopAfterEach = router.afterEach(() => void refreshAiAvailability())
+
+const onVisible = () => {
+    if (document.visibilityState === 'visible') void refreshAiAvailability()
+}
+onMounted(() => document.addEventListener('visibilitychange', onVisible))
+onBeforeUnmount(() => {
+    stopAfterEach()
+    document.removeEventListener('visibilitychange', onVisible)
 })
 
 const filteredMenuItems = computed(() => {
