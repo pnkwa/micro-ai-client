@@ -14,7 +14,7 @@ import { detectionService } from '~/services/detectionService'
  *
  * STATE IS SHARED (useState), not per-caller. The sidebar mounts once around NuxtPage for the
  * whole session, so a per-caller ref there would be answered once and then never again: a student
- * who entered the app mid-exam would keep Image Detection hidden after submitting, until a full
+ * who entered the app mid-exam would keep Image Detection disabled after submitting, until a full
  * reload. Sharing means whoever refreshes it — a navigation, a tab refocus, the exam form on
  * submit — updates every reader at once.
  *
