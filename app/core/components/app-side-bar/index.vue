@@ -29,9 +29,7 @@ const isInstructor = computed(() => authStore.user?.user_type === 'staff')
 // entered mid-exam would keep the item hidden after submitting, until a full reload. That fails in
 // the direction that locks someone out of a tool they are entitled to.
 //
-// Two triggers, both cheap: every navigation, and the tab regaining focus (which covers finishing
-// an exam in another tab, and an exam simply closing while they were away). The composable
-// throttles, so neither can turn into a request per click.
+// Three triggers, all cheap, plus the exam form forcing one the instant a student submits.
 const { available: aiAvailable, refresh: refreshAiAvailability } = useDetectionAvailability()
 
 onMounted(() => void refreshAiAvailability())
@@ -39,15 +37,29 @@ onMounted(() => void refreshAiAvailability())
 // afterEach returns its own unregister; the component outlives the session, but leaving a stray
 // global hook behind on teardown is the kind of thing that only shows up under tests.
 const stopAfterEach = router.afterEach(() => void refreshAiAvailability())
+onBeforeUnmount(stopAfterEach)
 
-const onVisible = () => {
+// Covers finishing an exam in another tab, and an exam closing while they were away.
+useEventListener(document, 'visibilitychange', () => {
     if (document.visibilityState === 'visible') void refreshAiAvailability()
-}
-onMounted(() => document.addEventListener('visibilitychange', onVisible))
-onBeforeUnmount(() => {
-    stopAfterEach()
-    document.removeEventListener('visibilitychange', onVisible)
 })
+
+// And polling, for the one case no event covers: an exam CLOSING while the student sits on a
+// focused page without navigating. Nothing happens in the app at that moment - the change is
+// purely the clock passing - so there is nothing to hang a trigger off.
+//
+// Self-limiting by design: it only asks while the student is blocked, which is exactly the state
+// they are waiting to leave. The moment the exam closes, the answer flips and the polling stops
+// asking. A student who is not blocked never issues one of these, so the steady state for
+// everybody else is a timer that does nothing.
+//
+// The interval is longer than the composable's throttle, so a tick is never swallowed by it.
+const AVAILABILITY_POLL_MS = 30_000
+useIntervalFn(() => {
+    if (document.visibilityState !== 'visible') return
+    if (aiAvailable.value) return
+    void refreshAiAvailability()
+}, AVAILABILITY_POLL_MS)
 
 const filteredMenuItems = computed(() => {
     const forRole = isInstructor.value
