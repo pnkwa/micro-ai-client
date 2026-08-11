@@ -12,6 +12,7 @@ import {
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { detectionService, type DetectionStep, type ModelSpec } from '~/services/detectionService'
+import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
 
 type ViewerMode = 'empty' | 'camera' | 'preview'
 
@@ -237,16 +238,44 @@ onUnmounted(() => {
 <template>
     <!-- Blocked outright rather than disabled in place: a half-usable page invites a student to
          try, and the tool's whole surface is the answer they are being examined on. -->
+    <!--
+        Same min-height as the working page below, so the block is a full screen rather than
+        content stranded at the top with empty space beneath it. No card around it: with nothing
+        else on the page there is nothing to separate it from, and the border only drew a box
+        around a message.
+    -->
     <div
         v-if="!aiAvailable"
-        class="tw:mx-auto tw:flex tw:w-full tw:max-w-lg tw:flex-col tw:items-center tw:gap-3 tw:rounded-md tw:border tw:border-navy-10 tw:bg-white tw:px-6 tw:py-16 tw:text-center"
+        class="tw:flex tw:min-h-[calc(100vh-80px)] tw:items-center tw:justify-center tw:px-4"
     >
-        <Lock class="tw:size-8 tw:text-navy-30" />
-        <p class="tw:text-sm tw:font-medium tw:text-navy-80">Image Detection is unavailable</p>
-        <p class="tw:text-sm tw:text-navy-60">{{ aiUnavailableMessage }}</p>
-        <McButton variant="outline" size="sm" class="tw:mt-1" @click="router.push('/')">
-            Back
-        </McButton>
+        <div
+            class="tw:flex tw:w-full tw:max-w-md tw:flex-col tw:items-center tw:gap-5 tw:text-center"
+        >
+            <div
+                class="tw:flex tw:size-14 tw:items-center tw:justify-center tw:rounded-full tw:bg-navy-5 tw:text-navy-40"
+            >
+                <Lock class="tw:size-7" />
+            </div>
+
+            <div class="tw:flex tw:flex-col tw:gap-2">
+                <h1 class="tw:text-lg tw:font-semibold tw:text-navy-100">
+                    Image Detection is unavailable
+                </h1>
+                <p class="tw:text-sm tw:leading-relaxed tw:text-navy-60">
+                    {{ aiUnavailableMessage }}
+                </p>
+            </div>
+
+            <!--
+                Classes is the primary action, not Back: the reason the tool is withheld is an exam
+                the student has not submitted, so the thing they actually need is the way to it.
+                Back only returns them to where they already were.
+            -->
+            <div class="tw:flex tw:flex-wrap tw:justify-center tw:gap-2">
+                <McButton variant="outline" size="sm" @click="router.push('/')">Back</McButton>
+                <McButton size="sm" @click="router.push('/classes')">Go to my classes</McButton>
+            </div>
+        </div>
     </div>
 
     <div v-else class="tw:space-y-5 tw:flex tw:flex-col tw:min-h-[calc(100vh-80px)]">
@@ -268,7 +297,13 @@ onUnmounted(() => {
                 class="tw:flex tw:flex-col tw:lg:h-200 tw:lg:flex-row tw:divide-y tw:lg:divide-y-0 tw:lg:divide-x tw:divide-slate-100 tw:flex-1"
             >
                 <div class="tw:flex-1 tw:p-5 tw:md:p-6 tw:flex tw:flex-col tw:overflow-hidden">
-                    <div class="tw:flex tw:items-center tw:justify-between tw:mb-3">
+                    <!--
+                        min-h so the row keeps its height whether or not a status badge is in it.
+                        The badge (text-[11px] + py-1 + border, ~23px) is taller than the label
+                        beside it (~16px), so without this the whole viewer and everything under it
+                        shifts down the moment a detection finishes.
+                    -->
+                    <div class="tw:flex tw:min-h-7 tw:items-center tw:justify-between tw:mb-3">
                         <div class="tw:flex tw:items-center tw:gap-2">
                             <span
                                 class="tw:w-1.5 tw:h-1.5 tw:rounded-full"
@@ -380,45 +415,69 @@ onUnmounted(() => {
                             />
                         </template>
 
-                        <template v-else-if="mode === 'preview'">
-                            <img
-                                :src="imageUrl!"
-                                alt="Microscope Image"
-                                class="tw:absolute tw:inset-0 tw:w-full tw:h-full tw:object-contain"
-                            />
+                        <!--
+                            Mirrors McAnnotatedImage's own layout: image area above, a bar of the
+                            same height below. Without the spacer the annotated view is shorter by
+                            its legend, so the picture visibly shrinks the moment results land -
+                            the same photo at two sizes depending on whether it has been analyzed.
 
-                            <!-- Analyzing overlay -->
-                            <Transition
-                                enter-active-class="tw:transition-opacity tw:duration-300"
-                                enter-from-class="tw:opacity-0"
-                                leave-active-class="tw:transition-opacity tw:duration-300"
-                                leave-to-class="tw:opacity-0"
-                            >
+                            object-scale-down, not object-contain, for the same reason: contain
+                            scales a small image up to fill, scale-down leaves it at natural size.
+                            McAnnotatedImage uses scale-down because its box overlay is positioned
+                            against the drawn rect, so the preview has to agree or an image smaller
+                            than the viewer jumps size too.
+                        -->
+                        <template v-else-if="mode === 'preview'">
+                            <div class="tw:absolute tw:inset-0 tw:flex tw:flex-col tw:gap-2">
                                 <div
-                                    v-if="isAnalyzing"
-                                    class="tw:absolute tw:inset-0 tw:bg-slate-900/60 tw:backdrop-blur-sm tw:flex tw:flex-col tw:items-center tw:justify-center tw:gap-3"
+                                    class="tw:relative tw:flex tw:min-h-0 tw:flex-1 tw:items-center tw:justify-center tw:overflow-hidden tw:rounded-md tw:bg-slate-950"
                                 >
-                                    <div class="tw:relative tw:w-16 tw:h-16">
-                                        <div
-                                            class="tw:absolute tw:inset-0 tw:rounded-full tw:border-2 tw:border-white/20"
-                                        ></div>
-                                        <div
-                                            class="tw:absolute tw:inset-0 tw:rounded-full tw:border-t-2 tw:border-primary tw:animate-spin"
-                                        ></div>
-                                        <ScanSearch
-                                            class="tw:absolute tw:inset-0 tw:m-auto tw:w-6 tw:h-6 tw:text-white/70"
-                                        />
-                                    </div>
-                                    <span
-                                        class="tw:text-white tw:text-sm tw:font-semibold tw:tracking-wide"
+                                    <img
+                                        :src="imageUrl!"
+                                        alt="Microscope Image"
+                                        class="tw:h-full tw:w-full tw:object-scale-down tw:select-none"
+                                    />
+
+                                    <!-- Analyzing overlay -->
+                                    <Transition
+                                        enter-active-class="tw:transition-opacity tw:duration-300"
+                                        enter-from-class="tw:opacity-0"
+                                        leave-active-class="tw:transition-opacity tw:duration-300"
+                                        leave-to-class="tw:opacity-0"
                                     >
-                                        Running AI Detection…
-                                    </span>
-                                    <span class="tw:text-white/50 tw:text-xs">
-                                        This may take a moment
-                                    </span>
+                                        <div
+                                            v-if="isAnalyzing"
+                                            class="tw:absolute tw:inset-0 tw:bg-slate-900/60 tw:backdrop-blur-sm tw:flex tw:flex-col tw:items-center tw:justify-center tw:gap-3"
+                                        >
+                                            <div class="tw:relative tw:w-16 tw:h-16">
+                                                <div
+                                                    class="tw:absolute tw:inset-0 tw:rounded-full tw:border-2 tw:border-white/20"
+                                                ></div>
+                                                <div
+                                                    class="tw:absolute tw:inset-0 tw:rounded-full tw:border-t-2 tw:border-primary tw:animate-spin"
+                                                ></div>
+                                                <ScanSearch
+                                                    class="tw:absolute tw:inset-0 tw:m-auto tw:w-6 tw:h-6 tw:text-white/70"
+                                                />
+                                            </div>
+                                            <span
+                                                class="tw:text-white tw:text-sm tw:font-semibold tw:tracking-wide"
+                                            >
+                                                Running AI Detection…
+                                            </span>
+                                            <span class="tw:text-white/50 tw:text-xs">
+                                                This may take a moment
+                                            </span>
+                                        </div>
+                                    </Transition>
                                 </div>
-                            </Transition>
+
+                                <!-- Same height as McAnnotatedImage's legend row, and the same
+                                     wording it shows with no steps, so only the content changes. -->
+                                <div class="tw:flex tw:h-12 tw:lg:h-9 tw:items-center tw:px-3">
+                                    <p class="tw:text-[11px] tw:text-navy-40">Not analyzed.</p>
+                                </div>
+                            </div>
                         </template>
                     </div>
 
