@@ -26,6 +26,10 @@ const userName = computed(() =>
             : auth.user.email
         : 'User',
 )
+
+// The name still falls back to the email above, so only show the email as a separate line when it
+// is not already standing in for the name - otherwise it prints twice.
+const showEmailLine = computed(() => !!auth.user?.firstname)
 const isSignedIn = computed(() => !!auth.user)
 
 const instructorActions = [
@@ -94,6 +98,25 @@ const studentActions = [
                         {{ greeting }},
                         <span class="tw:text-primary tw:block">{{ userName }}</span>
                     </h1>
+
+                    <!--
+                        Student ID first: it is the identifier the faculty actually uses on rosters
+                        and answer sheets, and the one a student is asked for. tabular-nums so a
+                        column of digits does not jitter.
+                    -->
+                    <p
+                        v-if="isSignedIn && (auth.user?.student_id || showEmailLine)"
+                        class="tw:text-sm tw:text-navy-60 tw:flex tw:flex-wrap tw:items-center tw:gap-x-2 tw:gap-y-1 tw:mt-1"
+                    >
+                        <span v-if="auth.user?.student_id" class="tw:font-medium tw:text-navy-90">
+                            Student ID
+                            <span class="tw:tabular-nums">{{ auth.user.student_id }}</span>
+                        </span>
+                        <span v-if="auth.user?.student_id && showEmailLine" class="tw:text-navy-30">
+                            •
+                        </span>
+                        <span v-if="showEmailLine">{{ auth.user?.email }}</span>
+                    </p>
                 </div>
 
                 <p class="tw:text-base lg:tw:text-lg tw:text-navy-60 tw:max-w-lg">

@@ -123,7 +123,15 @@ const clear = () => {
                         )
                     "
                 >
-                    <span>{{ displayLabel || props.placeholder }}</span>
+                    <!--
+                        truncate, because inputVariants() fixes the trigger at h-9: a label longer
+                        than the button wraps to a second line inside a box that cannot grow, and
+                        spills over the border. Two pickers side by side then look mismatched even
+                        though both are h-9. min-w-0 is what lets it actually shrink in the flex row.
+                    -->
+                    <span class="tw:min-w-0 tw:truncate">
+                        {{ displayLabel || props.placeholder }}
+                    </span>
                     <CalendarIcon class="tw:size-4 tw:opacity-60" />
                 </button>
             </PopoverTrigger>

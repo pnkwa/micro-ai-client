@@ -17,7 +17,8 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
 } from '@/core/components/ui/dropdown-menu'
-import { ChevronDown } from 'lucide-vue-next'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/core/components/ui/tooltip'
+import { ChevronDown, Lock } from 'lucide-vue-next'
 import SidebarButton from './SidebarButton.vue'
 
 interface SidebarItemProps {
@@ -27,6 +28,8 @@ interface SidebarItemProps {
         url: string
         subMenu?: SidebarItemProps['item'][]
     }
+    disabled?: boolean
+    disabledReason?: string
 }
 
 const props = defineProps<SidebarItemProps>()
@@ -49,7 +52,32 @@ const isPathStartWith = (url: string) => {
 <template>
     <div>
         <SidebarMenuItem v-if="!props.item.subMenu" :key="props.item.title" :item="props.item">
+            <Tooltip v-if="props.disabled">
+                <TooltipTrigger as-child>
+                    <div class="tw:w-full tw:cursor-not-allowed">
+                        <SidebarMenuButton
+                            aria-disabled="true"
+                            class="tw:pointer-events-none tw:opacity-50"
+                        >
+                            <component :is="item.icon" class="tw:w-5! tw:h-5! tw:shrink-0" />
+                            <span
+                                class="tw:group-data-[collapsible=icon]:hidden tw:text-base tw:truncate"
+                            >
+                                {{ item.title }}
+                            </span>
+                            <Lock
+                                class="tw:ml-auto tw:size-3.5 tw:shrink-0 tw:group-data-[collapsible=icon]:hidden"
+                            />
+                        </SidebarMenuButton>
+                    </div>
+                </TooltipTrigger>
+                <TooltipContent side="right" align="center" class="tw:max-w-64">
+                    {{ props.disabledReason }}
+                </TooltipContent>
+            </Tooltip>
+
             <SidebarButton
+                v-else
                 :is-active="item.url ? isPathStartWith(item.url) : false"
                 :icon="item.icon"
                 :title="item.title"

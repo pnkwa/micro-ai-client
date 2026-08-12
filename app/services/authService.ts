@@ -13,6 +13,9 @@ const profileSchema = z
         role: z.enum(['admin', 'instructor', 'ta']).nullable().optional(),
         firstname: z.string().optional(),
         lastname: z.string().optional(),
+        // Present for students only (BE-ADR-004: `students` is naturally keyed on the university
+        // student_id). Staff have no student subtype, so the field is simply absent for them.
+        student_id: z.string().optional(),
     })
     .transform(({ sub, ...rest }) => ({ id: sub, ...rest }))
 

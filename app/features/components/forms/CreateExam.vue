@@ -134,12 +134,16 @@ const handleSave = handleSubmit((values) => {
             />
         </div>
 
-        <div class="tw:grid tw:grid-cols-2 tw:gap-4">
-            <div class="tw:flex tw:flex-col tw:gap-1">
+        <!--
+            items-start so the two columns stay top-aligned when only one of them is showing a
+            validation error (Closes is the required one, so in practice only it grows).
+        -->
+        <div class="tw:grid tw:grid-cols-2 tw:gap-4 tw:items-start">
+            <div class="tw:flex tw:flex-col tw:gap-2">
                 <label class="tw:text-sm tw:font-medium">Opens</label>
-                <McDatePicker name="examOpensAt" with-time placeholder="Open time (optional)" />
+                <McDatePicker name="examOpensAt" with-time placeholder="Open time" />
             </div>
-            <div class="tw:flex tw:flex-col tw:gap-1">
+            <div class="tw:flex tw:flex-col tw:gap-2">
                 <label class="tw:text-sm tw:font-medium">
                     Closes
                     <span class="tw:text-red-500">*</span>
