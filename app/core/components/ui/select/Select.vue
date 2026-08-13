@@ -1,7 +1,7 @@
 <script setup lang="ts" generic="T extends SelectOption | undefined">
 import type { AcceptableValue, SelectRootEmits, SelectRootProps } from 'reka-ui'
 import { SelectRoot, useForwardPropsEmits } from 'reka-ui'
-import { X } from 'lucide-vue-next'
+import { X } from '@lucide/vue'
 import McBadge from '@/core/components/ui/badge/Badge.vue'
 
 const isSelectOption = (obj: unknown): obj is T => {

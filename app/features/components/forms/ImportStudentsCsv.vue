@@ -4,7 +4,7 @@
 // importer follows the same shape with a real spreadsheet parser: see
 // features/components/slide/ImportAnswerKeyXlsx.vue, which handles .xlsx via SheetJS and adds a
 // preview diff. Worth reusing from there if this ever grows beyond CSV.
-import { Upload, FileText, X } from 'lucide-vue-next'
+import { Upload, FileText, X } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { enrollStudentFormSchema } from '~/features/types/forms/student'
 import type { EnrollStudentInput } from '~/services/classService'

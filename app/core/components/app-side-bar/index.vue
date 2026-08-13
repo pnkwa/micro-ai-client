@@ -13,7 +13,7 @@ import {
 import { menuItems } from '~/core/configs/navbar'
 import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
 import SidebarItem from './SidebarItem.vue'
-import { Microscope, LogIn, LogOut, User } from 'lucide-vue-next'
+import { Microscope, LogIn, LogOut, User } from '@lucide/vue'
 
 const router = useRouter()
 const authStore = useAuth()

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Send, CheckCircle2, ImageUp, X, Clock, Lock } from 'lucide-vue-next'
+import { Send, CheckCircle2, ImageUp, X, Clock, Lock } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { assignmentTotalPoints } from '~/services/assignmentService'

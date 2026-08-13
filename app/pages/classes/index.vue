@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Pencil } from 'lucide-vue-next'
+import { Plus, Pencil } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import CreateClass from '~/features/components/forms/CreateClass.vue'
 import EditClass from '~/features/components/forms/EditClass.vue'

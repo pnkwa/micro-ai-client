@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Link, X } from 'lucide-vue-next'
+import { Link, X } from '@lucide/vue'
 import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import {

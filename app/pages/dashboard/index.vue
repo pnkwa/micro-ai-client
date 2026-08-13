@@ -8,7 +8,7 @@ import {
     TrendingUp,
     Award,
     Timer,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { BarChart } from '~/core/components/bar-chart'

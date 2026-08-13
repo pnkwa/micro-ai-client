@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Check, X, MessageSquarePlus, Undo2 } from 'lucide-vue-next'
+import { ArrowLeft, Check, X, MessageSquarePlus, Undo2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { submissionService, type GradingAnswer } from '~/services/submissionService'
 import { submissionBadges } from '~/core/helpers/studentAssignmentStatus'

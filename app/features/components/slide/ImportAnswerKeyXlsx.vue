@@ -12,7 +12,7 @@
  * few obvious synonyms, because an instructor retyping a header by hand shouldn't lose an import.
  */
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, X, Download } from 'lucide-vue-next'
+import { Upload, FileSpreadsheet, X, Download } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { compareSlideNumbers } from '~/core/helpers/slideNumber'
 import {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, FileText, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, FileText, Trash2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import {
     assignmentService,
