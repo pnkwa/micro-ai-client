@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Pencil, Trash2, Check, X } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Check, X, Search } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { systemConfigService, type SystemConfigEntry } from '~/services/systemConfigService'
 import {
@@ -264,7 +264,7 @@ await Promise.all([loadConfigs(), loadUsers()])
                     <h2 class="tw:text-lg tw:font-semibold tw:text-navy-100">Accounts</h2>
                     <p class="tw:text-sm tw:text-navy-60">Edit, promote/demote, or remove users.</p>
                 </div>
-                <div class="tw:flex tw:flex-wrap tw:items-center tw:gap-2">
+                <div class="tw:flex tw:items-center tw:gap-2">
                     <McNativeSelect
                         :model-value="filterType"
                         class="tw:w-32"
@@ -274,14 +274,17 @@ await Promise.all([loadConfigs(), loadUsers()])
                         <option value="staff">Staff</option>
                         <option value="student">Student</option>
                     </McNativeSelect>
-                    <McInput
-                        v-model="filterQuery"
-                        class="tw:w-56"
-                        placeholder="Search name or email"
-                        icon-prepend="Search"
-                        @keyup.enter="loadUsers"
-                    />
-                    <McButton variant="outline" @click="loadUsers">Apply</McButton>
+                    <div class="tw:w-56">
+                        <McInput
+                            v-model="filterQuery"
+                            placeholder="Search name or email"
+                            icon-prepend="Search"
+                            @keyup.enter="loadUsers"
+                        />
+                    </div>
+                    <McButton variant="outline" size="icon" aria-label="Search" @click="loadUsers">
+                        <Search class="tw:size-4" />
+                    </McButton>
                 </div>
             </div>
 

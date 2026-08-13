@@ -16,7 +16,14 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
         return navigateTo('/', { replace: true })
     }
 
-    if (!auth.isSignedIn && to.path !== '/sign-in') {
+    // Routes reachable without signing in. The standalone detection tool is opened to anonymous
+    // callers by the `detections.allow_public` runtime switch (BE-ADR-013/021): the page itself
+    // asks the API whether it may run (GET /detections/availability, anonymous-aware), and the
+    // API is the real gate. Forcing sign-in here would make the switch unreachable from the UI.
+    const publicPaths = ['/image-detection']
+    const isPublic = publicPaths.some((p) => to.path === p || to.path.startsWith(`${p}/`))
+
+    if (!auth.isSignedIn && to.path !== '/sign-in' && !isPublic) {
         return navigateTo('/sign-in', { replace: true })
     }
 
