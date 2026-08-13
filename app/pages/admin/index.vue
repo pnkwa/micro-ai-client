@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Pencil, Trash2, Check, X, Search } from 'lucide-vue-next'
+import { Plus, Search } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { systemConfigService, type SystemConfigEntry } from '~/services/systemConfigService'
 import {
@@ -8,6 +8,7 @@ import {
     type AdminUser,
     type StaffRole,
 } from '~/services/userAdminService'
+import AccountsTable from '~/features/components/admin/AccountsTable.vue'
 
 // Admin-only. Enforced for real by the API (RolesGuard); this meta is the UX gate in
 // app/middleware/auth.global.ts.
@@ -59,67 +60,10 @@ const loadUsers = async () => {
     }
 }
 
-const changeRole = async (user: AdminUser, role: string) => {
-    if (role === user.role) return
-    try {
-        await userAdminService.setRole(user.userID, role as StaffRole)
-        toast.success(`${user.email} is now ${role}`)
-    } catch (e) {
-        // Backend rejects self-demotion and demoting the last admin — surface its message.
-        toast.error(apiErrorMessage(e, 'Failed to change role'))
-    } finally {
-        await loadUsers()
-    }
-}
-
-// Inline edit of identity fields.
-const editingId = ref<number | null>(null)
-const editDraft = reactive({
-    firstname: '',
-    lastname: '',
-    email: '',
-    is_active: true,
-})
-
-const startEdit = (user: AdminUser) => {
-    editingId.value = user.userID
-    editDraft.firstname = user.firstname
-    editDraft.lastname = user.lastname
-    editDraft.email = user.email
-    editDraft.is_active = user.is_active ?? true
-}
-
-const cancelEdit = () => {
-    editingId.value = null
-}
-
-const saveEdit = async (user: AdminUser) => {
-    try {
-        await userAdminService.update(user.userID, {
-            firstname: editDraft.firstname,
-            lastname: editDraft.lastname,
-            email: editDraft.email,
-            is_active: editDraft.is_active,
-        })
-        editingId.value = null
-        await loadUsers()
-        toast.success('Account updated')
-    } catch (e) {
-        toast.error(apiErrorMessage(e, 'Failed to update account'))
-    }
-}
-
-const removeUser = async (user: AdminUser) => {
-    if (!confirm(`Delete ${user.email}? This cannot be undone.`)) return
-    try {
-        await userAdminService.remove(user.userID)
-        await loadUsers()
-        toast.success('Account deleted')
-    } catch (e) {
-        // Backend rejects deleting yourself and the last admin.
-        toast.error(apiErrorMessage(e, 'Failed to delete account'))
-    }
-}
+// Split by how the account authenticates: `local` (password) vs Azure SSO. Anything not
+// explicitly local is treated as SSO. Each table paginates and mutates on its own.
+const localAccounts = computed(() => users.value.filter((u) => u.auth_provider === 'local'))
+const ssoAccounts = computed(() => users.value.filter((u) => u.auth_provider !== 'local'))
 
 // ---- Create account ---------------------------------------------------------------------------
 const createForm = reactive({
@@ -256,13 +200,13 @@ await Promise.all([loadConfigs(), loadUsers()])
         </section>
 
         <!-- ================= Accounts ================= -->
-        <section
-            class="tw:bg-white tw:rounded-xl tw:border tw:border-navy-10 tw:p-6 tw:flex tw:flex-col tw:gap-4"
-        >
+        <div class="tw:flex tw:flex-col tw:gap-4">
             <div class="tw:flex tw:flex-wrap tw:items-end tw:justify-between tw:gap-4">
                 <div>
                     <h2 class="tw:text-lg tw:font-semibold tw:text-navy-100">Accounts</h2>
-                    <p class="tw:text-sm tw:text-navy-60">Edit, promote/demote, or remove users.</p>
+                    <p class="tw:text-sm tw:text-navy-60">
+                        Split by sign-in method. Edit, promote/demote, or remove users.
+                    </p>
                 </div>
                 <div class="tw:flex tw:items-center tw:gap-2">
                     <McNativeSelect
@@ -288,113 +232,22 @@ await Promise.all([loadConfigs(), loadUsers()])
                 </div>
             </div>
 
-            <McTable>
-                <McTableHeader>
-                    <McTableRow>
-                        <McTableHead>ID</McTableHead>
-                        <McTableHead>Name</McTableHead>
-                        <McTableHead>Email</McTableHead>
-                        <McTableHead>Type</McTableHead>
-                        <McTableHead>Role / Student ID</McTableHead>
-                        <McTableHead>Status</McTableHead>
-                        <McTableHead class="tw:text-right">Actions</McTableHead>
-                    </McTableRow>
-                </McTableHeader>
-                <McTableBody>
-                    <McTableRow v-for="u in users" :key="u.userID">
-                        <McTableCell class="tw:text-navy-60">{{ u.userID }}</McTableCell>
-
-                        <template v-if="editingId === u.userID">
-                            <McTableCell>
-                                <div class="tw:flex tw:gap-2">
-                                    <McInput v-model="editDraft.firstname" placeholder="First" />
-                                    <McInput v-model="editDraft.lastname" placeholder="Last" />
-                                </div>
-                            </McTableCell>
-                            <McTableCell>
-                                <McInput v-model="editDraft.email" placeholder="Email" />
-                            </McTableCell>
-                            <McTableCell>
-                                <McBadge variant="outline">{{ u.user_type }}</McBadge>
-                            </McTableCell>
-                            <McTableCell class="tw:text-navy-60">
-                                {{ u.role ?? u.student_id ?? '—' }}
-                            </McTableCell>
-                            <McTableCell>
-                                <div class="tw:flex tw:items-center tw:gap-2">
-                                    <McSwitch v-model="editDraft.is_active" />
-                                    <span class="tw:text-sm tw:text-navy-60">
-                                        {{ editDraft.is_active ? 'Active' : 'Inactive' }}
-                                    </span>
-                                </div>
-                            </McTableCell>
-                            <McTableCell>
-                                <div class="tw:flex tw:justify-end tw:gap-1">
-                                    <McButton size="sm" @click="saveEdit(u)">
-                                        <Check class="tw:size-4" />
-                                        Save
-                                    </McButton>
-                                    <McButton size="sm" variant="ghost" @click="cancelEdit">
-                                        <X class="tw:size-4" />
-                                    </McButton>
-                                </div>
-                            </McTableCell>
-                        </template>
-
-                        <template v-else>
-                            <McTableCell class="tw:font-medium">
-                                {{ u.firstname }} {{ u.lastname }}
-                            </McTableCell>
-                            <McTableCell class="tw:text-navy-60">{{ u.email }}</McTableCell>
-                            <McTableCell>
-                                <McBadge variant="outline">{{ u.user_type }}</McBadge>
-                            </McTableCell>
-                            <McTableCell>
-                                <McNativeSelect
-                                    v-if="u.user_type === 'staff'"
-                                    :model-value="u.role ?? ''"
-                                    class="tw:w-32"
-                                    @update:model-value="changeRole(u, String($event))"
-                                >
-                                    <option v-for="r in staffRoles" :key="r" :value="r">
-                                        {{ r }}
-                                    </option>
-                                </McNativeSelect>
-                                <span v-else class="tw:text-sm tw:text-navy-60">
-                                    {{ u.student_id ?? '—' }}
-                                </span>
-                            </McTableCell>
-                            <McTableCell>
-                                <McBadge :variant="u.is_active === false ? 'outline' : 'success'">
-                                    {{ u.is_active === false ? 'Inactive' : 'Active' }}
-                                </McBadge>
-                            </McTableCell>
-                            <McTableCell>
-                                <div class="tw:flex tw:justify-end tw:gap-1">
-                                    <McButton
-                                        size="icon-sm"
-                                        variant="ghost"
-                                        aria-label="Edit"
-                                        @click="startEdit(u)"
-                                    >
-                                        <Pencil class="tw:size-4" />
-                                    </McButton>
-                                    <McButton
-                                        size="icon-sm"
-                                        variant="ghost"
-                                        aria-label="Delete"
-                                        @click="removeUser(u)"
-                                    >
-                                        <Trash2 class="tw:size-4 tw:text-destructive" />
-                                    </McButton>
-                                </div>
-                            </McTableCell>
-                        </template>
-                    </McTableRow>
-                    <McTableEmpty v-if="users.length === 0" :colspan="7">No accounts.</McTableEmpty>
-                </McTableBody>
-            </McTable>
-        </section>
+            <AccountsTable
+                title="Local accounts"
+                subtitle="Password sign-in — the local-auth fallback to CMU SSO."
+                :accounts="localAccounts"
+                empty-text="No local accounts match."
+                @changed="loadUsers"
+            />
+            <AccountsTable
+                title="SSO accounts"
+                subtitle="Azure single sign-on. 'Azure' shows whether the account has been linked yet."
+                :accounts="ssoAccounts"
+                show-azure
+                empty-text="No SSO accounts match."
+                @changed="loadUsers"
+            />
+        </div>
 
         <!-- ================= Create account ================= -->
         <section

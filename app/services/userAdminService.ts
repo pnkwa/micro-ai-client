@@ -14,6 +14,8 @@ export const adminUserSchema = z.object({
     firstname: z.string(),
     lastname: z.string(),
     auth_provider: z.enum(['azure', 'local']).optional(),
+    // Present on the admin list so the SSO table can show whether JIT-linking has happened yet.
+    azure_oid: z.string().nullable().optional(),
     is_active: z.boolean().optional(),
     role: z.enum(staffRoles).nullable().optional(),
     student_id: z.string().nullable().optional(),
