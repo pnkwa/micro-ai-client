@@ -133,6 +133,23 @@ const createForm = reactive({
     password: '',
 })
 
+// A native <select> hands back an AcceptableValue (widened, possibly undefined); these coerce it
+// back to the field's literal union. They live in the script on purpose — a TS `as` cast inside
+// an inline template handler trips Nuxt's macro parser at build time.
+const onFilterTypeChange = (v: unknown) => {
+    filterType.value = String(v) as '' | 'staff' | 'student'
+    loadUsers()
+}
+const onKindChange = (v: unknown) => {
+    createForm.kind = String(v) as 'staff' | 'student'
+}
+const onRoleChange = (v: unknown) => {
+    createForm.role = String(v) as StaffRole
+}
+const onAuthProviderChange = (v: unknown) => {
+    createForm.auth_provider = String(v) as 'azure' | 'local'
+}
+
 const submitCreate = async () => {
     try {
         if (createForm.kind === 'staff') {
@@ -251,10 +268,7 @@ await Promise.all([loadConfigs(), loadUsers()])
                     <McNativeSelect
                         :model-value="filterType"
                         class="tw:w-32"
-                        @update:model-value="
-                            filterType = String($event) as '' | 'staff' | 'student'
-                            loadUsers()
-                        "
+                        @update:model-value="onFilterTypeChange($event)"
                     >
                         <option value="">All types</option>
                         <option value="staff">Staff</option>
@@ -398,9 +412,7 @@ await Promise.all([loadConfigs(), loadUsers()])
                         <McNativeSelect
                             :model-value="createForm.kind"
                             class="tw:w-full"
-                            @update:model-value="
-                                createForm.kind = String($event) as 'staff' | 'student'
-                            "
+                            @update:model-value="onKindChange($event)"
                         >
                             <option value="staff">Staff</option>
                             <option value="student">Student</option>
@@ -427,7 +439,7 @@ await Promise.all([loadConfigs(), loadUsers()])
                         <McNativeSelect
                             :model-value="createForm.role"
                             class="tw:w-full"
-                            @update:model-value="createForm.role = String($event) as StaffRole"
+                            @update:model-value="onRoleChange($event)"
                         >
                             <option v-for="r in staffRoles" :key="r" :value="r">{{ r }}</option>
                         </McNativeSelect>
@@ -445,9 +457,7 @@ await Promise.all([loadConfigs(), loadUsers()])
                         <McNativeSelect
                             :model-value="createForm.auth_provider"
                             class="tw:w-full"
-                            @update:model-value="
-                                createForm.auth_provider = String($event) as 'azure' | 'local'
-                            "
+                            @update:model-value="onAuthProviderChange($event)"
                         >
                             <option value="local">Local (password)</option>
                             <option value="azure">Azure (SSO)</option>
