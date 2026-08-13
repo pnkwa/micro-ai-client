@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Plus, Pencil, Trash2, Check, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { systemConfigService, type SystemConfigEntry } from '~/services/systemConfigService'
 import {
@@ -9,7 +10,7 @@ import {
 } from '~/services/userAdminService'
 
 // Admin-only. Enforced for real by the API (RolesGuard); this meta is the UX gate in
-// app/middleware/auth.global.ts. Deliberately unstyled — a barebone operator console.
+// app/middleware/auth.global.ts.
 definePageMeta({ role: 'admin' })
 
 const breadcrumb = useBreadcrumb()
@@ -17,7 +18,7 @@ breadcrumb.setBreadcrumbs([{ label: 'Admin', to: '/admin' }])
 
 // ---- Runtime config ---------------------------------------------------------------------------
 const configs = ref<SystemConfigEntry[]>([])
-// Editable copy, keyed by config key. Booleans stay booleans (checkbox); anything else is edited
+// Editable copy, keyed by config key. Booleans stay booleans (switch); anything else is edited
 // as text and coerced back on save.
 const configDraft = reactive<Record<string, boolean | string>>({})
 
@@ -59,13 +60,14 @@ const loadUsers = async () => {
 }
 
 const changeRole = async (user: AdminUser, role: string) => {
+    if (role === user.role) return
     try {
         await userAdminService.setRole(user.userID, role as StaffRole)
-        await loadUsers()
         toast.success(`${user.email} is now ${role}`)
     } catch (e) {
         // Backend rejects self-demotion and demoting the last admin — surface its message.
         toast.error(apiErrorMessage(e, 'Failed to change role'))
+    } finally {
         await loadUsers()
     }
 }
@@ -172,211 +174,303 @@ await Promise.all([loadConfigs(), loadUsers()])
 </script>
 
 <template>
-    <div>
-        <h1>Admin console</h1>
+    <div class="tw:flex tw:flex-col tw:gap-8">
+        <div>
+            <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:mb-1">Admin console</h1>
+            <p class="tw:text-sm tw:text-navy-60">Runtime configuration and account management.</p>
+        </div>
 
         <!-- ================= Runtime config ================= -->
-        <section>
-            <h2>Runtime config</h2>
-            <table border="1" cellpadding="4">
-                <thead>
-                    <tr>
-                        <th>Key</th>
-                        <th>Description</th>
-                        <th>Value</th>
-                        <th>Source</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="c in configs" :key="c.key">
-                        <td>{{ c.key }}</td>
-                        <td>{{ c.description }}</td>
-                        <td>
-                            <input
-                                v-if="typeof c.value === 'boolean'"
-                                type="checkbox"
-                                :checked="configDraft[c.key] === true"
-                                @change="
-                                    configDraft[c.key] = ($event.target as HTMLInputElement).checked
-                                "
-                            />
-                            <input
-                                v-else
-                                type="text"
-                                :value="String(configDraft[c.key] ?? '')"
-                                @input="
-                                    configDraft[c.key] = ($event.target as HTMLInputElement).value
-                                "
-                            />
-                        </td>
-                        <td>{{ c.source }}</td>
-                        <td><button @click="saveConfig(c)">Save</button></td>
-                    </tr>
-                    <tr v-if="configs.length === 0">
-                        <td colspan="5">No config keys.</td>
-                    </tr>
-                </tbody>
-            </table>
-        </section>
-
-        <hr />
-
-        <!-- ================= Accounts ================= -->
-        <section>
-            <h2>Accounts</h2>
+        <section
+            class="tw:bg-white tw:rounded-xl tw:border tw:border-navy-10 tw:p-6 tw:flex tw:flex-col tw:gap-4"
+        >
             <div>
-                <label>
-                    Type:
-                    <select v-model="filterType" @change="loadUsers">
-                        <option value="">all</option>
-                        <option value="staff">staff</option>
-                        <option value="student">student</option>
-                    </select>
-                </label>
-                <label>
-                    Search:
-                    <input
-                        v-model="filterQuery"
-                        type="text"
-                        placeholder="name or email"
-                        @keyup.enter="loadUsers"
-                    />
-                </label>
-                <button @click="loadUsers">Apply</button>
+                <h2 class="tw:text-lg tw:font-semibold tw:text-navy-100">Runtime config</h2>
+                <p class="tw:text-sm tw:text-navy-60">
+                    Operator switches. Changes take effect immediately — no restart.
+                </p>
             </div>
 
-            <table border="1" cellpadding="4">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Type</th>
-                        <th>Role / Student ID</th>
-                        <th>Active</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="u in users" :key="u.userID">
-                        <td>{{ u.userID }}</td>
+            <McTable>
+                <McTableHeader>
+                    <McTableRow>
+                        <McTableHead>Key</McTableHead>
+                        <McTableHead>Description</McTableHead>
+                        <McTableHead>Value</McTableHead>
+                        <McTableHead>Source</McTableHead>
+                        <McTableHead class="tw:text-right">Action</McTableHead>
+                    </McTableRow>
+                </McTableHeader>
+                <McTableBody>
+                    <McTableRow v-for="c in configs" :key="c.key">
+                        <McTableCell class="tw:font-medium">{{ c.key }}</McTableCell>
+                        <McTableCell class="tw:text-navy-60 tw:whitespace-normal">
+                            {{ c.description }}
+                        </McTableCell>
+                        <McTableCell>
+                            <McSwitch
+                                v-if="typeof c.value === 'boolean'"
+                                :model-value="configDraft[c.key] === true"
+                                @update:model-value="configDraft[c.key] = $event === true"
+                            />
+                            <McInput
+                                v-else
+                                class="tw:max-w-xs"
+                                :model-value="String(configDraft[c.key] ?? '')"
+                                @update:model-value="configDraft[c.key] = String($event)"
+                            />
+                        </McTableCell>
+                        <McTableCell>
+                            <McBadge :variant="c.source === 'database' ? 'success' : 'outline'">
+                                {{ c.source }}
+                            </McBadge>
+                        </McTableCell>
+                        <McTableCell class="tw:text-right">
+                            <McButton size="sm" variant="outline" @click="saveConfig(c)">
+                                Save
+                            </McButton>
+                        </McTableCell>
+                    </McTableRow>
+                    <McTableEmpty v-if="configs.length === 0" :colspan="5">
+                        No config keys.
+                    </McTableEmpty>
+                </McTableBody>
+            </McTable>
+        </section>
+
+        <!-- ================= Accounts ================= -->
+        <section
+            class="tw:bg-white tw:rounded-xl tw:border tw:border-navy-10 tw:p-6 tw:flex tw:flex-col tw:gap-4"
+        >
+            <div class="tw:flex tw:flex-wrap tw:items-end tw:justify-between tw:gap-4">
+                <div>
+                    <h2 class="tw:text-lg tw:font-semibold tw:text-navy-100">Accounts</h2>
+                    <p class="tw:text-sm tw:text-navy-60">Edit, promote/demote, or remove users.</p>
+                </div>
+                <div class="tw:flex tw:flex-wrap tw:items-center tw:gap-2">
+                    <McNativeSelect
+                        :model-value="filterType"
+                        class="tw:w-32"
+                        @update:model-value="
+                            filterType = String($event) as '' | 'staff' | 'student'
+                            loadUsers()
+                        "
+                    >
+                        <option value="">All types</option>
+                        <option value="staff">Staff</option>
+                        <option value="student">Student</option>
+                    </McNativeSelect>
+                    <McInput
+                        v-model="filterQuery"
+                        class="tw:w-56"
+                        placeholder="Search name or email"
+                        icon-prepend="Search"
+                        @keyup.enter="loadUsers"
+                    />
+                    <McButton variant="outline" @click="loadUsers">Apply</McButton>
+                </div>
+            </div>
+
+            <McTable>
+                <McTableHeader>
+                    <McTableRow>
+                        <McTableHead>ID</McTableHead>
+                        <McTableHead>Name</McTableHead>
+                        <McTableHead>Email</McTableHead>
+                        <McTableHead>Type</McTableHead>
+                        <McTableHead>Role / Student ID</McTableHead>
+                        <McTableHead>Status</McTableHead>
+                        <McTableHead class="tw:text-right">Actions</McTableHead>
+                    </McTableRow>
+                </McTableHeader>
+                <McTableBody>
+                    <McTableRow v-for="u in users" :key="u.userID">
+                        <McTableCell class="tw:text-navy-60">{{ u.userID }}</McTableCell>
+
                         <template v-if="editingId === u.userID">
-                            <td>
-                                <input v-model="editDraft.firstname" type="text" />
-                                <input v-model="editDraft.lastname" type="text" />
-                            </td>
-                            <td><input v-model="editDraft.email" type="text" /></td>
-                            <td>{{ u.user_type }}</td>
-                            <td>{{ u.role ?? u.student_id ?? '—' }}</td>
-                            <td>
-                                <input v-model="editDraft.is_active" type="checkbox" />
-                            </td>
-                            <td>
-                                <button @click="saveEdit(u)">Save</button>
-                                <button @click="cancelEdit">Cancel</button>
-                            </td>
+                            <McTableCell>
+                                <div class="tw:flex tw:gap-2">
+                                    <McInput v-model="editDraft.firstname" placeholder="First" />
+                                    <McInput v-model="editDraft.lastname" placeholder="Last" />
+                                </div>
+                            </McTableCell>
+                            <McTableCell>
+                                <McInput v-model="editDraft.email" placeholder="Email" />
+                            </McTableCell>
+                            <McTableCell>
+                                <McBadge variant="outline">{{ u.user_type }}</McBadge>
+                            </McTableCell>
+                            <McTableCell class="tw:text-navy-60">
+                                {{ u.role ?? u.student_id ?? '—' }}
+                            </McTableCell>
+                            <McTableCell>
+                                <div class="tw:flex tw:items-center tw:gap-2">
+                                    <McSwitch v-model="editDraft.is_active" />
+                                    <span class="tw:text-sm tw:text-navy-60">
+                                        {{ editDraft.is_active ? 'Active' : 'Inactive' }}
+                                    </span>
+                                </div>
+                            </McTableCell>
+                            <McTableCell>
+                                <div class="tw:flex tw:justify-end tw:gap-1">
+                                    <McButton size="sm" @click="saveEdit(u)">
+                                        <Check class="tw:size-4" />
+                                        Save
+                                    </McButton>
+                                    <McButton size="sm" variant="ghost" @click="cancelEdit">
+                                        <X class="tw:size-4" />
+                                    </McButton>
+                                </div>
+                            </McTableCell>
                         </template>
+
                         <template v-else>
-                            <td>{{ u.firstname }} {{ u.lastname }}</td>
-                            <td>{{ u.email }}</td>
-                            <td>{{ u.user_type }}</td>
-                            <td>
-                                <select
+                            <McTableCell class="tw:font-medium">
+                                {{ u.firstname }} {{ u.lastname }}
+                            </McTableCell>
+                            <McTableCell class="tw:text-navy-60">{{ u.email }}</McTableCell>
+                            <McTableCell>
+                                <McBadge variant="outline">{{ u.user_type }}</McBadge>
+                            </McTableCell>
+                            <McTableCell>
+                                <McNativeSelect
                                     v-if="u.user_type === 'staff'"
-                                    :value="u.role ?? ''"
-                                    @change="
-                                        changeRole(u, ($event.target as HTMLSelectElement).value)
-                                    "
+                                    :model-value="u.role ?? ''"
+                                    class="tw:w-32"
+                                    @update:model-value="changeRole(u, String($event))"
                                 >
                                     <option v-for="r in staffRoles" :key="r" :value="r">
                                         {{ r }}
                                     </option>
-                                </select>
-                                <span v-else>{{ u.student_id ?? '—' }}</span>
-                            </td>
-                            <td>{{ u.is_active === false ? 'no' : 'yes' }}</td>
-                            <td>
-                                <button @click="startEdit(u)">Edit</button>
-                                <button @click="removeUser(u)">Delete</button>
-                            </td>
+                                </McNativeSelect>
+                                <span v-else class="tw:text-sm tw:text-navy-60">
+                                    {{ u.student_id ?? '—' }}
+                                </span>
+                            </McTableCell>
+                            <McTableCell>
+                                <McBadge :variant="u.is_active === false ? 'outline' : 'success'">
+                                    {{ u.is_active === false ? 'Inactive' : 'Active' }}
+                                </McBadge>
+                            </McTableCell>
+                            <McTableCell>
+                                <div class="tw:flex tw:justify-end tw:gap-1">
+                                    <McButton
+                                        size="icon-sm"
+                                        variant="ghost"
+                                        aria-label="Edit"
+                                        @click="startEdit(u)"
+                                    >
+                                        <Pencil class="tw:size-4" />
+                                    </McButton>
+                                    <McButton
+                                        size="icon-sm"
+                                        variant="ghost"
+                                        aria-label="Delete"
+                                        @click="removeUser(u)"
+                                    >
+                                        <Trash2 class="tw:size-4 tw:text-destructive" />
+                                    </McButton>
+                                </div>
+                            </McTableCell>
                         </template>
-                    </tr>
-                    <tr v-if="users.length === 0">
-                        <td colspan="7">No accounts.</td>
-                    </tr>
-                </tbody>
-            </table>
+                    </McTableRow>
+                    <McTableEmpty v-if="users.length === 0" :colspan="7">No accounts.</McTableEmpty>
+                </McTableBody>
+            </McTable>
         </section>
 
-        <hr />
-
         <!-- ================= Create account ================= -->
-        <section>
-            <h2>Create account</h2>
-            <form @submit.prevent="submitCreate">
-                <p>
-                    <label>
-                        Kind:
-                        <select v-model="createForm.kind">
-                            <option value="staff">staff</option>
-                            <option value="student">student</option>
-                        </select>
-                    </label>
+        <section
+            class="tw:bg-white tw:rounded-xl tw:border tw:border-navy-10 tw:p-6 tw:flex tw:flex-col tw:gap-4"
+        >
+            <div>
+                <h2 class="tw:text-lg tw:font-semibold tw:text-navy-100">Create account</h2>
+                <p class="tw:text-sm tw:text-navy-60">
+                    Provision a staff or student account. Set a password for local login, or leave
+                    it to Azure SSO.
                 </p>
-                <p>
-                    <label>
-                        Email:
-                        <input v-model="createForm.email" type="email" required />
-                    </label>
-                </p>
-                <p>
-                    <label>
-                        First name:
-                        <input v-model="createForm.firstname" type="text" required />
-                    </label>
-                    <label>
-                        Last name:
-                        <input v-model="createForm.lastname" type="text" required />
-                    </label>
-                </p>
-                <p v-if="createForm.kind === 'staff'">
-                    <label>
-                        Role:
-                        <select v-model="createForm.role">
-                            <option v-for="r in staffRoles" :key="r" :value="r">
-                                {{ r }}
-                            </option>
-                        </select>
-                    </label>
-                </p>
-                <p v-else>
-                    <label>
-                        Student ID:
-                        <input v-model="createForm.student_id" type="text" required />
-                    </label>
-                </p>
-                <p>
-                    <label>
-                        Auth provider:
-                        <select v-model="createForm.auth_provider">
-                            <option value="local">local (password)</option>
-                            <option value="azure">azure (SSO)</option>
-                        </select>
-                    </label>
-                </p>
-                <p v-if="createForm.auth_provider === 'local'">
-                    <label>
-                        Password:
-                        <input
+            </div>
+
+            <form class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="submitCreate">
+                <div class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:gap-4">
+                    <div class="tw:flex tw:flex-col tw:gap-2">
+                        <label class="tw:text-sm tw:font-medium">Account type</label>
+                        <McNativeSelect
+                            :model-value="createForm.kind"
+                            class="tw:w-full"
+                            @update:model-value="
+                                createForm.kind = String($event) as 'staff' | 'student'
+                            "
+                        >
+                            <option value="staff">Staff</option>
+                            <option value="student">Student</option>
+                        </McNativeSelect>
+                    </div>
+                    <div class="tw:flex tw:flex-col tw:gap-2">
+                        <label class="tw:text-sm tw:font-medium">Email</label>
+                        <McInput
+                            v-model="createForm.email"
+                            type="email"
+                            placeholder="user@cmu.ac.th"
+                        />
+                    </div>
+                    <div class="tw:flex tw:flex-col tw:gap-2">
+                        <label class="tw:text-sm tw:font-medium">First name</label>
+                        <McInput v-model="createForm.firstname" placeholder="First name" />
+                    </div>
+                    <div class="tw:flex tw:flex-col tw:gap-2">
+                        <label class="tw:text-sm tw:font-medium">Last name</label>
+                        <McInput v-model="createForm.lastname" placeholder="Last name" />
+                    </div>
+                    <div v-if="createForm.kind === 'staff'" class="tw:flex tw:flex-col tw:gap-2">
+                        <label class="tw:text-sm tw:font-medium">Role</label>
+                        <McNativeSelect
+                            :model-value="createForm.role"
+                            class="tw:w-full"
+                            @update:model-value="createForm.role = String($event) as StaffRole"
+                        >
+                            <option v-for="r in staffRoles" :key="r" :value="r">{{ r }}</option>
+                        </McNativeSelect>
+                    </div>
+                    <div v-else class="tw:flex tw:flex-col tw:gap-2">
+                        <label class="tw:text-sm tw:font-medium">Student ID</label>
+                        <McInput
+                            v-model="createForm.student_id"
+                            placeholder="9-digit university ID"
+                            maxlength="9"
+                        />
+                    </div>
+                    <div class="tw:flex tw:flex-col tw:gap-2">
+                        <label class="tw:text-sm tw:font-medium">Auth provider</label>
+                        <McNativeSelect
+                            :model-value="createForm.auth_provider"
+                            class="tw:w-full"
+                            @update:model-value="
+                                createForm.auth_provider = String($event) as 'azure' | 'local'
+                            "
+                        >
+                            <option value="local">Local (password)</option>
+                            <option value="azure">Azure (SSO)</option>
+                        </McNativeSelect>
+                    </div>
+                    <div
+                        v-if="createForm.auth_provider === 'local'"
+                        class="tw:flex tw:flex-col tw:gap-2"
+                    >
+                        <label class="tw:text-sm tw:font-medium">Password</label>
+                        <McInput
                             v-model="createForm.password"
                             type="password"
-                            minlength="8"
-                            placeholder="min 8 chars"
+                            placeholder="min 8 characters"
                         />
-                    </label>
-                </p>
-                <button type="submit">Create</button>
+                    </div>
+                </div>
+                <div>
+                    <McButton type="submit">
+                        <Plus class="tw:size-4" />
+                        Create account
+                    </McButton>
+                </div>
             </form>
         </section>
     </div>
