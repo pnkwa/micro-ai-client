@@ -37,8 +37,24 @@ export const detectionSchema = z.object({
     created_at: z.string(),
 })
 
+// The admin browse (GET /detections/all, BE-ADR-024) enriches each row with its submitter. The
+// server selects only safe columns off the creator — never the password hash — and leaves it
+// null for anonymous runs.
+const submitterSchema = z.object({
+    userID: z.number(),
+    firstname: z.string(),
+    lastname: z.string(),
+    email: z.string(),
+    user_type: z.enum(['staff', 'student']),
+})
+
+export const detectionWithSubmitterSchema = detectionSchema.extend({
+    creator: submitterSchema.nullable().optional(),
+})
+
 export type DetectionBox = z.infer<typeof detectionBoxSchema>
 export type DetectionStep = z.infer<typeof detectionStepSchema>
+export type DetectionWithSubmitter = z.infer<typeof detectionWithSubmitterSchema>
 export type DetectionRecord = z.infer<typeof detectionSchema>
 
 // GET /models (FE-ADR-007): the manifest the server actually runs. The client never
@@ -103,6 +119,14 @@ export const detectionService = {
         const { $api } = useNuxtApp()
         const response = await $api(detectionRoutes.listMine)
         return z.array(detectionSchema).parse(response)
+    },
+
+    // Admin-only: every user's history, newest first, each row carrying its submitter
+    // (BE-ADR-024). The API enforces the admin role — a non-admin caller gets 403.
+    async listAll(): Promise<DetectionWithSubmitter[]> {
+        const { $api } = useNuxtApp()
+        const response = await $api(detectionRoutes.listAll)
+        return z.array(detectionWithSubmitterSchema).parse(response)
     },
 
     // The image a detection ran on. An <img src> can't carry the Authorization header $api
