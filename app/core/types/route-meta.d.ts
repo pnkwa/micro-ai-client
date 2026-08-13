@@ -5,7 +5,7 @@
  */
 declare module 'vue-router' {
     interface RouteMeta {
-        role?: 'instructor' | 'student'
+        role?: 'admin' | 'instructor' | 'student'
     }
 }
 
