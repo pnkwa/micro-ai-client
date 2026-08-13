@@ -32,6 +32,70 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
 
 ---
 
+## [0.7.0-rc.1] — 2026-08-13
+
+An admin console, and the toolchain repaired. The visible half is `/admin`; the rest is a dependency
+update that broke the build outright and the two-line convention that keeps it fixed.
+
+### Added
+
+- **Admin console at `/admin`, admin-only** (`03180c2`, `b65a934`, `7c16596`). **Runtime config**
+  driven generically off `GET /system-config` — boolean renders a switch, anything else a text field
+  — so a flag added server-side appears without a client change; saving is live immediately.
+  **Accounts** split into **Local** (password) and **SSO** (Azure) tables via a shared
+  `AccountsTable`, with inline edit, promote/demote, delete, a Created column, an Azure-linked badge
+  and client-side pagination, plus a create-account form for staff or student.
+- **An `admin` role gate** in `auth.global.ts` (`03180c2`), which previously knew only staff and
+  student. The role is read from the JWT claim, not the stored profile, so the two cannot drift.
+  **UX only** — the server's `RolesGuard` is the boundary (FE-ADR-003).
+- **`Dockerfile` and `.dockerignore` for the SPA** (`049f995`). Build-only image: it runs
+  `pnpm generate`, not `pnpm build`, because `ssr: false` means Caddy serves a prerendered
+  `.output/public` with no Node process, and `nuxt build` emits no static entry HTML. It publishes
+  into the `client-dist` bind mount at **runtime** — a build-time `COPY` would be shadowed by the
+  mount — and forces `NUXT_PUBLIC_AUTH_DISABLED=false` over the committed `.env`.
+
+### Changed
+
+- **`/image-detection` is reachable anonymously** (`a5b1cf8`). `useDetectionAvailability` consults
+  the anonymous-aware availability endpoint, so the tool opens when `detections.allow_public` is on
+  and shows a sign-in message when it is off. Previously the 401 became a forced sign-in, which made
+  the switch unreachable from the UI — the flag existed but could not be observed.
+- **Icons come from `@lucide/vue`** (`ab083b1`, `3366209`); `lucide-vue-next` is deprecated upstream
+  and is gone. A specifier swap across 55 files — all 70 icon names in use exist unchanged.
+
+### Fixed
+
+- **`pnpm build` failed outright after a dependency update** (`18dbb6e`), with five
+  `[@vue/compiler-sfc] Failed to resolve extends base type` errors pointing at `reka-ui`. reka-ui was
+  not the cause. `imports.dirs: ['core/**']` auto-imports exported types, and for a type exported
+  from an SFC Nuxt writes an **extensionless** path into `.nuxt/types/imports.d.ts` — a *global type
+  file* for `@vue/compiler-sfc`, whose resolver tries `.ts`/`.d.ts`/`index.*` but **never `.vue`**.
+  The global scope then failed to parse, and Vue re-reported that inner error at whichever `extends`
+  happened to trigger the lookup, so every blame landed on a dependency. `ConfirmModalProps` and
+  `SidebarMenuButtonProps` moved to their sibling `index.ts`.
+  **The convention this sets: never export a TypeScript type from a `.vue` file under `app/core/`.**
+- **`pnpm typecheck` never ran** (`18dbb6e`). Nuxt 4.5 requires an explicit type checker and
+  `vue-tsc` is only an optional peer, so the script errored before reading a line of code — while
+  `pre-push` treated it as a gate.
+- **The config-save toast reported failure on success** (`a5b1cf8`) — `PATCH /system-config` returns
+  the bare row, which the write path did not parse. Also: select coercions moved out of inline
+  template handlers (`a803b4d`), and account filters onto one row (`a5b1cf8`).
+
+### Compatibility
+
+- **Requires `micro-ai-server` past v0.8.0-rc.1** — specifically the **BE-ADR-023** admin account
+  endpoints (`GET/PATCH/DELETE /users`, promote-demote) and `GET /detections/availability` under
+  `OptionalAuthGuard`. Both are merged on server `main` (`7d5d389`) but **unreleased**: the server
+  carries them under `[Unreleased]`, so this is the first client release whose paired server half has
+  no version number yet. Against v0.8.0-rc.1 proper, `/admin` loads but every account call 404s and
+  anonymous detection still forces a sign-in.
+- Slide-label contract unchanged since `0.5.0-rc.1`.
+- Toolchain moved under this release: Nuxt 4.3 → **4.5**, reka-ui 2.8 → **2.10**, Vue 3.5.28 →
+  **3.5.41**, plus eslint 10.8 and prettier 3.9. `pnpm install` is required; a stale `node_modules`
+  reproduces the build failure above.
+
+---
+
 ## [0.6.0-rc.1] — 2026-08-12
 
 Exam integrity, LMS exports, and the student exam station rebuilt. Pairs with `micro-ai-server`
@@ -256,6 +320,7 @@ Repository scaffold.
 - Nuxt project init (`6317a85`), ESLint and Prettier (`737cd7f`, `e6637e0`, `59d8c76`), husky
   (`c7b73c3`), and the pull-request template (`e7178d1`).
 
+[0.7.0-rc.1]: https://github.com/pnkwa/micro-ai-client/releases/tag/v0.7.0-rc.1
 [0.6.0-rc.1]: https://github.com/pnkwa/micro-ai-client/releases/tag/v0.6.0-rc.1
 [0.5.0-rc.1]: https://github.com/pnkwa/micro-ai-client/releases/tag/v0.5.0-rc.1
 [0.4.0-rc.1]: https://github.com/pnkwa/micro-ai-client/releases/tag/v0.4.0-rc.1
