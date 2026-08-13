@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Search } from 'lucide-vue-next'
+import { Plus, Search } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { systemConfigService, type SystemConfigEntry } from '~/services/systemConfigService'
 import {

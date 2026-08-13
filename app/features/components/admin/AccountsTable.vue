@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Pencil, Trash2, Check, X } from 'lucide-vue-next'
+import { Pencil, Trash2, Check, X } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import {
     userAdminService,
