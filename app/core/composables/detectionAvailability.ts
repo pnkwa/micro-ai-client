@@ -40,7 +40,9 @@ export function useDetectionAvailability() {
      * lockout this is meant to fix.
      */
     const refresh = async ({ force = false }: { force?: boolean } = {}) => {
-        if (!authStore.isSignedIn) return
+        // Anonymous callers still ask: `detections.allow_public` decides whether the standalone
+        // tool is open to them, and only the server knows that flag. The endpoint is
+        // anonymous-aware (OptionalAuthGuard) and answers `auth_required` when the switch is off.
 
         // Staff are never restricted, so asking is pure cost.
         if (authStore.user?.user_type === 'staff') {
@@ -71,7 +73,9 @@ export function useDetectionAvailability() {
             ? null
             : reason.value === 'exam_open'
               ? 'The AI tool is unavailable while you have an exam open. It returns once you submit, or once the exam closes.'
-              : 'The AI tool is currently unavailable.',
+              : reason.value === 'auth_required'
+                ? 'Sign in to use the AI detection tool.'
+                : 'The AI tool is currently unavailable.',
     )
 
     return { available, reason, message, isChecking, refresh }
