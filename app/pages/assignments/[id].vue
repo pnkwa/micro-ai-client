@@ -1,13 +1,5 @@
 <script setup lang="ts">
-import {
-    ArrowLeft,
-    FileText,
-    Calendar,
-    ClipboardList,
-    Send,
-    Paperclip,
-    Trophy,
-} from 'lucide-vue-next'
+import { ArrowLeft, FileText, Calendar, ClipboardList, Send, Paperclip, Trophy } from '@lucide/vue'
 import {
     assignmentService,
     assignmentTotalPoints,

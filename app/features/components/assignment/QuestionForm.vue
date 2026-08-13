@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Pencil, Circle, CircleDot, Square, CheckSquare, X } from 'lucide-vue-next'
+import { Plus, Pencil, Circle, CircleDot, Square, CheckSquare, X } from '@lucide/vue'
 import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'

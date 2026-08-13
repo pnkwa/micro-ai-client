@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Circle, CircleDot, Square, CheckSquare } from 'lucide-vue-next'
+import { Plus, Circle, CircleDot, Square, CheckSquare } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { assignmentService, type Assignment } from '~/services/assignmentService'
 import ExerciseForm from '~/features/components/assignment/ExerciseForm.vue'

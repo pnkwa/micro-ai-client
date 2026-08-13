@@ -2,7 +2,7 @@
 import type { McInputEmit, McInputProps } from '~/core/types/components/input'
 import { inputVariants } from '.'
 import { useVeeValidateModel } from '~/core/composables/useVeeValidateModel'
-import * as icons from 'lucide-vue-next'
+import * as icons from '@lucide/vue'
 
 const props = defineProps<McInputProps>()
 

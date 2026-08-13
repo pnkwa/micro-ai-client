@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Layers, Clock, Gauge, Pencil, ClipboardList } from 'lucide-vue-next'
+import { Layers, Clock, Gauge, Pencil, ClipboardList } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { examService, type Exam, type UpdateExamInput } from '~/services/examService'
 import {

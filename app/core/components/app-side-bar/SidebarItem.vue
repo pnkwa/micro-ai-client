@@ -18,7 +18,7 @@ import {
     DropdownMenuItem,
 } from '@/core/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/core/components/ui/tooltip'
-import { ChevronDown, Lock } from 'lucide-vue-next'
+import { ChevronDown, Lock } from '@lucide/vue'
 import SidebarButton from './SidebarButton.vue'
 
 interface SidebarItemProps {

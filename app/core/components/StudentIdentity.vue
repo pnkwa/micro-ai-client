@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Users } from 'lucide-vue-next'
+import { Users } from '@lucide/vue'
 
 /**
  * The "who submitted this" table cell: avatar, name, student id. Shared by the

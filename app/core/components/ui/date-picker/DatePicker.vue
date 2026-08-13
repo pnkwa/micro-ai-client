@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DateValue } from 'reka-ui'
-import { CalendarIcon } from 'lucide-vue-next'
+import { CalendarIcon } from '@lucide/vue'
 import { getLocalTimeZone, parseDate } from '@internationalized/date'
 import { cn } from '@/core/lib/utils'
 import { inputVariants } from '@/core/components/ui/input'

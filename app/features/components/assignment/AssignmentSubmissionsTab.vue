@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { h } from 'vue'
 import * as XLSX from 'xlsx'
-import { Search, Download } from 'lucide-vue-next'
+import { Search, Download } from '@lucide/vue'
 import {
     buildCanvasGradebook,
     buildScoreReport,

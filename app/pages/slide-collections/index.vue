@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Layers, ChevronRight } from 'lucide-vue-next'
+import { Plus, Layers, ChevronRight } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import {
     slideCollectionService,
