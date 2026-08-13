@@ -10,7 +10,7 @@ import {
     Upload,
     ClipboardCheck,
     Download,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import {
     buildClassGradeCanvas,
     buildClassGradeReport,

@@ -1,4 +1,4 @@
-import { ChartPie, GraduationCap, View, Layers } from 'lucide-vue-next'
+import { ChartPie, GraduationCap, View, Layers } from '@lucide/vue'
 
 type MenuRole = 'instructor' | 'all' | 'student'
 

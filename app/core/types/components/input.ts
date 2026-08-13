@@ -1,6 +1,6 @@
 import type { InputHTMLAttributes, InputTypeHTMLAttribute } from 'vue'
 import type { CommonComponent } from '.'
-import type * as icons from 'lucide-vue-next'
+import type * as icons from '@lucide/vue'
 
 type AllIcon = keyof typeof icons
 export type McInputProps = {

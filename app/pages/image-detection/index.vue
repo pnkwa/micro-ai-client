@@ -9,7 +9,7 @@ import {
     Target,
     Sparkles,
     Lock,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { detectionService, type DetectionStep, type ModelSpec } from '~/services/detectionService'
 import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
@@ -236,18 +236,18 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <!-- Blocked outright rather than disabled in place: a half-usable page invites a student to
-         try, and the tool's whole surface is the answer they are being examined on. -->
-    <!--
-        Same min-height as the working page below, so the block is a full screen rather than
-        content stranded at the top with empty space beneath it. No card around it: with nothing
-        else on the page there is nothing to separate it from, and the border only drew a box
-        around a message.
-    -->
     <div
         v-if="!aiAvailable"
         class="tw:flex tw:min-h-[calc(100vh-80px)] tw:items-center tw:justify-center tw:px-4"
     >
+        <!-- Blocked outright rather than disabled in place: a half-usable page invites a student to
+             try, and the tool's whole surface is the answer they are being examined on. -->
+        <!--
+            Same min-height as the working page below, so the block is a full screen rather than
+            content stranded at the top with empty space beneath it. No card around it: with nothing
+            else on the page there is nothing to separate it from, and the border only drew a box
+            around a message.
+        -->
         <div
             class="tw:flex tw:w-full tw:max-w-md tw:flex-col tw:items-center tw:gap-5 tw:text-center"
         >

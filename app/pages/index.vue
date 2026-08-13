@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChartPie, GraduationCap, View, LogIn } from 'lucide-vue-next'
+import { ChartPie, GraduationCap, View, LogIn } from '@lucide/vue'
 import LandingPageSvg from '~/assets/svg/landing-page.svg?component'
 import { useBreadcrumb } from '#imports'
 

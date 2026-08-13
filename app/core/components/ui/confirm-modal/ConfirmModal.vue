@@ -1,13 +1,6 @@
 <script setup lang="ts">
-import { AlertTriangle } from 'lucide-vue-next'
-
-export interface ConfirmModalProps {
-    title?: string
-    description?: string
-    confirmText?: string
-    cancelText?: string
-    variant?: 'default' | 'destructive'
-}
+import type { ConfirmModalProps } from '.'
+import { AlertTriangle } from '@lucide/vue'
 
 withDefaults(defineProps<ConfirmModalProps>(), {
     title: 'Are you sure?',

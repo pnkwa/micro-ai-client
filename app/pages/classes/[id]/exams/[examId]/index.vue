@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ClipboardCheck, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, ClipboardCheck, Trash2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { examService, type Exam } from '~/services/examService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'

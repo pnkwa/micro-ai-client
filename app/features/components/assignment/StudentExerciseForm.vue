@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Send, CheckCircle2, ImageUp, X } from 'lucide-vue-next'
+import { Send, CheckCircle2, ImageUp, X } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { signInSchema, type SignInFormData } from '~/features/types/forms/sign-in'
-import { Microscope } from 'lucide-vue-next'
+import { Microscope } from '@lucide/vue'
 import CmuLogo from '~/assets/images/CMU-logo.png'
 
 const props = defineProps<{

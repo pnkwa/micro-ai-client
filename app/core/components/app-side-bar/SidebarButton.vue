@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { SidebarMenuButton } from '@/core/components/ui/sidebar'
-import type { SidebarMenuButtonProps } from '@/core/components/ui/sidebar/SidebarMenuButtonChild.vue'
+import type { SidebarMenuButtonProps } from '@/core/components/ui/sidebar'
 import type { FunctionalComponent } from 'vue'
 
 type SidebarButtonProps = SidebarMenuButtonProps & {

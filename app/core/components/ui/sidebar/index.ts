@@ -1,4 +1,5 @@
 import type { VariantProps } from 'class-variance-authority'
+import type { PrimitiveProps } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
 import { cva } from 'class-variance-authority'
 
@@ -61,3 +62,15 @@ export const sidebarMenuButtonVariants = cva(
 )
 
 export type SidebarMenuButtonVariants = VariantProps<typeof sidebarMenuButtonVariants>
+
+// Declared here rather than in SidebarMenuButtonChild.vue: `imports.dirs: ['core/**']` makes Nuxt
+// auto-import exported types, and for a type exported from an SFC it writes an extensionless path
+// into .nuxt/types/imports.d.ts. That file is a global type file for @vue/compiler-sfc, whose
+// resolver never tries `.vue`, so the whole global scope fails to parse and every `extends` in
+// every component reports "Failed to resolve extends base type". Keep component prop types in .ts.
+export interface SidebarMenuButtonProps extends PrimitiveProps {
+    variant?: SidebarMenuButtonVariants['variant']
+    size?: SidebarMenuButtonVariants['size']
+    isActive?: boolean
+    class?: HTMLAttributes['class']
+}

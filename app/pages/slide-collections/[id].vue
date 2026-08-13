@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { h } from 'vue'
 import type { ColumnDef, PaginationState } from '@tanstack/vue-table'
-import { ArrowLeft, Plus, Pencil, Trash2, Upload, Search, Layers } from 'lucide-vue-next'
+import { ArrowLeft, Plus, Pencil, Trash2, Upload, Search, Layers } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import {
     slideCollectionService,

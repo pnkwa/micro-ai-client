@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Lock, LockOpen, Send } from 'lucide-vue-next'
+import { Lock, LockOpen, Send } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { assignmentService, type Assignment } from '~/services/assignmentService'
 

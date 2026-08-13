@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BarChart3 } from 'lucide-vue-next'
+import { BarChart3 } from '@lucide/vue'
 
 interface ChartData {
     label: string

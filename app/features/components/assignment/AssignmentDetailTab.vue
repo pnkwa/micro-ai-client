@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Calendar, Trophy, ClipboardList, Paperclip, FileText, Pencil } from 'lucide-vue-next'
+import { Calendar, Trophy, ClipboardList, Paperclip, FileText, Pencil } from '@lucide/vue'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import type { z } from 'zod'
