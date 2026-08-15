@@ -1,4 +1,5 @@
 import tailwindcss from '@tailwindcss/vite'
+import pkg from './package.json'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -10,6 +11,10 @@ export default defineNuxtConfig({
         public: {
             apiBaseUrl: '/api',
             authDisabled: false,
+            // Baked at build time from package.json, and deliberately not fetched from the
+            // API: the frontend is deployed separately (client-dist), so the server's idea of
+            // "the client version" is the one that goes stale when only one side ships.
+            appVersion: pkg.version,
         },
     },
     devtools: { enabled: false },
