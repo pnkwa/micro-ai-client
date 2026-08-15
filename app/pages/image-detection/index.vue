@@ -114,24 +114,38 @@ const fungalConfidence = computed(() => {
 // the per-class confidence bars or the "classes found" count.
 const classSteps = computed(() => detectionSteps.value.filter((s) => s.predicted_class !== 'none'))
 
-const pct = (n: number) => Math.round(n * 100)
-
 // Students get the morphology, not the diagnosis. Naming the class ("Bacterial vaginosis") hands
 // over the answer they are here to reach themselves; the element the detector boxes — "Clue
 // cell", "Pseudohyphae / budding yeast" — describes what it recognised and leaves the reading to
 // them. Staff see the class outright, since they are checking the model rather than learning
 // from it. Same principle as the server withholding exam detection from students (BE-ADR-012).
+// `buildSummary` is where this actually gets enforced, and where the tests hold it.
 const authStore = useAuth()
 const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
 
 // Sourced from the manifest the server reports (GET /models), keyed by the model that actually
 // ran — never a copy of the vocabulary kept here, so a model that adds a class needs no client
-// change. Null when the class carries no element, including the 'none' of a pass that found
-// nothing.
-const detectedElement = computed(() => {
-    const predicted = detectStep.value?.predicted_class
-    if (!predicted || predicted === 'none') return null
-    return models.value.find((m) => m.name === resultModel.value)?.elements[predicted] ?? null
+// change. Empty when that model reports no vocabulary (the legacy classifier).
+const resultModelSpec = computed(() => models.value.find((m) => m.name === resultModel.value))
+
+// The summary prose. Assembled in `detectionSummary.ts` rather than as template branches so the
+// wording — which is the client's spec, and which has to stay diagnosis-free for students — is
+// one testable pure function instead of markup. Bold runs come back as segments because the
+// client renders no markdown.
+const summarySegments = computed(() => {
+    const step = detectStep.value
+    if (!step) return []
+    return buildSummary({
+        step,
+        elements: resultModelSpec.value?.elements ?? {},
+        displayText: resultModelSpec.value?.displayText ?? {},
+        isStaff: !isStudent.value,
+        segment: {
+            present: !!segmentStep.value,
+            count: fungalCount.value,
+            confidence: fungalConfidence.value,
+        },
+    })
 })
 
 const startCamera = () => {
@@ -717,98 +731,23 @@ onUnmounted(() => {
                             >
                                 "
                             </span>
-                            <!-- Students read the morphology; staff read the class. See
-                                 `detectedElement`. -->
-                            <p
-                                v-if="isStudent"
-                                class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative"
-                            >
-                                <template v-if="detectedElement">
-                                    The strongest morphological signal the model found in this field
-                                    is
-                                    <span class="tw:font-bold tw:text-primary">
-                                        {{ detectedElement }}
-                                    </span>
-                                    , which it recognised with
-                                    <span class="tw:font-bold tw:text-primary">
-                                        {{ pct(detectStep.confidence) }}% confidence
-                                    </span>
-                                    . Each outlined element on the image is one instance of it.
-                                </template>
-                                <template v-else>
-                                    The model found
-                                    <span class="tw:font-bold tw:text-primary">
-                                        no recognisable diagnostic element
-                                    </span>
-                                    in this field.
-                                </template>
-                                <template v-if="segmentStep">
-                                    A separate model looked for fungal elements:
-                                    <template v-if="fungalCount > 0">
-                                        it outlined
-                                        <span class="tw:font-bold tw:text-primary">
-                                            {{ fungalCount }}
-                                        </span>
-                                        of them ({{ pct(fungalConfidence) }}% confidence on the
-                                        strongest), so look for hyphae and budding forms among the
-                                        cells.
-                                    </template>
-                                    <template v-else>
-                                        it outlined
-                                        <span class="tw:font-bold tw:text-primary">none</span>
-                                        , so the elements here are bacterial and cellular rather
-                                        than fungal.
-                                    </template>
-                                </template>
-                                <template v-else>
-                                    No fungal segmentation was run, so nothing here speaks to fungal
-                                    elements either way.
-                                </template>
-                                These are the features the model keyed on, not a diagnosis — read
-                                them against the field yourself and reach your own.
-                            </p>
+                            <!-- One paragraph for every role: the copy guides the reader to the
+                                 morphology instead of announcing a class, and `buildSummary`
+                                 decides what staff additionally get.
 
-                            <p
-                                v-else
-                                class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative"
-                            >
-                                The classification model examined this slide and determined its most
-                                likely class as
-                                <span class="tw:font-bold tw:text-primary">
-                                    {{ detectStep.predicted_class }}
-                                </span>
-                                with
-                                <span class="tw:font-bold tw:text-primary">
-                                    {{ pct(detectStep.confidence) }}% confidence
-                                </span>
-                                , making it the best-supported class for this image.
-                                <template v-if="segmentStep">
-                                    The fungal segmentation model was also run on this image:
-                                    <template v-if="fungalCount > 0">
-                                        it is
-                                        <span class="tw:font-bold tw:text-primary">
-                                            {{ pct(fungalConfidence) }}%
-                                        </span>
-                                        confident that fungal elements are present, outlining
-                                        <span class="tw:font-bold tw:text-primary">
-                                            {{ fungalCount }}
-                                        </span>
-                                        fungal element{{ fungalCount === 1 ? '' : 's' }} in the
-                                        field of view.
-                                    </template>
-                                    <template v-else>
-                                        it detected
-                                        <span class="tw:font-bold tw:text-primary">
-                                            no fungal elements
-                                        </span>
-                                        , so this field of view reads as bacterial only.
-                                    </template>
-                                </template>
-                                <template v-else>
-                                    The fungal segmentation model was
-                                    <span class="tw:font-bold tw:text-primary">not run</span>
-                                    on this image, so no fungal elements were assessed.
-                                </template>
+                                 `v-text` rather than an interpolated child on purpose. The segments
+                                 carry their own spacing and punctuation (". These fungal…"), so any
+                                 whitespace Vue keeps around one shows up as "Clue cell , which it"
+                                 — the bug the old markup had. A child would be indented onto its
+                                 own line by Prettier and condense back to a leading/trailing space;
+                                 an element with no children gives it nothing to reflow. -->
+                            <p class="tw:text-sm tw:text-slate-600 tw:leading-relaxed tw:relative">
+                                <span
+                                    v-for="(seg, i) in summarySegments"
+                                    :key="i"
+                                    :class="seg.bold ? 'tw:font-bold tw:text-primary' : undefined"
+                                    v-text="seg.text"
+                                />
                             </p>
                         </div>
 
