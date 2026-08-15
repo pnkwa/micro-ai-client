@@ -13,6 +13,7 @@ import {
 import { toast } from 'vue-sonner'
 import { detectionService, type DetectionStep, type ModelSpec } from '~/services/detectionService'
 import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
+import type { HistoryRecord } from '~/core/helpers/detectionHistory'
 
 type ViewerMode = 'empty' | 'camera' | 'preview'
 
@@ -154,6 +155,7 @@ const startCamera = () => {
     hasResults.value = false
     detectionSteps.value = []
     mode.value = 'camera'
+    activeRecordId.value = null
     applyCameraMirror()
 }
 
@@ -205,6 +207,7 @@ const onFileChange = (e: Event) => {
     mode.value = 'preview'
     hasResults.value = false
     detectionSteps.value = []
+    activeRecordId.value = null
     if (fileInput.value) fileInput.value.value = ''
 }
 
@@ -215,6 +218,7 @@ const clearImage = () => {
     mode.value = 'empty'
     hasResults.value = false
     detectionSteps.value = []
+    activeRecordId.value = null
 }
 
 const runDetection = async () => {
@@ -237,11 +241,38 @@ const runDetection = async () => {
         detectionSteps.value = result.steps
         resultModel.value = result.model
         hasResults.value = result.steps.length > 0
+        // The run is now a history row, including a deduped one that reused a cached result
+        // (BE-ADR-024) — it is still recorded as this caller's own. Highlight it and re-list.
+        activeRecordId.value = result.id
+        history.value?.refresh()
     } catch {
         toast.error('Detection failed. Please try again.')
     } finally {
         isAnalyzing.value = false
     }
+}
+
+// Detection history (BE-ADR-024). The panel lists past runs; picking one loads it back into this
+// same viewer instead of re-running the worker. `activeRecordId` is only for the highlight, and is
+// cleared the moment the viewer shows something else — a new upload, a snapshot, or a clear.
+const history = useTemplateRef('history')
+const activeRecordId = ref<number | null>(null)
+
+const loadFromHistory = async (record: HistoryRecord) => {
+    try {
+        const blobUrl = await detectionService.imageBlobUrl(record.id)
+        if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
+        imageUrl.value = blobUrl
+    } catch {
+        toast.error('Could not load that image.')
+        return
+    }
+    detectionSteps.value = record.steps
+    resultModel.value = record.model
+    hasResults.value = record.steps.length > 0
+    currentFile.value = null
+    mode.value = 'preview'
+    activeRecordId.value = record.id
 }
 
 onUnmounted(() => {
@@ -765,6 +796,17 @@ onUnmounted(() => {
                     </div>
                 </div>
             </Transition>
+
+            <!-- Past runs (BE-ADR-024). Outside the results Transition on purpose: history is
+                 there to be picked from before anything has been analysed, which is the whole
+                 point of it on a fresh page load. -->
+            <div class="tw:mt-4">
+                <McDetectionHistory
+                    ref="history"
+                    :active-id="activeRecordId"
+                    @select="loadFromHistory"
+                />
+            </div>
         </div>
 
         <input
