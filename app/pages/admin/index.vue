@@ -2,6 +2,7 @@
 import { Plus, Search } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { systemConfigService, type SystemConfigEntry } from '~/services/systemConfigService'
+import { systemService, type SystemInfo } from '~/services/systemService'
 import {
     userAdminService,
     staffRoles,
@@ -16,6 +17,22 @@ definePageMeta({ role: 'admin' })
 
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([{ label: 'Admin', to: '/admin' }])
+
+// ---- About system -----------------------------------------------------------------------------
+// Three separately-deployed components, so a mismatched set is a real and easily-missed
+// failure mode. The frontend reports its own baked-in build; the other two come from the API.
+const systemInfo = ref<SystemInfo | null>(null)
+const systemError = ref(false)
+const frontendVersion = useRuntimeConfig().public.appVersion as string
+
+const loadSystemInfo = async () => {
+    systemError.value = false
+    try {
+        systemInfo.value = await systemService.info()
+    } catch {
+        systemError.value = true
+    }
+}
 
 // ---- Runtime config ---------------------------------------------------------------------------
 const configs = ref<SystemConfigEntry[]>([])
@@ -131,7 +148,7 @@ const submitCreate = async () => {
     }
 }
 
-await Promise.all([loadConfigs(), loadUsers()])
+await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
 </script>
 
 <template>
@@ -140,6 +157,101 @@ await Promise.all([loadConfigs(), loadUsers()])
             <h1 class="tw:text-2xl tw:font-bold tw:text-primary tw:mb-1">Admin console</h1>
             <p class="tw:text-sm tw:text-navy-60">Runtime configuration and account management.</p>
         </div>
+
+        <!-- ================= About system ================= -->
+        <section
+            class="tw:bg-white tw:rounded-xl tw:border tw:border-navy-10 tw:p-6 tw:flex tw:flex-col tw:gap-4"
+        >
+            <div class="tw:flex tw:items-start tw:justify-between tw:gap-4">
+                <div>
+                    <h2 class="tw:text-lg tw:font-semibold tw:text-navy-100">About system</h2>
+                    <p class="tw:text-sm tw:text-navy-60">
+                        The three components deploy separately, so their versions can drift.
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    class="tw:text-xs tw:text-navy-40 hover:tw:text-primary"
+                    @click="loadSystemInfo"
+                >
+                    Refresh
+                </button>
+            </div>
+
+            <div class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-3 tw:gap-3">
+                <!-- Backend -->
+                <div
+                    class="tw:rounded-lg tw:border tw:border-navy-10 tw:p-4 tw:flex tw:flex-col tw:gap-1"
+                >
+                    <span
+                        class="tw:text-[10px] tw:font-bold tw:text-navy-40 tw:uppercase tw:tracking-[0.12em]"
+                    >
+                        Backend
+                    </span>
+                    <span class="tw:text-lg tw:font-semibold tw:text-navy-100 tw:font-mono">
+                        {{ systemInfo?.backend.version ?? '—' }}
+                    </span>
+                    <span class="tw:text-xs tw:text-navy-60">micro-ai-server</span>
+                </div>
+
+                <!-- Image detection (the worker) -->
+                <div
+                    class="tw:rounded-lg tw:border tw:border-navy-10 tw:p-4 tw:flex tw:flex-col tw:gap-1"
+                >
+                    <span
+                        class="tw:text-[10px] tw:font-bold tw:text-navy-40 tw:uppercase tw:tracking-[0.12em]"
+                    >
+                        Image detection
+                    </span>
+                    <span class="tw:flex tw:items-center tw:gap-2">
+                        <span class="tw:text-lg tw:font-semibold tw:text-navy-100 tw:font-mono">
+                            {{ systemInfo?.imageProcessor.version ?? '—' }}
+                        </span>
+                        <!-- The only component whose liveness we can actually observe: it
+                             publishes a heartbeat, and a missing one IS the down signal. -->
+                        <span
+                            v-if="systemInfo"
+                            class="tw:text-[10px] tw:font-semibold tw:px-1.5 tw:py-0.5 tw:rounded-full"
+                            :class="
+                                systemInfo.imageProcessor.healthy
+                                    ? 'tw:bg-green-100 tw:text-green-700'
+                                    : 'tw:bg-red-100 tw:text-red-700'
+                            "
+                        >
+                            {{ systemInfo.imageProcessor.healthy ? 'running' : 'not running' }}
+                        </span>
+                    </span>
+                    <span class="tw:text-xs tw:text-navy-60">
+                        {{
+                            systemInfo?.imageProcessor.healthy &&
+                            systemInfo.imageProcessor.lastSeenSeconds !== null
+                                ? `last seen ${Math.round(systemInfo.imageProcessor.lastSeenSeconds)}s ago`
+                                : 'micro-ai-image-processor'
+                        }}
+                    </span>
+                </div>
+
+                <!-- Frontend -->
+                <div
+                    class="tw:rounded-lg tw:border tw:border-navy-10 tw:p-4 tw:flex tw:flex-col tw:gap-1"
+                >
+                    <span
+                        class="tw:text-[10px] tw:font-bold tw:text-navy-40 tw:uppercase tw:tracking-[0.12em]"
+                    >
+                        Frontend
+                    </span>
+                    <span class="tw:text-lg tw:font-semibold tw:text-navy-100 tw:font-mono">
+                        {{ frontendVersion }}
+                    </span>
+                    <span class="tw:text-xs tw:text-navy-60">micro-ai-client (this build)</span>
+                </div>
+            </div>
+
+            <p v-if="systemError" class="tw:text-sm tw:text-amber-700">
+                Could not reach the API for version information. The frontend version above is still
+                this build's.
+            </p>
+        </section>
 
         <!-- ================= Runtime config ================= -->
         <section
