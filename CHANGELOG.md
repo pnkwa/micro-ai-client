@@ -87,11 +87,14 @@ of markup.
 
 ### Compatibility
 
-- **Developed against `micro-ai-server` v0.9.0-rc.1**, which is enough for everything a student or
-  instructor reaches. Two admin-only surfaces need server work that is **not in v0.9.0-rc.1**:
-  history's "all users" scope wants `GET /detections/all` (BE-ADR-024) and the About panel wants
-  `GET /system`. Both degrade in place rather than breaking the page — the scope switch reports that
-  it needs the endpoint, and About shows what it can.
+- **Pairs with `micro-ai-server` v0.10.0-rc.1**, which is where the two endpoints this release's
+  admin surfaces consume were added: `GET /detections/all` for history's "all users" scope
+  (**BE-ADR-024**) and `GET /system` for the About panel (**BE-ADR-025**). That server release also
+  brings run-level detection dedup, which is why a re-run of an identical image returns instantly and
+  still records a history row of its own.
+- **Against server v0.9.0-rc.1 those two surfaces degrade** rather than breaking the page: the scope
+  switch reports that it needs the endpoint, and About shows the versions it can reach. Everything a
+  student or instructor touches works on either.
 - No change to the slide-label contract (`app/core/helpers/slideNumber.ts`), unchanged since
   `0.5.0-rc.1`.
 - `pnpm install` is required — a dependency was removed.
