@@ -32,6 +32,72 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
 
 ---
 
+## [0.7.0] — 2026-08-17
+
+`/image-detection` becomes usable on the device the slides are actually photographed with. On a
+phone the page stops being a scaled-down desktop workbench and becomes a scanner; on a desktop it is
+unchanged. Alongside it: past runs are browsable, and the AI summary is one tested function instead
+of markup.
+
+### Added
+
+- **A phone layout for `/image-detection`** (`34ec053`, `be70acb`). Below `lg` the camera opens on
+  arrival, the viewfinder is the screen, and the result rises under the shot as a sheet. Heights are
+  cut to the state — full viewport for the camera and a staged image, short of the fold for the
+  chooser so its buttons clear the browser's toolbar, and a fixed reserve once results exist so the
+  Display filters and the Detection Results card both land above the fold. The page does not scroll
+  before a result and does after one, with a chevron and a fade saying so. **Desktop keeps the
+  two-column workbench**; every one of these rules is gated.
+- **`McCameraCapture`, one capture screen for the whole app** (`db692eb`). Stream lifecycle,
+  front/back switching, zoom (the native track constraint where a browser offers one, a CSS
+  transform with a matching crop where it does not) and a square guide the capture honours, so the
+  frame and the file agree. The exam flow moved onto it, losing ~250 lines of its own viewfinder.
+  `useCameraAvailability()` answers "can this device photograph, and in-app or only via the OS" in
+  one place — `getUserMedia` needs a secure context, so a phone on `http://<lan-ip>` never gets the
+  in-app route. Hence `pnpm dev:https`, documented beside the script it explains.
+- **Detection history (BE-ADR-024)** (`7293f04`, `3bb82ab`). Past runs, newest first, with
+  thumbnails; picking one loads it back into the viewer instead of re-running the worker. Staff can
+  switch the list to every user's runs. Desktop puts the panel at the foot of the page; a phone
+  reaches it from a History button in the scanner, since the foot of a non-scrolling page is nowhere
+  (`be70acb`).
+- **An About panel in `/admin`** (`10e9b7d`), reporting the client, server and worker versions. The
+  client's own comes from `runtimeConfig.public.appVersion`, baked from `package.json` at build time
+  rather than fetched — the SPA deploys separately, so asking the server for "the client version"
+  reports the wrong half whenever only one side has shipped.
+
+### Changed
+
+- **The AI Analysis Summary is assembled by `buildSummary()`** (`424f676`), a pure function under
+  `app/core/helpers/`, replacing two long branching paragraphs in the template. The wording is the
+  client's spec and has to stay diagnosis-free for students, which is a rule worth holding in tests
+  rather than in markup — and the segments render through `v-text`, which is what finally removed
+  the `"Clue cell , which it"` spacing artefact the old markup produced.
+- **The app shell measures itself in `svh`, not `vh`** (`db27929`). `vh` is the *large* viewport —
+  the height with iOS's toolbars retracted — so every page was a toolbar taller than the screen and
+  scrolled with nowhere to go. Long breadcrumbs are capped rather than allowed to widen the bar, and
+  the sign-in heading drops a step so the form fits without scrolling.
+- **The README describes this app** (`1a05d00`). It had not been touched since the initial commit:
+  "Nuxt Minimal Starter", npm/yarn/bun in a pnpm-only repo, and the dev server pointed at the
+  *server's* port.
+
+### Removed
+
+- **`simple-vue-camera`** (`7f5b8b1`). `app/plugins/camera.ts` was its only importer and went with
+  the shared capture screen, which drives `getUserMedia` directly.
+
+### Compatibility
+
+- **Developed against `micro-ai-server` v0.9.0-rc.1**, which is enough for everything a student or
+  instructor reaches. Two admin-only surfaces need server work that is **not in v0.9.0-rc.1**:
+  history's "all users" scope wants `GET /detections/all` (BE-ADR-024) and the About panel wants
+  `GET /system`. Both degrade in place rather than breaking the page — the scope switch reports that
+  it needs the endpoint, and About shows what it can.
+- No change to the slide-label contract (`app/core/helpers/slideNumber.ts`), unchanged since
+  `0.5.0-rc.1`.
+- `pnpm install` is required — a dependency was removed.
+
+---
+
 ## [0.7.0-rc.1] — 2026-08-13
 
 An admin console, and the toolchain repaired. The visible half is `/admin`; the rest is a dependency
@@ -320,6 +386,7 @@ Repository scaffold.
 - Nuxt project init (`6317a85`), ESLint and Prettier (`737cd7f`, `e6637e0`, `59d8c76`), husky
   (`c7b73c3`), and the pull-request template (`e7178d1`).
 
+[0.7.0]: https://github.com/pnkwa/micro-ai-client/releases/tag/v0.7.0
 [0.7.0-rc.1]: https://github.com/pnkwa/micro-ai-client/releases/tag/v0.7.0-rc.1
 [0.6.0-rc.1]: https://github.com/pnkwa/micro-ai-client/releases/tag/v0.6.0-rc.1
 [0.5.0-rc.1]: https://github.com/pnkwa/micro-ai-client/releases/tag/v0.5.0-rc.1
