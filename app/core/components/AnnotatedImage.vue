@@ -9,7 +9,18 @@ import { useDetectionFilters } from '~/core/composables/detectionFilters'
  * rendered in a different part of the page's layout: both callers put them in a
  * right-hand panel, away from the image.
  */
-const props = defineProps<{ src: string }>()
+const props = withDefaults(
+    defineProps<{
+        src: string
+        /**
+         * The row under the picture: which classes are drawn, and how many boxes the filters are
+         * showing. Off for a caller that has no room for it - the detection page on a phone, where
+         * the image is the screen and the same counts are in the results below it.
+         */
+        legend?: boolean
+    }>(),
+    { legend: true },
+)
 
 const { steps, visibleBoxes, shownableBoxCount } = useDetectionFilters()
 
@@ -148,6 +159,7 @@ const boxStyle = (box: DetectionBox) => ({
              is vertically centred and anything taller is clipped rather than pushing the box.
              Two lines' worth on narrow widths where the message wraps; one line at lg. -->
         <div
+            v-if="legend"
             class="tw:flex tw:h-12 tw:lg:h-9 tw:items-center tw:justify-between tw:gap-3 tw:overflow-hidden tw:px-3"
         >
             <div

@@ -13,7 +13,7 @@ const colors = computed(() => colorForLabel(props.label))
 
 <template>
     <div
-        class="tw:group tw:relative tw:flex tw:items-center tw:justify-between tw:rounded-lg tw:p-3 tw:border tw:overflow-hidden tw:transition-shadow hover:tw:shadow-sm"
+        class="tw:group tw:relative tw:flex tw:items-center tw:justify-between tw:overflow-hidden tw:rounded-lg tw:border tw:p-2 tw:transition-shadow tw:lg:p-3 hover:tw:shadow-sm"
         :class="[colors.bg, colors.border]"
     >
         <div class="tw:flex tw:items-center tw:gap-1.5">
