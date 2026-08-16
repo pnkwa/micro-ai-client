@@ -12,6 +12,7 @@ import {
     Target,
     Sparkles,
     Lock,
+    History,
 } from '@lucide/vue'
 import { useEventListener, useMediaQuery } from '@vueuse/core'
 import { toast } from 'vue-sonner'
@@ -215,6 +216,15 @@ const cameraRef = useTemplateRef<{
  * nothing until you run again. Side by side would imply the same immediacy.
  */
 const modelSettingsOpen = ref(false)
+
+/**
+ * Past runs, in a sheet of their own on a phone.
+ *
+ * The panel is appended to the bottom of the page on desktop, which is unreachable here: below lg
+ * this page is a fixed-height scanner that does not scroll until results exist, so a panel down
+ * there would be invisible in precisely the state - nothing staged yet - that history is for.
+ */
+const historyOpen = ref(false)
 
 /**
  * Below lg this page is a scanner, not a document: it opens straight into the camera, the staged
@@ -642,24 +652,50 @@ onUnmounted(() => {
                                 <ChevronLeft class="tw:size-5" />
                             </button>
 
-                            <!-- Opposite the back button. The camera's own switch-camera control
-                                 owns this corner while the viewfinder is live, so the two never
-                                 coexist. -->
-                            <button
-                                v-if="mode === 'preview'"
-                                type="button"
-                                class="tw:absolute tw:top-3 tw:right-3 tw:z-20 tw:flex tw:size-9 tw:cursor-pointer tw:items-center tw:justify-center tw:rounded-full tw:bg-black/45 tw:text-white tw:backdrop-blur-sm tw:transition-colors hover:tw:bg-black/65 tw:lg:hidden"
-                                aria-label="Model settings"
-                                @click="modelSettingsOpen = true"
+                            <!-- Opposite the back button, and stacked downwards as more of them
+                                 apply. While the viewfinder is live the camera's own switch-camera
+                                 control owns the top of this corner, so the stack drops a row and
+                                 continues underneath it rather than overlapping - one column of
+                                 round buttons down the right edge, whoever owns each.
+
+                                 Not hidden during the camera, which was the first cut: the camera
+                                 opens by itself on arrival, so hiding this would put history behind
+                                 "close the camera first" in exactly the state it is most wanted. -->
+                            <div
+                                class="tw:absolute tw:right-3 tw:z-20 tw:flex tw:flex-col tw:gap-2 tw:lg:hidden"
+                                :class="cameraOpen ? 'tw:top-14' : 'tw:top-3'"
                             >
-                                <Cpu class="tw:size-5" />
-                            </button>
+                                <!-- Only with an image staged: the model decides what a run does,
+                                     and there is nothing to run without one. -->
+                                <button
+                                    v-if="mode === 'preview'"
+                                    type="button"
+                                    class="tw:flex tw:size-9 tw:cursor-pointer tw:items-center tw:justify-center tw:rounded-full tw:bg-black/45 tw:text-white tw:backdrop-blur-sm tw:transition-colors hover:tw:bg-black/65"
+                                    aria-label="Model settings"
+                                    @click="modelSettingsOpen = true"
+                                >
+                                    <Cpu class="tw:size-5" />
+                                </button>
+
+                                <!-- In every non-camera state, unlike the model button. Past runs
+                                     are most useful with nothing staged - that is the empty screen
+                                     you land on - so gating this on `preview` the way the model
+                                     button is gated would hide it exactly when it is wanted. -->
+                                <button
+                                    type="button"
+                                    class="tw:flex tw:size-9 tw:cursor-pointer tw:items-center tw:justify-center tw:rounded-full tw:bg-black/45 tw:text-white tw:backdrop-blur-sm tw:transition-colors hover:tw:bg-black/65"
+                                    aria-label="Recent analyses"
+                                    @click="historyOpen = true"
+                                >
+                                    <History class="tw:size-5" />
+                                </button>
+                            </div>
 
                             <div
                                 id="detection-run-slot"
                                 class="tw:absolute tw:inset-x-0 tw:bottom-0 tw:z-20 tw:px-4 tw:pb-[max(1rem,env(safe-area-inset-bottom))] tw:lg:hidden"
                                 :class="
-                                    mode === 'preview' && !hasResults
+                                    currentFile && mode === 'preview' && !hasResults
                                         ? 'tw:bg-linear-to-t tw:from-black/80 tw:via-black/50 tw:to-transparent tw:pt-12'
                                         : 'tw:pointer-events-none'
                                 "
@@ -933,14 +969,24 @@ onUnmounted(() => {
 
                         Desktop keeps it throughout: there the controls column is a workbench for
                         comparing models on one image, and the slot is not shared.
+
+                        `currentFile`, not just `mode`, because a record loaded out of history is a
+                        preview with no file behind it - there is nothing to re-run, so the control
+                        would only ever be a dead button.
                     -->
                         <Teleport
                             to="#detection-run-slot"
-                            :disabled="!isCompact || mode !== 'preview' || hasResults"
+                            :disabled="
+                                !isCompact || !currentFile || mode !== 'preview' || hasResults
+                            "
                         >
                             <div
                                 class="tw:order-1 tw:flex-col tw:gap-3 tw:lg:order-2 tw:lg:flex"
-                                :class="hasResults || mode === 'empty' ? 'tw:hidden' : 'tw:flex'"
+                                :class="
+                                    hasResults || mode === 'empty' || !currentFile
+                                        ? 'tw:hidden'
+                                        : 'tw:flex'
+                                "
                             >
                                 <McButton
                                     class="tw:w-full tw:gap-2 tw:py-5 tw:text-sm tw:font-bold tw:shadow-md tw:shadow-primary/20 tw:transition-all hover:tw:shadow-lg hover:tw:shadow-primary/25 disabled:tw:shadow-none tw:lg:py-2"
@@ -1163,8 +1209,12 @@ onUnmounted(() => {
 
             <!-- Past runs (BE-ADR-024). Outside the results Transition on purpose: history is
                  there to be picked from before anything has been analysed, which is the whole
-                 point of it on a fresh page load. -->
-            <div class="tw:mt-4">
+                 point of it on a fresh page load.
+
+                 v-if rather than a `lg:` class, so exactly ONE McDetectionHistory exists at a
+                 time - this one or the phone's sheet below. Two would race for `ref="history"`
+                 and double every thumbnail request the panel makes on mount. -->
+            <div v-if="!isCompact" class="tw:mt-4">
                 <McDetectionHistory
                     ref="history"
                     :active-id="activeRecordId"
@@ -1216,6 +1266,37 @@ onUnmounted(() => {
                         :segment-spec="selectedSegmentSpec"
                         :can-chain="canChain"
                         :disabled="isAnalyzing"
+                    />
+                </div>
+            </McSheetContent>
+        </McSheet>
+
+        <!-- The same panel the desktop page carries at its foot, reached by a button here instead.
+             Taller than the model sheet because it is a list being browsed rather than two
+             dropdowns being set, and it closes on a pick: the record it loads is behind the sheet,
+             so leaving it open would hide the thing the tap asked for. -->
+        <McSheet v-if="isCompact" v-model:open="historyOpen">
+            <McSheetContent side="bottom" class="tw:max-h-[85dvh] tw:overflow-y-auto tw:lg:hidden">
+                <!-- Present for the dialog's accessible name, not shown: the panel below carries
+                     its own "Recent analyses" heading, and rendering both put the same words on
+                     screen twice with the sheet's copy adding nothing the list does not say. -->
+                <McSheetHeader class="tw:sr-only">
+                    <McSheetTitle>Recent analyses</McSheetTitle>
+                    <McSheetDescription>
+                        Past runs. Pick one to load it back into the viewer.
+                    </McSheetDescription>
+                </McSheetHeader>
+
+                <div class="tw:px-4 tw:pt-4 tw:pb-6">
+                    <McDetectionHistory
+                        ref="history"
+                        :active-id="activeRecordId"
+                        @select="
+                            (record) => {
+                                historyOpen = false
+                                loadFromHistory(record)
+                            }
+                        "
                     />
                 </div>
             </McSheetContent>
