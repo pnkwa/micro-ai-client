@@ -39,7 +39,7 @@ const handleSignInWithCmu = () => {
 
 <template>
     <div
-        class="tw:relative tw:min-h-screen tw:overflow-hidden tw:bg-linear-to-br tw:from-primary/30 tw:via-primary/15 tw:to-primary/5"
+        class="tw:relative tw:min-h-svh tw:overflow-hidden tw:bg-linear-to-br tw:from-primary/30 tw:via-primary/15 tw:to-primary/5"
     >
         <img
             :src="labBackground"
@@ -49,7 +49,7 @@ const handleSignInWithCmu = () => {
         />
 
         <div
-            class="tw:relative tw:min-h-screen tw:mx-auto tw:max-w-6xl tw:px-6 tw:py-12 tw:grid tw:content-center tw:gap-12 tw:lg:grid-cols-2"
+            class="tw:relative tw:min-h-svh tw:mx-auto tw:max-w-6xl tw:px-6 tw:py-6 tw:sm:py-12 tw:grid tw:content-center tw:gap-6 tw:sm:gap-12 tw:lg:grid-cols-2"
         >
             <div class="tw:text-center tw:lg:text-left">
                 <p
@@ -58,12 +58,12 @@ const handleSignInWithCmu = () => {
                     MicroAI Laboratory
                 </p>
                 <h1
-                    class="tw:mt-3 tw:text-6xl tw:lg:text-6xl tw:font-bold tw:text-primary tw:leading-tight"
+                    class="tw:mt-2 tw:sm:mt-3 tw:text-4xl tw:sm:text-5xl tw:lg:text-6xl tw:font-bold tw:text-primary tw:leading-tight"
                 >
                     Welcome to MicroAI
                 </h1>
                 <p
-                    class="tw:mt-4 tw:text-sm tw:lg:text-base tw:text-slate-500 tw:max-w-md tw:mx-auto tw:lg:mx-0"
+                    class="tw:mt-2 tw:sm:mt-4 tw:text-sm tw:lg:text-base tw:text-slate-500 tw:max-w-md tw:mx-auto tw:lg:mx-0"
                 >
                     Sign in to review assignments, run detections, and track your classes.
                 </p>

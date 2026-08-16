@@ -41,8 +41,8 @@ const onSignInWithCmu = () => {
         </div>
 
         <div class="tw:bg-primary tw:rounded-xl tw:p-2 tw:pt-6 tw:shadow-xl">
-            <div class="tw:bg-white tw:rounded-lg tw:p-7 tw:shadow-inner">
-                <div class="tw:flex tw:items-center tw:gap-3 tw:mb-5">
+            <div class="tw:bg-white tw:rounded-lg tw:p-5 tw:sm:p-7 tw:shadow-inner">
+                <div class="tw:flex tw:items-center tw:gap-3 tw:mb-4 tw:sm:mb-5">
                     <div
                         class="tw:w-10 tw:h-10 tw:bg-primary/10 tw:rounded-xl tw:flex tw:items-center tw:justify-center tw:shrink-0 tw:border tw:border-primary/20"
                     >
@@ -60,13 +60,13 @@ const onSignInWithCmu = () => {
                     </div>
                 </div>
 
-                <div class="tw:flex tw:gap-1 tw:mb-5">
+                <div class="tw:flex tw:gap-1 tw:mb-4 tw:sm:mb-5">
                     <div class="tw:h-px tw:flex-1 tw:bg-blue-200/70 tw:self-center" />
                     <div class="tw:h-px tw:flex-1 tw:bg-blue-200/70 tw:self-center" />
                 </div>
 
                 <McButton
-                    class="tw:w-full tw:flex tw:items-center tw:justify-center tw:gap-3 tw:border tw:border-[#6868AC] tw:p-6 tw:bg-white tw:hover:bg-slate-50 tw:cursor-pointer tw:group"
+                    class="tw:w-full tw:flex tw:items-center tw:justify-center tw:gap-3 tw:border tw:border-[#6868AC] tw:p-4 tw:sm:p-6 tw:bg-white tw:hover:bg-slate-50 tw:cursor-pointer tw:group"
                     :disabled="props.loading"
                     @click="onSignInWithCmu"
                 >
@@ -78,7 +78,7 @@ const onSignInWithCmu = () => {
                     </span>
                 </McButton>
 
-                <div class="tw:flex tw:items-center tw:gap-3 tw:my-5">
+                <div class="tw:flex tw:items-center tw:gap-3 tw:my-4 tw:sm:my-5">
                     <div class="tw:flex-1 tw:h-px tw:bg-slate-200" />
                     <span
                         class="tw:text-[11px] tw:font-semibold tw:uppercase tw:tracking-widest tw:text-slate-400"
@@ -113,13 +113,15 @@ const onSignInWithCmu = () => {
                     </McButton>
                 </form>
 
-                <div class="tw:flex tw:gap-1 tw:mt-6">
+                <div class="tw:flex tw:gap-1 tw:mt-4 tw:sm:mt-6">
                     <div class="tw:h-px tw:flex-1 tw:bg-blue-200/70" />
                     <div class="tw:h-px tw:flex-1 tw:bg-blue-200/70" />
                     <div class="tw:h-px tw:flex-1 tw:bg-blue-200/70" />
                 </div>
 
-                <p class="tw:text-center tw:text-[11px] tw:text-slate-300 tw:mt-4 tw:tracking-wide">
+                <p
+                    class="tw:text-center tw:text-[11px] tw:text-slate-300 tw:mt-3 tw:sm:mt-4 tw:tracking-wide"
+                >
                     secured · encrypted session
                 </p>
             </div>

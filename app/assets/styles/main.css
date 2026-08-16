@@ -342,3 +342,27 @@
 ::-webkit-scrollbar-corner {
     background-color: transparent;
 }
+
+/*
+ * Scroll lock, applied by a page that is meant to fill the screen exactly and never scroll
+ * (currently the image-detection scanner on a phone, via useHead's htmlAttrs).
+ *
+ * Sizing alone was not enough on iOS. Two things still exposed the pale page background under the
+ * black viewer:
+ *
+ *   - Rubber-band overscroll. Safari lets you drag past the end of even a non-scrollable document
+ *     and paints whatever is behind it. `overscroll-behavior: none` is what stops that, and it has
+ *     to sit on the ROOT element: per spec the viewport takes its value from <html>, not <body>.
+ *   - Any residual overflow at all becomes a real scroll, which collapses the toolbars, which
+ *     grows the viewport, which reveals the gap again. `overflow: hidden` removes the possibility
+ *     rather than relying on the arithmetic landing on exactly zero.
+ *
+ * The black background is the belt to that pair of braces: if a gap ever does appear - a rotation
+ * mid-layout, a browser that ignores the above - it shows black instead of #f9f9f9.
+ */
+html.mc-scroll-lock,
+html.mc-scroll-lock body {
+    overflow: hidden;
+    overscroll-behavior: none;
+    background-color: #000;
+}
