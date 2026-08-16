@@ -18,7 +18,7 @@ defineProps<{
         <div
             class="tw:w-9 tw:h-9 tw:shrink-0 tw:rounded-full tw:bg-navy-10 tw:flex tw:items-center tw:justify-center"
         >
-            <Users class="tw:size-[18px] tw:text-navy-50" />
+            <Users class="tw:size-4.5 tw:text-navy-50" />
         </div>
         <div class="tw:flex tw:flex-col tw:items-start">
             <p class="tw:text-sm tw:font-medium tw:text-navy-100">{{ name }}</p>
