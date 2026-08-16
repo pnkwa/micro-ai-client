@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Send, CheckCircle2, ImageUp, X, Clock, Lock } from '@lucide/vue'
+import { Send, CheckCircle2, ImageUp, Camera, Images, Loader2, X, Clock, Lock } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { assignmentTotalPoints } from '~/services/assignmentService'
@@ -7,7 +7,11 @@ import type { Exam } from '~/services/examService'
 import { isValidSlideNumber, normalizeSlideNumber } from '~/core/helpers/slideNumber'
 import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
 import { rejectUnusableImage } from '~/core/helpers/imageUpload'
-import { fetchDiagnosisOptions, type DiagnosisOption } from '~/core/helpers/classVocabulary'
+import {
+    useCameraAvailability,
+    cameraFailureMessage,
+    type CameraStartFailure,
+} from '~/core/composables/cameraCapture'
 
 const props = defineProps<{
     exam: Exam
@@ -18,26 +22,6 @@ const emit = defineEmits<{ submitted: [] }>()
 // Shared with the sidebar and the detection page, so submitting releases the tool everywhere at
 // once rather than waiting for a reload (request 5.2).
 const { refresh: refreshAiAvailability } = useDetectionAvailability()
-
-/**
- * The rubric's diagnoses, offered as quick-pick options (client request 3.1).
- *
- * Offered, not enforced: the field stays free text underneath. BE-ADR-018 routes an answer outside
- * the vocabulary to instructor review rather than marking it wrong, and that branch only exists
- * while something outside the list can be submitted. A closed list would delete it silently.
- *
- * An empty list (manifest unreachable) just leaves the plain text field, which is what this form
- * was before.
- */
-const diagnosisOptions = ref<DiagnosisOption[]>([])
-
-onMounted(async () => {
-    try {
-        diagnosisOptions.value = await fetchDiagnosisOptions()
-    } catch {
-        diagnosisOptions.value = []
-    }
-})
 
 const { $dayjs } = useNuxtApp()
 
@@ -140,14 +124,14 @@ const SLIDE_INPUT_CLASS = `tw:h-9 ${SHARED_FIELD_TOKENS}`
 // min-h rather than h, plus resize-y: 4rem is a floor here, not a cap.
 const TEXTAREA_CLASS = `tw:min-h-16 tw:py-2 tw:resize-y ${SHARED_FIELD_TOKENS}`
 
-// Fills the field rather than holding a separate selection, so there is one answer per station and
-// the submit path stays exactly as it was: a string, graded by canonicalizeClass server-side.
-// Tapping the chosen option again clears it, which is how a student changes their mind to free text.
-const pickDiagnosis = (id: number, option: DiagnosisOption) => {
-    const current = answers[id]!.diagnosis.trim().toLowerCase()
-    answers[id]!.diagnosis = current === option.label.toLowerCase() ? '' : option.label
-    invalidIds.delete(id)
-}
+/**
+ * Stations whose preview is still decoding.
+ *
+ * createObjectURL is instant, but a 12-megapixel phone photo is not: the <img> can take a visible
+ * moment to paint, and until it does the tile looks like the tap did nothing. Cleared by the
+ * image's own load/error, so it tracks the decode rather than a guessed duration.
+ */
+const decodingIds = reactive(new Set<number>())
 
 const setImage = (id: number, file: File | null) => {
     const prev = images[id]
@@ -157,7 +141,12 @@ const setImage = (id: number, file: File | null) => {
         name: file?.name ?? '',
         previewUrl: file ? URL.createObjectURL(file) : null,
     }
-    if (file) invalidIds.delete(id)
+    if (file) {
+        invalidIds.delete(id)
+        decodingIds.add(id)
+    } else {
+        decodingIds.delete(id)
+    }
 }
 
 // True when the file is unusable, having already told the student why. Both entry points below go
@@ -181,6 +170,113 @@ const onImage = (id: number, e: Event) => {
     }
 
     setImage(id, file)
+}
+
+/**
+ * Camera or gallery, chosen from a menu on the tile rather than decided for the student.
+ *
+ * One pair of inputs for the whole form, not a pair per station: the station is carried in
+ * `photoTargetId` instead. `capture="environment"` cannot be toggled on a single input reliably -
+ * Safari reads it when the picker opens, so flipping the attribute first is racy - which is why
+ * this is two fixed inputs and a menu rather than one input and a mode flag.
+ */
+const photoTargetId = ref<number | null>(null)
+const cameraInput = useTemplateRef<HTMLInputElement>('cameraInput')
+const galleryInput = useTemplateRef<HTMLInputElement>('galleryInput')
+
+// Which camera routes this device has. Shared with the detection page so both screens offer
+// "Take photo" under exactly the same conditions.
+const { hasVideoInput, cameraBlocked, canTakePhoto, canUseInAppCamera } = useCameraAvailability()
+
+const openPhotoSource = (id: number, source: 'camera' | 'gallery') => {
+    photoTargetId.value = id
+
+    if (source === 'gallery') {
+        // Synchronous, inside the menu item's own click: browsers only honour a programmatic
+        // .click() on a file input while a real user gesture is still on the stack.
+        galleryInput.value?.click()
+        return
+    }
+
+    // Already known to be blocked, so both camera routes would open onto a permission wall the
+    // student cannot clear from here. Say so and take them to the route that does work rather
+    // than leaving them to work out why nothing happened. Checked against state resolved on
+    // mount: an await here would end the user gesture and the browser would refuse the click.
+    if (cameraBlocked.value) {
+        toast.error(
+            'Camera access is blocked for this site. Allow it in your browser settings, or pick a photo from your device.',
+        )
+        galleryInput.value?.click()
+        return
+    }
+
+    // Our own capture screen where it can run, the phone's camera app otherwise.
+    if (canUseInAppCamera.value) {
+        openCamera(id)
+        return
+    }
+    cameraInput.value?.click()
+}
+
+// ---- in-app camera ----
+
+/**
+ * The capture screen is McCameraCapture, shared with the detection page - live preview, shutter,
+ * then keep-or-retake, full-screen so framing a slide gets the whole display.
+ *
+ * The `capture` attribute only means something on a phone, so without this a laptop's "Take photo"
+ * was a file dialog wearing a camera label. getUserMedia works on both, which is also why the
+ * captured frame goes through the same rejectUnusableImage() guard as a picked file - the station
+ * must not care which of the three routes the photo arrived by.
+ */
+const cameraOpen = ref(false)
+const cameraStationId = ref<number | null>(null)
+
+const openCamera = (id: number) => {
+    cameraStationId.value = id
+    cameraOpen.value = true
+}
+
+const onCapture = (file: File) => {
+    const id = cameraStationId.value
+    if (id === null) return
+
+    // Same guard as the picked-file routes. A rejection leaves the screen open on the review step -
+    // McCameraCapture does not close itself - so the student can simply retake rather than starting
+    // the whole flow again.
+    if (wasRejected(file)) return
+
+    setImage(id, file)
+    cameraOpen.value = false
+}
+
+/** The stream never started: say why, then send the student to the route that does work. */
+const onCameraFail = (reason: CameraStartFailure) => {
+    if (reason === 'denied') cameraBlocked.value = true
+    if (reason === 'missing') hasVideoInput.value = false
+    toast.error(cameraFailureMessage[reason])
+    galleryInput.value?.click()
+}
+
+const onPhotoInput = (e: Event) => {
+    const id = photoTargetId.value
+    const input = e.target as HTMLInputElement
+    if (id === null) return
+
+    // A dismissed camera or picker fires `change` with an empty list on some Android browsers.
+    // Passing that on would call setImage(id, null) and wipe a photo the student had already
+    // attached - backing out of the camera must leave the tile exactly as it was.
+    if (!input.files?.length) {
+        input.value = ''
+        return
+    }
+
+    onImage(id, e)
+
+    // Shared inputs, so the value has to be cleared after every pick: choosing the same file for a
+    // second station would otherwise not fire `change` at all - the value never changed - and that
+    // station would silently stay empty.
+    input.value = ''
 }
 
 // Which station is being dragged over, so only that tile lights up.
@@ -404,14 +500,17 @@ const onSubmit = async () => {
                     is not enough to tell a good field of view from a blurred one. Desktop keeps the
                     square in both states, so the row height never jumps as stations get filled.
                 -->
-                <!-- 3.2 (Slide 18) is handled at the input below and in
+                <!-- 3.2 (Slide 18) is handled at the inputs below and in
                      core/helpers/imageUpload.ts: HEIC is rejected at selection with instructions
                      (the worker has no pillow-heif, so it would otherwise fail AFTER a submit that
-                     looked fine), the size is checked against FILE_SIZE.MAX, and capture="environment"
-                     opens the rear camera on a phone rather than a file browser. The drop handler
+                     looked fine) and the size is checked against FILE_SIZE.MAX. The drop handler
                      runs the same guard, since a drop bypasses `accept` entirely.
 
-                     TODO(3.2): two gaps are NOT fixable from here.
+                     Tapping the tile opens a menu - "Take photo" or "Choose from device" - the way
+                     a native app asks. It used to be a single input carrying capture="environment",
+                     which on a phone meant every tap opened the viewfinder: a student who had
+                     already photographed the slide could not reach that photo at all. -->
+                <!-- TODO(3.2): two gaps are NOT fixable from here.
                        - NO SERVER-SIDE SIZE LIMIT. Neither FileInterceptor('image') on /detections
                          nor AnyFilesInterceptor() on /submissions sets limits.fileSize. The check
                          below is client-side and therefore advisory: anything posting directly is
@@ -428,78 +527,124 @@ const onSubmit = async () => {
                     @dragleave="onDragLeave"
                     @drop.prevent="onDrop(s.id, $event)"
                 >
-                    <label
-                        class="tw:group/photo tw:block tw:size-full tw:cursor-pointer tw:overflow-hidden tw:rounded-lg"
-                        :aria-label="
-                            images[s.id]?.file ? 'Change photo' : 'Attach field-of-view photo'
-                        "
-                    >
-                        <template v-if="images[s.id]?.file">
-                            <!--
+                    <McDropdownMenu>
+                        <McDropdownMenuTrigger
+                            class="tw:group/photo tw:block tw:size-full tw:cursor-pointer tw:overflow-hidden tw:rounded-lg tw:text-left"
+                            :aria-label="
+                                images[s.id]?.file ? 'Change photo' : 'Attach field-of-view photo'
+                            "
+                        >
+                            <template v-if="images[s.id]?.file">
+                                <!--
                                 object-contain, not cover: cover crops to fill the tile, so a
                                 portrait phone photo loses its top and bottom and the student is
                                 checking a centre crop rather than the frame they actually
                                 submitted. Contain letterboxes it against navy-5 instead, which is
                                 what makes this a preview of the real image.
                             -->
-                            <img
-                                :src="images[s.id]?.previewUrl ?? undefined"
-                                alt=""
-                                class="tw:size-full tw:rounded-lg tw:border tw:bg-navy-5 tw:object-contain tw:transition-colors"
-                                :class="
-                                    dragOverId === s.id
-                                        ? 'tw:border-primary'
-                                        : 'tw:border-primary/40'
-                                "
-                            />
-                            <!--
+                                <img
+                                    :src="images[s.id]?.previewUrl ?? undefined"
+                                    alt=""
+                                    class="tw:size-full tw:rounded-lg tw:border tw:bg-navy-5 tw:object-contain tw:transition-colors"
+                                    :class="
+                                        dragOverId === s.id
+                                            ? 'tw:border-primary'
+                                            : 'tw:border-primary/40'
+                                    "
+                                    @load="decodingIds.delete(s.id)"
+                                    @error="decodingIds.delete(s.id)"
+                                />
+                                <!--
                                 Nothing otherwise says a filled tile is still clickable, and the
                                 only other control on it is the remove x - easy to read as "delete
                                 and start again" being the only way to swap the photo.
                             -->
-                            <span
-                                class="tw:pointer-events-none tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-lg tw:bg-navy-100/55 tw:text-xs tw:font-medium tw:text-white tw:opacity-0 tw:transition-opacity tw:group-hover/photo:opacity-100"
-                            >
-                                <ImageUp class="tw:size-4" />
-                                Change photo
-                            </span>
-                            <!--
+                                <span
+                                    class="tw:pointer-events-none tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-lg tw:bg-navy-100/55 tw:text-xs tw:font-medium tw:text-white tw:opacity-0 tw:transition-opacity tw:group-hover/photo:opacity-100"
+                                >
+                                    <ImageUp class="tw:size-4" />
+                                    Change photo
+                                </span>
+                                <!--
                                 The overlay above is hover-only, so on touch nothing says the
                                 preview is still interactive. This says it in place, and is hidden
                                 from sm up where the hover state does the job.
                             -->
+                                <span
+                                    class="tw:pointer-events-none tw:absolute tw:bottom-1.5 tw:left-1.5 tw:rounded tw:bg-navy-100/65 tw:px-1.5 tw:py-0.5 tw:text-[0.6875rem] tw:font-medium tw:text-white tw:sm:hidden"
+                                >
+                                    Tap to change
+                                </span>
+                            </template>
                             <span
-                                class="tw:pointer-events-none tw:absolute tw:bottom-1.5 tw:left-1.5 tw:rounded tw:bg-navy-100/65 tw:px-1.5 tw:py-0.5 tw:text-[0.6875rem] tw:font-medium tw:text-white tw:sm:hidden"
+                                v-else
+                                class="tw:flex tw:size-full tw:flex-col tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-lg tw:border tw:border-dashed tw:text-center tw:transition-colors"
+                                :class="
+                                    dragOverId === s.id
+                                        ? 'tw:border-primary tw:bg-primary/10 tw:text-primary'
+                                        : 'tw:border-navy-20 tw:text-navy-60 tw:hover:border-primary tw:hover:bg-primary/5'
+                                "
                             >
-                                Tap to change
+                                <ImageUp class="tw:size-5" />
+                                <span class="tw:text-xs tw:font-medium">
+                                    {{ dragOverId === s.id ? 'Drop to attach' : 'Add photo' }}
+                                </span>
+                                <!-- Hidden on touch, where there is nothing to drag from. -->
+                                <span
+                                    class="tw:hidden tw:text-[0.6875rem] tw:text-navy-50 tw:sm:block"
+                                >
+                                    or drop it here
+                                </span>
                             </span>
-                        </template>
-                        <span
-                            v-else
-                            class="tw:flex tw:size-full tw:flex-col tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-lg tw:border tw:border-dashed tw:text-center tw:transition-colors"
-                            :class="
-                                dragOverId === s.id
-                                    ? 'tw:border-primary tw:bg-primary/10 tw:text-primary'
-                                    : 'tw:border-navy-20 tw:text-navy-60 tw:hover:border-primary tw:hover:bg-primary/5'
-                            "
-                        >
-                            <ImageUp class="tw:size-5" />
-                            <span class="tw:text-xs tw:font-medium">
-                                {{ dragOverId === s.id ? 'Drop to attach' : 'Add photo' }}
-                            </span>
-                            <!-- Hidden on touch, where there is nothing to drag from. -->
-                            <span class="tw:hidden tw:text-[0.6875rem] tw:text-navy-50 tw:sm:block">
-                                or drop it here
-                            </span>
-                        </span>
-                        <input
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp"
-                            capture="environment"
-                            class="tw:hidden"
-                            @change="onImage(s.id, $event)"
-                        />
-                    </label>
+                        </McDropdownMenuTrigger>
+                        <!--
+                            The two routes a phone photo can take, named. align="start" so the menu
+                            hangs under the tile rather than off the side of a narrow screen.
+                        -->
+                        <McDropdownMenuContent align="start" class="tw:w-56">
+                            <!-- Shown only where a camera route can really produce a photo: our
+                                 own capture screen, or a touch device that honours `capture`. A
+                                 laptop with no webcam gets neither, and offering it there would
+                                 just be the "Choose from device" item wearing a camera label. -->
+                            <McDropdownMenuItem
+                                v-if="canTakePhoto"
+                                @select="openPhotoSource(s.id, 'camera')"
+                            >
+                                <Camera class="tw:size-4" />
+                                <div class="tw:flex tw:flex-col">
+                                    <span class="tw:text-sm">Take photo</span>
+                                    <span class="tw:text-xs tw:text-navy-50">
+                                        {{ cameraBlocked ? 'Camera blocked' : 'Opens the camera' }}
+                                    </span>
+                                </div>
+                            </McDropdownMenuItem>
+                            <McDropdownMenuItem @select="openPhotoSource(s.id, 'gallery')">
+                                <Images class="tw:size-4" />
+                                <div class="tw:flex tw:flex-col">
+                                    <span class="tw:text-sm">Choose from device</span>
+                                    <span class="tw:text-xs tw:text-navy-50">
+                                        A photo you already have
+                                    </span>
+                                </div>
+                            </McDropdownMenuItem>
+                        </McDropdownMenuContent>
+                    </McDropdownMenu>
+                    <!--
+                        Sits over the tile until the preview has actually painted. A phone photo
+                        straight off the camera is big enough that the gap between "file attached"
+                        and "you can see it" reads as nothing having happened.
+
+                        pointer-events-none so it never eats the tap that opens the menu, and
+                        aria-hidden because the status is announced by the tile's own label rather
+                        than by a spinner.
+                    -->
+                    <span
+                        v-if="decodingIds.has(s.id)"
+                        aria-hidden="true"
+                        class="tw:pointer-events-none tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:rounded-lg tw:bg-white/70"
+                    >
+                        <Loader2 class="tw:size-5 tw:animate-spin tw:text-primary" />
+                    </span>
                     <button
                         v-if="images[s.id]?.file"
                         type="button"
@@ -529,59 +674,26 @@ const onSubmit = async () => {
                     </div>
 
                     <!-- flex-1 so the diagnosis takes up whatever height the photo leaves. -->
-                    <!-- 3.1 (Slide 18) is the options below: the rubric's diagnoses, from
-                         `displayText` on GET /models via core/helpers/classVocabulary.ts. Same
-                         source as the answer-key importer, so what a student may pick and what an
-                         instructor may author are the same set by construction.
-
-                         TODO(3.1): one thing is still unsettled, and it is not a UI detail.
-                         BE-ADR-018 is titled "Per-class display_text" but the implementation is
-                         per-MODEL, in the manifest. "Matched to the instructor's rubric" reads
-                         per-class. If the client means a vocabulary an instructor edits per class,
-                         that is a schema change and an ADR amendment, and this list would read from
-                         it instead. Confirm before anyone builds that. -->
+                    <!-- 3.1 (Slide 18) offered the rubric's diagnoses here as quick-pick options.
+                         Removed at the client's instruction: an exam must test recall, and a list
+                         of the five possible answers hands it over. The vocabulary itself is
+                         unchanged and still authoritative - it just is not shown to the student.
+                         `core/helpers/classVocabulary.ts` remains in use by the answer-key
+                         importer, which is instructor-side and not an exam surface. -->
                     <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-1.5">
                         <label class="tw:text-xs tw:font-medium tw:text-navy-60">
                             Your diagnosis
                         </label>
 
-                        <!-- Buttons rather than a dropdown: five options on a phone are quicker to
-                             tap than to open, and every option stays visible while the student
-                             decides. shrink-0 so they keep their height when the row stretches -
-                             the textarea below is the flexible one. -->
-                        <div
-                            v-if="diagnosisOptions.length > 0"
-                            class="tw:flex tw:shrink-0 tw:flex-wrap tw:gap-1.5"
-                            role="group"
-                            aria-label="Diagnoses from the rubric"
-                        >
-                            <button
-                                v-for="option in diagnosisOptions"
-                                :key="option.code"
-                                type="button"
-                                class="tw:cursor-pointer tw:rounded-full tw:border tw:px-3 tw:py-1.5 tw:text-xs tw:transition-colors"
-                                :class="
-                                    answers[s.id]!.diagnosis.trim().toLowerCase() ===
-                                    option.label.toLowerCase()
-                                        ? 'tw:border-primary tw:bg-primary/10 tw:font-medium tw:text-primary'
-                                        : 'tw:border-navy-20 tw:text-navy-70 tw:hover:border-primary tw:hover:text-primary'
-                                "
-                                @click="pickDiagnosis(s.id, option)"
-                            >
-                                {{ option.label }}
-                            </button>
-                        </div>
-
-                        <!-- Still editable after a pick. This is the free-text escape that keeps
-                             the instructor-review branch reachable, so it must not become
-                             readonly. -->
+                        <!-- Free text, no quick-pick options: in an exam the student has to recall
+                             the diagnosis, not recognise it from a list. Grading is unaffected -
+                             canonicalizeClass() server-side resolves whatever is typed, so a code
+                             ("BV") and a name ("Bacterial vaginosis") still grade identically
+                             (BE-ADR-018), and an answer outside the vocabulary still routes to
+                             instructor review rather than being marked wrong. -->
                         <textarea
                             v-model="answers[s.id]!.diagnosis"
-                            :placeholder="
-                                diagnosisOptions.length > 0
-                                    ? 'Pick one above, or type a different answer'
-                                    : 'What is this slide?'
-                            "
+                            placeholder="What is this slide?"
                             :class="[TEXTAREA_CLASS, 'tw:sm:flex-1']"
                             @input="invalidIds.delete(s.id)"
                         ></textarea>
@@ -614,5 +726,38 @@ const onSubmit = async () => {
                 Submit exam
             </McButton>
         </div>
+
+        <!--
+            One pair for the whole form, outside the station loop: the menu sets photoTargetId and
+            clicks the matching one, so N stations still only ever mount two inputs. Both land in
+            onPhotoInput -> onImage, so the HEIC/size guard runs identically whichever route the
+            photo came in by, and the drop handler runs the same guard again for the same reason.
+        -->
+        <input
+            ref="cameraInput"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            capture="environment"
+            class="tw:hidden"
+            @change="onPhotoInput"
+        />
+        <input
+            ref="galleryInput"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            class="tw:hidden"
+            @change="onPhotoInput"
+        />
+
+        <!-- The shared capture screen: full-screen preview, zoom, shutter, keep-or-retake. Does
+             not close itself on capture, so a rejected photo leaves the student on the review
+             step ready to retake. -->
+        <McCameraCapture
+            v-model:open="cameraOpen"
+            title="Take a photo"
+            :file-name="`station-${cameraStationId ?? 0}`"
+            @capture="onCapture"
+            @fail="onCameraFail"
+        />
     </form>
 </template>
