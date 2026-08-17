@@ -89,3 +89,77 @@ export function sortNewestFirst<T extends HistoryRecord>(records: T[]): T[] {
         (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     )
 }
+
+/**
+ * The one label a row is filed under: its classes joined, or `NO_FINDINGS` for a run that called
+ * none.
+ *
+ * Deliberately the same string the row already prints as its title, so picking "BV" in the filter
+ * keeps exactly the rows that say "BV" — a filter whose options do not match what is on screen
+ * sends people looking for rows that were never labelled that way. A multi-class run is its own
+ * combination ("VVC, fungus") rather than being counted under each part: the row is one analysis,
+ * and splitting it would make the counts sum to more than the list.
+ */
+export const NO_FINDINGS = 'No findings'
+
+export function historyClassLabel(record: HistoryRecord): string {
+    return recordClasses(record).join(', ') || NO_FINDINGS
+}
+
+/** Every label present in a list, with how many rows carry it. Commonest first, ties by name. */
+export function historyClassOptions(records: HistoryRecord[]): { label: string; count: number }[] {
+    const counts = new Map<string, number>()
+    for (const record of records) {
+        const label = historyClassLabel(record)
+        counts.set(label, (counts.get(label) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+}
+
+export type HistoryDateRange = 'all' | 'today' | '7d' | '30d'
+
+/**
+ * Is a record inside a range, counted in whole LOCAL days back from `now`?
+ *
+ * Days, not rolling 24-hour windows: "today" has to mean the calendar day a student is having a lab
+ * session in, and a rolling window would drop this morning's runs by the afternoon. Local, not UTC,
+ * for the same reason — the boundary that matters is the one on the wall.
+ *
+ * `now` is a parameter so this is testable without freezing the clock.
+ */
+export function withinDateRange(
+    iso: string,
+    range: HistoryDateRange,
+    now: Date = new Date(),
+): boolean {
+    if (range === 'all') return true
+    const at = new Date(iso)
+    if (Number.isNaN(at.getTime())) return false
+
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const daysBack = range === 'today' ? 0 : range === '7d' ? 6 : 29
+    const from = new Date(startOfToday)
+    from.setDate(from.getDate() - daysBack)
+    return at.getTime() >= from.getTime()
+}
+
+/**
+ * The list as filtered, order preserved.
+ *
+ * `classLabel` of null means "every class" — null rather than an empty string because a class
+ * label legitimately can be empty-ish, and `''` would be indistinguishable from "no filter".
+ */
+export function filterHistory<T extends HistoryRecord>(
+    records: T[],
+    filters: { classLabel?: string | null; range?: HistoryDateRange },
+    now: Date = new Date(),
+): T[] {
+    const { classLabel = null, range = 'all' } = filters
+    return records.filter(
+        (record) =>
+            (classLabel === null || historyClassLabel(record) === classLabel) &&
+            withinDateRange(record.created_at, range, now),
+    )
+}

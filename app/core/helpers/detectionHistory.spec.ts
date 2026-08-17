@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest'
 import {
     boxCount,
     canBrowseAllDetections,
+    filterHistory,
     formatHistoryDate,
+    historyClassLabel,
+    historyClassOptions,
     recordClasses,
     sortNewestFirst,
     submitterName,
+    withinDateRange,
+    NO_FINDINGS,
     type HistoryRecord,
 } from './detectionHistory'
 
@@ -153,5 +158,123 @@ describe('formatHistoryDate', () => {
 
     it('hands back an unparseable value rather than "Invalid Date"', () => {
         expect(formatHistoryDate('not-a-date')).toBe('not-a-date')
+    })
+})
+
+describe('historyClassLabel', () => {
+    it('is the same string the row prints as its title', () => {
+        expect(historyClassLabel(record())).toBe('BV')
+    })
+
+    it('joins a multi-class run into one combined label, not two', () => {
+        const multi = record({ steps: [step('VVC', 2), step('fungus', 4)] })
+        expect(historyClassLabel(multi)).toBe('VVC, fungus')
+    })
+
+    it('files a run that called nothing under "No findings"', () => {
+        expect(historyClassLabel(record({ steps: [step('none', 0)] }))).toBe(NO_FINDINGS)
+        expect(historyClassLabel(record({ steps: [] }))).toBe(NO_FINDINGS)
+    })
+})
+
+describe('historyClassOptions', () => {
+    it('counts rows per label, commonest first', () => {
+        const rows = [
+            record({ id: 1 }),
+            record({ id: 2 }),
+            record({ id: 3, steps: [step('VVC', 1)] }),
+            record({ id: 4, steps: [step('none', 0)] }),
+        ]
+        expect(historyClassOptions(rows)).toEqual([
+            { label: 'BV', count: 2 },
+            { label: NO_FINDINGS, count: 1 },
+            { label: 'VVC', count: 1 },
+        ])
+    })
+
+    /** Counts that summed to more than the list would read as a bug in the list, not the filter. */
+    it('sums to the number of rows, never more', () => {
+        const rows = [
+            record({ id: 1 }),
+            record({ id: 2, steps: [step('VVC', 1), step('fungus', 2)] }),
+        ]
+        const total = historyClassOptions(rows).reduce((n, o) => n + o.count, 0)
+        expect(total).toBe(rows.length)
+    })
+
+    it('has nothing to offer for an empty list', () => {
+        expect(historyClassOptions([])).toEqual([])
+    })
+})
+
+describe('withinDateRange', () => {
+    // Mid-afternoon, so "today" has hours on either side of it inside the same calendar day.
+    const now = new Date(2026, 7, 17, 15, 0, 0)
+    const at = (y: number, m: number, d: number, h = 12) => new Date(y, m, d, h).toISOString()
+
+    it('keeps everything when the range is "all"', () => {
+        expect(withinDateRange(at(2020, 0, 1), 'all', now)).toBe(true)
+    })
+
+    it('counts whole local days, so this morning is still "today" by the afternoon', () => {
+        expect(withinDateRange(at(2026, 7, 17, 8), 'today', now)).toBe(true)
+    })
+
+    it('excludes yesterday from "today" even when it is under 24 hours ago', () => {
+        expect(withinDateRange(at(2026, 7, 16, 23), 'today', now)).toBe(false)
+    })
+
+    it('takes 7d as today plus the six days before it', () => {
+        expect(withinDateRange(at(2026, 7, 11, 0), '7d', now)).toBe(true)
+        expect(withinDateRange(at(2026, 7, 10, 23), '7d', now)).toBe(false)
+    })
+
+    it('takes 30d as today plus the twenty-nine days before it', () => {
+        expect(withinDateRange(at(2026, 6, 19, 0), '30d', now)).toBe(true)
+        expect(withinDateRange(at(2026, 6, 18, 23), '30d', now)).toBe(false)
+    })
+
+    it('drops an unparseable stamp rather than keeping it by accident', () => {
+        expect(withinDateRange('not-a-date', 'today', now)).toBe(false)
+    })
+})
+
+describe('filterHistory', () => {
+    const now = new Date(2026, 7, 17, 15, 0, 0)
+    const rows = [
+        record({ id: 1, created_at: new Date(2026, 7, 17, 9).toISOString() }),
+        record({ id: 2, created_at: new Date(2026, 7, 1, 9).toISOString() }),
+        record({
+            id: 3,
+            steps: [step('VVC', 1)],
+            created_at: new Date(2026, 7, 17, 10).toISOString(),
+        }),
+    ]
+
+    it('is every row when nothing is asked for', () => {
+        expect(filterHistory(rows, {}, now).map((r) => r.id)).toEqual([1, 2, 3])
+    })
+
+    it('narrows by class', () => {
+        expect(filterHistory(rows, { classLabel: 'BV' }, now).map((r) => r.id)).toEqual([1, 2])
+    })
+
+    it('narrows by date', () => {
+        expect(filterHistory(rows, { range: 'today' }, now).map((r) => r.id)).toEqual([1, 3])
+    })
+
+    it('applies both together, not either', () => {
+        expect(
+            filterHistory(rows, { classLabel: 'BV', range: 'today' }, now).map((r) => r.id),
+        ).toEqual([1])
+    })
+
+    it('keeps the order it was given', () => {
+        const reversed = [...rows].reverse()
+        expect(filterHistory(reversed, {}, now).map((r) => r.id)).toEqual([3, 2, 1])
+    })
+
+    it('can legitimately match nothing', () => {
+        expect(filterHistory(rows, { classLabel: 'nope' }, now)).toEqual([])
     })
 })
