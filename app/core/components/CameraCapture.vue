@@ -100,10 +100,17 @@ let stream: MediaStream | null = null
  */
 const facing = ref<'environment' | 'user'>('environment')
 
-// Mirror the preview only for a user-facing camera (selfie-style, so a raised left hand shows on
-// the left); a rear camera keeps its true orientation. Read from the track rather than from
-// `facing`, because `ideal` means the browser may hand back the other one. Desktop webcams report
-// no facingMode at all, so the rule is "mirror unless it is environment".
+// Mirror the preview for a user-facing camera (selfie-style, so a raised left hand shows on the
+// left); a rear camera keeps its true orientation. Read from the track rather than from `facing`,
+// because `ideal` means the browser may hand back the other one.
+//
+// "Unless it is environment", NOT "only when it is user": plenty of cameras report no facingMode at
+// all - Chrome's built-in webcam on macOS among them - and those are overwhelmingly the front-facing
+// kind, where an unmirrored preview swaps the user's left and right and makes the thing unusable to
+// frame with. Requiring a confirmed 'user' was tried and is wrong for exactly that hardware.
+//
+// The capture is never mirrored either way (see takeShot): the mirror helps you aim, and would be a
+// false record in the file.
 const mirrored = ref(false)
 
 // More than one camera to switch between. Labels stay empty before permission is granted, but the
@@ -238,9 +245,24 @@ const takeShot = () => {
     const canvas = document.createElement('canvas')
     canvas.width = side
     canvas.height = side
-    // The mirror is deliberately NOT baked in. It is a preview affordance for a selfie-facing
-    // camera; whoever receives the photo should see the subject the right way round.
-    canvas.getContext('2d')?.drawImage(el, sx, sy, side, side, 0, 0, side, side)
+    const ctx = canvas.getContext('2d')
+
+    // The mirror IS baked in, so the file matches the frame it was taken from. A mirrored preview
+    // and an unmirrored file disagree about left and right, and the person who framed the shot is
+    // the one who has to reconcile them - they aimed at one image and were handed its flip.
+    //
+    // The cost, stated plainly: a mirrored photo is not a faithful record. Anything with a
+    // handedness to it - text on a label, an asymmetric field - comes out reversed in the saved
+    // image and in whatever the detector reads. Only front-facing cameras are affected, since only
+    // they mirror (see `mirrored`); a rear camera writes the source untouched.
+    //
+    // Flipped on the destination, not the source: the crop rect is computed in the video's own
+    // coordinates, so the same region is read and only the drawing is reversed.
+    if (ctx && mirrored.value) {
+        ctx.translate(side, 0)
+        ctx.scale(-1, 1)
+    }
+    ctx?.drawImage(el, sx, sy, side, side, 0, 0, side, side)
 
     canvas.toBlob(
         (blob) => {
@@ -362,9 +384,10 @@ onBeforeUnmount(() => {
                 class="tw:flex tw:min-h-0 tw:flex-1 tw:justify-center"
                 :class="
                     fullBleed
-                        ? 'tw:items-stretch tw:p-0'
+                        ? 'tw:items-center tw:px-0 tw:pt-14 tw:pb-0'
                         : 'tw:items-start tw:p-0 tw:sm:items-center tw:sm:p-4'
                 "
+                :style="fullBleed ? { containerType: 'size' } : undefined"
             >
                 <!--
                     The 1:1 frame. Fixed square because a field of view down an eyepiece is a
@@ -383,12 +406,42 @@ onBeforeUnmount(() => {
 
                     overflow-hidden clips the digitally zoomed preview to this frame rather than
                     letting it spill over the controls above and below.
+
+                    Full-bleed is square too, NOT the whole screen. It used to fill a 390x796 stage,
+                    and object-cover then scaled a 640x480 camera up by 1.66x to reach it - so the
+                    centred square the shutter keeps was only ~235 source pixels wide. The preview
+                    was a heavy zoom, the file was small, and one caused the other. Sized as a square
+                    the cover scale is 0.81 and the crop keeps 480x480: the sensor's full height,
+                    no enlargement, twice the detail for the detector.
+
+                    What is lost is the strip of context above and below the square. It was never
+                    captured, and paying a 2x resolution cost for it is the wrong trade on a page
+                    whose output is fed to a model.
+
+                    The width cap matters as much as the ratio: an aspect-square wider than the space
+                    left is TALLER than it too, and centring an oversized box overflows it in both
+                    directions - the square pushed back up through the reserved band and the buttons
+                    collided again on a 600px screen. Capped by WIDTH, because the height then follows
+                    the ratio; capping the height instead leaves the width definite and breaks the
+                    square, and a viewfinder that is not square no longer shows what gets captured.
+
+                    100cqh, not a calc() of viewport minus the chrome: the row above sets
+                    container-type: size, so this reads the height actually available after the
+                    reserved band and the controls, whatever they happen to measure. The arithmetic
+                    version was wrong by a couple of pixels and collided anyway.
+
+                    Centred in the space below a reserved band, not in the whole frame: the square's
+                    own corner controls (close, switch camera) sit inside it, and the host page puts
+                    ITS controls in the band above. The band is padding on the row (pt-14), so the
+                    square centres in what is left and the two sets of buttons cannot meet however
+                    tall the viewport is. Centring in the whole frame was the bug - the square's top
+                    moved with the height and the buttons collided on shorter screens.
                 -->
                 <div
                     class="tw:relative tw:overflow-hidden tw:bg-navy-100"
                     :class="[
                         fullBleed
-                            ? 'tw:h-full tw:w-full'
+                            ? 'tw:aspect-square tw:w-full tw:max-w-[min(100%,100cqh)]'
                             : 'tw:aspect-square tw:w-full tw:max-w-[min(100%,70vh)] tw:rounded-none tw:sm:rounded-xl',
                         inline && !fullBleed ? 'tw:lg:h-full tw:lg:w-auto tw:lg:max-w-none' : '',
                     ]"
@@ -417,60 +470,6 @@ onBeforeUnmount(() => {
                         alt="The photo you just took"
                         class="tw:absolute tw:inset-0 tw:size-full tw:object-cover"
                     />
-
-                    <!--
-                        The 1:1 crop guide, drawn only while framing: it says where the square the
-                        camera will actually keep falls, which is nothing a still needs.
-
-                        Full-bleed uses a centred square scrimmed on all four sides - what is
-                        outside it is context for lining the slide up, not something that gets
-                        captured, and dimming is what makes that legible at a glance. The square is
-                        min(width, height), which is what fullBleedCrop() maps back to the source.
-
-                        The plain square preview keeps the older corner marks: there the whole frame
-                        IS the crop, so there is nothing to dim, only bounds to read. Hidden below
-                        sm on the takeover, where the frame runs to the screen edges anyway.
-                    -->
-                    <div
-                        v-if="fullBleed && !shot && !starting"
-                        class="tw:pointer-events-none tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center"
-                    >
-                        <div
-                            class="tw:relative tw:aspect-square tw:w-full tw:max-w-[min(100%,100cqh)] tw:shadow-[0_0_0_100vmax_rgba(0,0,0,0.45)]"
-                        >
-                            <div
-                                class="tw:absolute tw:top-0 tw:left-0 tw:size-7 tw:rounded-tl-lg tw:border-t-[3px] tw:border-l-[3px] tw:border-white/80"
-                            ></div>
-                            <div
-                                class="tw:absolute tw:top-0 tw:right-0 tw:size-7 tw:rounded-tr-lg tw:border-t-[3px] tw:border-r-[3px] tw:border-white/80"
-                            ></div>
-                            <div
-                                class="tw:absolute tw:bottom-0 tw:left-0 tw:size-7 tw:rounded-bl-lg tw:border-b-[3px] tw:border-l-[3px] tw:border-white/80"
-                            ></div>
-                            <div
-                                class="tw:absolute tw:bottom-0 tw:right-0 tw:size-7 tw:rounded-br-lg tw:border-b-[3px] tw:border-r-[3px] tw:border-white/80"
-                            ></div>
-                        </div>
-                    </div>
-
-                    <div
-                        v-if="!fullBleed && !shot && !starting"
-                        class="tw:pointer-events-none tw:absolute tw:inset-5 tw:sm:block"
-                        :class="inline ? 'tw:block' : 'tw:hidden'"
-                    >
-                        <div
-                            class="tw:absolute tw:top-0 tw:left-0 tw:size-7 tw:rounded-tl-lg tw:border-t-[3px] tw:border-l-[3px] tw:border-white/70"
-                        ></div>
-                        <div
-                            class="tw:absolute tw:top-0 tw:right-0 tw:size-7 tw:rounded-tr-lg tw:border-t-[3px] tw:border-r-[3px] tw:border-white/70"
-                        ></div>
-                        <div
-                            class="tw:absolute tw:bottom-0 tw:left-0 tw:size-7 tw:rounded-bl-lg tw:border-b-[3px] tw:border-l-[3px] tw:border-white/70"
-                        ></div>
-                        <div
-                            class="tw:absolute tw:bottom-0 tw:right-0 tw:size-7 tw:rounded-br-lg tw:border-b-[3px] tw:border-r-[3px] tw:border-white/70"
-                        ></div>
-                    </div>
 
                     <!-- Inline has no header bar, so the two controls that lived in it sit on the
                          preview instead: close at the left, switch camera at the right. -->

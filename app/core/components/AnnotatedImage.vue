@@ -9,7 +9,23 @@ import { useDetectionFilters } from '~/core/composables/detectionFilters'
  * rendered in a different part of the page's layout: both callers put them in a
  * right-hand panel, away from the image.
  */
-const props = defineProps<{ src: string }>()
+const props = withDefaults(
+    defineProps<{
+        src: string
+        /**
+         * Enlarge a small image to fill the box, rather than leaving it at natural size.
+         *
+         * Off by default, which is `object-scale-down`: a submission shown at 1:1 is sharp, and the
+         * grading page has room for it. The detection page turns it on for the phone, where the
+         * viewer is a fixed band across the screen and a capture can be only a couple of hundred
+         * pixels wide - the camera crops the visible square back to source pixels, and a video
+         * scaled up to cover a tall screen has few of them to give. Left at natural size that lands
+         * as a stamp floating in black.
+         */
+        fill?: boolean
+    }>(),
+    { fill: false },
+)
 
 const { visibleBoxes } = useDetectionFilters()
 
@@ -31,14 +47,16 @@ const onImgLoad = (event: Event) => {
 
 const natural = computed(() => (measured.value?.src === props.src ? measured.value : null))
 
-// The rendered image rect within the container. object-scale-down is object-contain that
-// never upscales past natural size, so the scale is min(fit-both-axes, 1); the image is then
-// centred, which is where the letterbox offsets come from. Null until both the container and
-// the image have real dimensions.
+// The rendered image rect within the container, computed the same way the browser lays the image
+// out - the overlay is positioned against this, so the two MUST agree or every box lands off the
+// picture. `contain` fits both axes; `scale-down` is contain that additionally never enlarges, hence
+// the extra 1. The image is then centred, which is where the letterbox offsets come from. Null until
+// both the container and the image have real dimensions.
 const imageRect = computed(() => {
     const nat = natural.value
     if (!containerW.value || !containerH.value || !nat?.w || !nat?.h) return null
-    const scale = Math.min(containerW.value / nat.w, containerH.value / nat.h, 1)
+    const fit = Math.min(containerW.value / nat.w, containerH.value / nat.h)
+    const scale = props.fill ? fit : Math.min(fit, 1)
     const width = nat.w * scale
     const height = nat.h * scale
     return {
@@ -78,16 +96,61 @@ const boxStyle = (box: DetectionBox) => ({
 
 <template>
     <div class="tw:flex tw:flex-col">
+        <!--
+            `fill` also changes who decides the height. Without it the box is a fixed band the image
+            is fitted into, which is what the grading page and the desktop viewer want. With it the
+            box takes the image's own height, so there is no letterbox to fit inside at all - the
+            picture ends where the picture ends.
+
+            That also makes the overlay arithmetic exact rather than merely correct: container and
+            image are the same rectangle, so the scale is 1 and the offsets are 0.
+
+            No max-height. A cap was tried, to guarantee the results card sits above the fold on a
+            short viewport, and it made the picture smaller everywhere to serve the smallest screen -
+            the sheet scrolls and says so, which is the cheaper answer.
+        -->
         <div
             ref="container"
-            class="tw:relative tw:flex-1 tw:min-h-0 tw:bg-slate-950 tw:rounded-md tw:overflow-hidden tw:flex tw:items-center tw:justify-center"
+            class="tw:relative tw:bg-slate-950 tw:overflow-hidden"
+            :class="
+                fill
+                    ? 'tw:w-full'
+                    : 'tw:flex tw:min-h-0 tw:flex-1 tw:items-center tw:justify-center tw:rounded-md'
+            "
         >
             <img
                 :src="src"
                 alt="Submitted image"
-                class="tw:w-full tw:h-full tw:object-scale-down tw:items-center tw:justify-center tw:select-none"
+                class="tw:w-full tw:select-none"
+                :class="
+                    fill
+                        ? 'tw:block tw:h-auto'
+                        : 'tw:h-full tw:items-center tw:justify-center tw:object-scale-down'
+                "
                 @load="onImgLoad"
             />
+
+            <!--
+                Softens the cut where the picture meets the result sheet. The sheet sits flush
+                against the image, and a photograph sliced off by a straight white edge reads as
+                cropped by accident; fading the last strip lets it settle into the panel instead.
+
+                All the way to opaque black at the bottom edge, over 128px. At 80px and 55% the fade
+                was there in the markup and not on screen: the last row of pixels was still more than
+                half picture, so the white sheet met a photograph mid-tone and the join stayed as hard
+                as it had been. Reaching black means the sheet's rounded corners sit on the page's own
+                black rather than on a slice of somebody's slide, which is what makes it read as a
+                panel lifted over the image instead of a lid dropped on it.
+
+                Only in `fill` mode - that is the phone's results viewer, the one place a sheet butts
+                straight onto the image. Above the overlay in the stacking order would hide boxes, so
+                it sits under it: a box near the bottom edge stays legible over the fade.
+            -->
+            <div
+                v-if="fill"
+                aria-hidden="true"
+                class="tw:pointer-events-none tw:absolute tw:inset-x-0 tw:bottom-0 tw:h-32 tw:bg-linear-to-t tw:from-black tw:via-black/45 tw:to-transparent"
+            ></div>
 
             <!-- Sized to the rendered image, not the container, so normalized coordinates land
                  on the picture and not in the letterbox margins. -->

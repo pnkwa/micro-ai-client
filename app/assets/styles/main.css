@@ -345,7 +345,7 @@
 
 /*
  * Scroll lock, applied by a page that is meant to fill the screen exactly and never scroll
- * (currently the image-detection scanner on a phone, via useHead's htmlAttrs).
+ * (currently the image-detection scanner on a phone).
  *
  * Sizing alone was not enough on iOS. Two things still exposed the pale page background under the
  * black viewer:
@@ -365,4 +365,94 @@ html.mc-scroll-lock body {
     overflow: hidden;
     overscroll-behavior: none;
     background-color: #000;
+}
+
+/**
+ * Slide a full-screen panel up from the bottom edge.
+ *
+ * The shadcn sheet and dialog components ship `animate-in` / `slide-in-from-bottom` utilities, but
+ * this project has neither `tw-animate-css` nor `tailwindcss-animate` installed and defines no
+ * keyframes, so every one of those classes is inert - the overlays have always appeared instantly.
+ * Rather than pull the plugin in and quietly set every dropdown, tooltip and dialog in the app
+ * animating at once, this is the one animation actually asked for, applied where it is wanted.
+ *
+ * Keyed off the `data-state` reka-ui already writes, so the close half plays too: the library's
+ * presence handling waits for `animationend` before unmounting, which is why an out animation is
+ * worth defining rather than letting the panel vanish.
+ *
+ * The easing is the standard sheet curve - fast off the mark, settling gently - and the exit is
+ * quicker than the entrance, because a panel you have dismissed should not keep you waiting.
+ */
+@keyframes mc-slide-up-in {
+    from {
+        transform: translateY(100%);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+@keyframes mc-slide-up-out {
+    from {
+        transform: translateY(0);
+    }
+    to {
+        transform: translateY(100%);
+    }
+}
+
+.mc-slide-up[data-state='open'] {
+    animation: mc-slide-up-in 320ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mc-slide-up[data-state='closed'] {
+    animation: mc-slide-up-out 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Motion is a preference, not a decoration. Honouring it here keeps the panel instant rather than
+   removing it - the state change still has to happen. */
+@media (prefers-reduced-motion: reduce) {
+    .mc-slide-up[data-state='open'],
+    .mc-slide-up[data-state='closed'] {
+        animation: none;
+    }
+}
+
+/**
+ * Take the sidebar trigger out of the app bar so a page can own it.
+ *
+ * `/image-detection` sets this while a photo is staged: its own actions - Retake, history, the run
+ * button - are in that bar, and the app's navigation toggle sitting between them interleaved shell
+ * controls with page controls. The sidebar is still reachable from every other screen.
+ *
+ * Same shape as mc-scroll-lock: a class on <html>, an attribute on the element, and the page that
+ * sets it removes it in onBeforeUnmount.
+ */
+html.mc-hide-sidebar-trigger [data-mc-sidebar-trigger] {
+    display: none;
+}
+
+/*
+ * Let a full-screen page out of the app container's max-width.
+ *
+ * The layout wraps every page in `container mx-auto p-4`. A page that wants to run edge to edge
+ * cancels the padding with negative margins, which is all a phone needs: below 640px `container` is
+ * simply width:100%. From 768px up it starts capping - 768px on an iPad's 820px viewport - and the
+ * cap is a max-width on an ANCESTOR, which no negative margin on the child can undo. The result was
+ * a black scanner with a 26px white stripe of #f9f9f9 down each side on a tablet.
+ *
+ * Removing the cap rather than bleeding the child out with `100vw` and negative margins: vw counts
+ * the classic scrollbar, so on a desktop window in this same range the bleed would overhang by the
+ * scrollbar's width and turn into a horizontal scroll. There is nothing to overhang if the box is
+ * simply allowed to be as wide as its parent.
+ *
+ * Gated below lg in CSS rather than by toggling the class on a media query, so the page can set it
+ * once for its lifetime and a rotation across the breakpoint needs no JS to keep up. Same shape as
+ * mc-scroll-lock otherwise: a class on <html>, an attribute on the element, removed in
+ * onBeforeUnmount.
+ */
+@media (width < 1024px) {
+    html.mc-full-bleed [data-mc-page-container] {
+        max-width: none;
+    }
 }
