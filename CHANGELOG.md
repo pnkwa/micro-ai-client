@@ -32,6 +32,157 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
 
 ---
 
+## [Unreleased]
+
+The phone half of `/image-detection`, worked through against a real iPhone. Desktop is untouched
+throughout — every rule below is gated on `lg`. The shape of it is **FE-ADR-010**.
+
+### Added
+
+- **A 1:1 crop in the staged preview.** The preview *is* the cropper: drag to pan, pinch or ctrl+wheel to
+  zoom inside a fixed square window, and what is framed is what gets analysed. New
+  `McImageCropper` plus `app/core/composables/imageCrop.ts` — `coverScale`, `clampOffset`, `cropRect`,
+  `isUntouched` — pure and DOM-free, with 15 tests including an exhaustive sweep (3 aspect ratios × 4 zooms
+  × 25 pan positions) asserting the selected rect never leaves the image. An untouched square photo submits
+  the **original bytes**, so the common path re-encodes nothing.
+- **A zoom scrubber in the iOS idiom** — value above, 21 ticks with every fifth taller, filled behind the
+  thumb — drawn over a real `<input type="range">` that keeps the dragging, the keyboard and the accessible
+  name.
+- **Two slots in the app bar for page-level actions** (`SidebarMain`): `#mc-header-lead` and
+  `#mc-header-actions`, both empty and unconditional so a Teleport into either always finds a target. While a
+  photo is staged `/image-detection` fills them with **`‹ Retake`**, history and **`Start detection`** — one
+  line, iOS bar-button style, tinted text rather than fills. Nothing floats over the picture any more, and the
+  cropper's 56px top band went with the controls it existed to clear: the frame now starts directly under the
+  bar, inset equally on all four sides.
+- **A `compact` shape for `McDetectionModelPicker`** — an iOS grouped list under a `MODELS` header, rendered
+  inline on the staged screen. Changing model is one tap; the descriptions stay on the desktop workbench.
+- **A way back out of a result.** The results screen was a dead end on a phone: the bar carried history
+  and nothing else, so changing the model or taking another photo meant reloading the page. The leading slot
+  now holds **`‹ Back`** there, returning to the staged photo — which is where Retake and the model rows
+  already live, making a second opinion back-pick-run. One button with two destinations rather than a Retake
+  and a Change model crowded into the results bar, where the second only leads to the first.
+- **A history record loads its bytes, not just its picture**, so an old run is a re-runnable image: backing
+  out of it lands on the staged screen with Start detection live. Read back from the object URL already in
+  memory, and the record's own `source` is carried over so a re-run is recorded as what it is.
+- **`examWindow.ts`** — `isExamOpen` / `pickBlockingExam`, pure and hand-mirroring the server's
+  `src/detections/exam-window.ts` and its `studentHasOpenExam` join (inclusive bounds, null = unbounded, any
+  submission row counts as submitted), with 12 tests. Feeds `useBlockingExam`, which asks the two lists a
+  student can already read. Explanation only — the server still decides, and BE-ADR-012 records why a drift
+  here cannot unlock anything.
+- **Date and type filters on detection history**, both in the panel's controls row. Type is the detected
+  class (a `NO_FINDINGS` sentinel covers runs that found nothing); date is a set of quick ranges resolved over
+  whole *local* days, so "Today" means the user's today. `historyClassOptions` lists only classes that
+  actually appear, the count reads "8 of 24 shown" whenever a filter is narrowing, and **Clear** appears only
+  when there is something to clear. Filters and matching live in `core/helpers/detectionHistory.ts`
+  (`historyClassLabel`, `withinDateRange`, `filterHistory`) with 18 new tests.
+- **The model that produced a result is named on the result** — in the desktop Display block and, on a phone,
+  in the results sheet, from the manifest's display name rather than the raw id. A record loaded out of
+  history was otherwise indistinguishable from one run under whatever model happens to be selected now.
+- **A `fill` mode for `McAnnotatedImage`**: the image sizes itself and the box takes its height, so the
+  results sheet sits flush against the picture with a gradient softening the join.
+
+### Changed
+
+- **The history panel stopped downloading the whole history as pictures** (client side of **BE-ADR-026**,
+  server v0.11.0-rc.1). It opened by fetching a full-resolution microscopy frame *per row, all at once*, and
+  held the spinner until the slowest resolved — several hundred multi-MB downloads to fill a 48px slot. Rows
+  now fetch the server's cached 256px variant (`?size=thumb`, ~20 KB) **as they scroll into view**, through
+  one `IntersectionObserver` rooted on the list, and the spinner clears when the *metadata* arrives. The
+  `ETag` + `immutable` headers that shipped with it mean a remount costs nothing on the wire.
+- **The History badge counts without downloading anything.** `refreshHistoryCount` fetched the entire
+  history — every step and every polygon of every run — and read `.length`; it now asks for one row and reads
+  the `total` beside it. A server that predates the paging params answers with the bare list, which is itself
+  the answer and is counted in place, so it stays one request against either version.
+- **Deliberately NOT paged, though the server now offers it.** The panel's class and date filters, and the
+  class dropdown's own options, are computed over the loaded rows; with no filter params on the endpoint,
+  paging would quietly turn "All classes" into "classes on this page" and let a date filter hide rows that
+  exist — the failure `classService.getStudents` warns about in its own docblock. Bounding the images gets
+  the cost that actually hurts without touching what the filters mean. Paging stays available if the list
+  JSON itself becomes the bottleneck.
+- **A blocked student is told which exam is blocking them, on the first screen.** The availability check
+  already ran on arrival and greyed the nav item out correctly, but nothing on screen said *why* unless you
+  hovered the padlock — so the way to find out was to go and open the exam, which is also the way to fix it.
+  The home page now carries a notice naming the exam, its closing time and a **Go to exam** button; the
+  detection page's wall names it too and its primary action goes straight there instead of to the class list.
+  Two requests, only for a student who is actually blocked (`GET /exams` + `GET /submissions`, shared state,
+  15s throttle); staff issue none, and a student with nothing open issues none either.
+- **The home page's Image Detection tile locks with the sidebar item** (padlock, "Locked during your exam").
+  It was bright and clickable next to a padlocked menu entry, and it led to a page that turns the student
+  away — the one screen in the app that contradicted the rule it was enforcing.
+- **The full-bleed viewfinder is a centred square** rather than the whole stage. Filling a 390×796 screen
+  made `object-cover` scale a 640×480 camera up 1.66×, so the square the shutter kept was ~235 source pixels.
+  Sized as a square the crop keeps **480×480** — the sensor's full height, no enlargement, twice the detail
+  for the detector. Its width is capped at `100cqh` from a `container-type: size` row, so it shrinks instead
+  of overflowing on a short screen.
+- **The captured file carries the preview's mirror.** A front camera's preview is mirrored by convention;
+  the file now matches it, so the frame you aimed with is the frame you get.
+- **The staged screen is a single column in normal flow** — picture, zoom, then the model list — with the
+  spare height split 2:1 above and below the list, so it sits low where a thumb is without touching the edge.
+  The run button was previously floated over the stage's bottom edge, where it landed on top of the zoom
+  scrubber once the cropper grew one; absolutely-positioned controls over a picture that can now be dragged
+  turned out to be the wrong idea twice over.
+- **The run button is a bar button on a phone at every height**, not a pill in the page. Reordering it inside
+  the layout was tried both ways — under the model rows it fell off the bottom of a 700pt screen, above the
+  picture it took a row from the thing being framed — and a toolbar of its own read as a second header while
+  costing 48px. The bar is the only place that costs no content height, and it stops the action moving as the
+  phone rotates. Desktop keeps the block button in its controls column.
+- **The scroll lock no longer applies over a staged image** — that screen is taller than a short viewport,
+  and locking it stranded the last control with no way to reach it.
+- **The results sheet sits flush against the image** (overlapping its lower edge), and the detection guide
+  overlays are gone: no legend row, no camera corner brackets, no crop frame.
+- **Wording**: the run button reads **Start detection** / **Detecting…** rather than repeating the page name;
+  the results sheet's scroll control reads **Show more** / **Back to top**.
+- **Model labels put the descriptor in brackets** — `RT-DETR-L (5-class detector)`, from the manifest's
+  `RT-DETR-L — 5-class detector`. A middle dot was tried first and read as two equal halves of one long
+  label, when the name is what you are choosing between and the rest says what it does. A chained
+  segmentation pass goes inside the brackets with it (`RT-DETR-L (5-class detector + segmentation)`), and the
+  compact rows now ellipsize: the grouped list is ~40px short of the longest label at 393px, and clipping it
+  mid-word left the bracket open, which reads as broken rather than as shortened.
+
+### Fixed
+
+- **Detection boxes drew against the wrong picture after a crop.** Coordinates come back normalised to what
+  was *sent*, and the viewer was still showing the uncropped original — every box plausibly but wrongly
+  placed. The viewer now swaps to the submitted crop.
+- **The zoom control read 3.7× while the picture sat at 1×.** `:value` was bound before `:min`/`:max`, and a
+  range input clamps and step-snaps against the range it has *at that moment*.
+- **Nothing in the app had ever animated.** There is no `tw-animate-css` or `tailwindcss-animate` dependency
+  and no keyframes, so every `animate-in` / `slide-in-from-bottom` class the sheet and dialog components ship
+  was inert. Added `.mc-slide-up` in `main.css` for the one animation wanted — 320ms in, 240ms out, honouring
+  `prefers-reduced-motion` — rather than pulling in the plugin and setting every overlay in the app moving.
+- **The fade where the picture meets the results sheet was in the markup and not on screen.** At 80px and
+  55% the last row of pixels was still more than half photograph, so a white sheet met a mid-tone and the join
+  stayed as hard as it had been without it. It now reaches opaque black over 128px, which also puts the
+  sheet's rounded corners on the page's own black instead of on a slice of somebody's slide.
+- **A 40px black band under the results image**: the emptied run slot was still laid out with its padding.
+- **White stripes down both sides of the scanner on a tablet.** The layout's `container` caps a page at
+  768px from `md` up, so on an iPad Air's 820px viewport the black surface stopped 26px short of each edge and
+  the app's `#f9f9f9` showed through. The page's negative margins cancel the container's padding but cannot
+  undo a max-width on an ancestor, so the layout now offers `data-mc-page-container` and the page drops the
+  cap below `lg` (`html.mc-full-bleed`). Not a `100vw` bleed: vw counts the classic scrollbar, which would
+  overhang into a horizontal scroll on a desktop window of the same width.
+- **The staged screen's black wrapper was a fixed `100dvh-3rem`**, so on a short phone the button row hung
+  below it onto the page's pale background. It is a minimum in that state.
+- **The header and filters scrolled away** in the history panel; only the list scrolls now, so the close
+  button stays reachable.
+- **The `100cqh` in the old capture scrim resolved against nothing** — no ancestor set `container-type`.
+
+### Removed
+
+- The full-width **detection history panel at the foot of the page**; history is a full-screen overlay from
+  the header button on every viewport — a bottom sheet on a phone, a modal on desktop.
+- The **model chip and its settings sheet** from the staged screen, replaced by the inline picker.
+- The **breadcrumb on `/image-detection`** (`setBreadcrumbs([])`). It read "Image Detection", which is the one
+  thing that bar does not need to say once it carries Retake, history and the run action — and at 393px the
+  trail was truncating to "Image D…" to make room for them. Desktop still has the page's own `h1`.
+- The **sidebar toggle, for as long as a photo is on screen** — staged or analysed
+  (`html.mc-hide-sidebar-trigger` + `data-mc-sidebar-trigger`). Shell navigation sitting between Retake and
+  Start detection read as one row of unrelated controls, and `‹ Back ☰` in the results bar is the same
+  interleaving. Navigation is one step away either way (back, then Retake), and the camera and the empty
+  chooser — the flow's root — both keep the toggle, as does every other route.
+
+---
+
 ## [0.7.0] — 2026-08-17
 
 `/image-detection` becomes usable on the device the slides are actually photographed with. On a
