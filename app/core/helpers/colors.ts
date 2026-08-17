@@ -5,7 +5,7 @@ export interface LabelColor {
     dot: string
 }
 
-// Deterministic label -> palette entry, shared by McAnnotatedImage's box/legend colors and
+// Deterministic label -> palette entry, shared by McAnnotatedImage's box colors and
 // McConfidenceBar's card colors: a fixed label ('BV', 'fungus', ...) always gets the same
 // color across both components, not just within one.
 const PALETTE: LabelColor[] = [

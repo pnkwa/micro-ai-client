@@ -758,25 +758,19 @@ onUnmounted(() => {
                             <template v-else-if="mode === 'preview' && hasResults">
                                 <McAnnotatedImage
                                     :src="imageUrl!"
-                                    :legend="!isCompact"
                                     class="tw:absolute tw:inset-0 tw:h-full tw:w-full"
                                 />
                             </template>
 
                             <!--
-                            Mirrors McAnnotatedImage's own layout: image area above, a bar of the
-                            same height below. Without the spacer the annotated view is shorter by
-                            its legend, so the picture visibly shrinks the moment results land -
-                            the same photo at two sizes depending on whether it has been analyzed.
-
-                            object-scale-down, not object-contain, for the same reason: contain
-                            scales a small image up to fill, scale-down leaves it at natural size.
-                            McAnnotatedImage uses scale-down because its box overlay is positioned
-                            against the drawn rect, so the preview has to agree or an image smaller
-                            than the viewer jumps size too.
+                            object-scale-down, not object-contain: contain scales a small image up
+                            to fill, scale-down leaves it at natural size. McAnnotatedImage uses
+                            scale-down because its box overlay is positioned against the drawn rect,
+                            so the preview has to agree or an image smaller than the viewer jumps
+                            size the moment results land.
                         -->
                             <template v-else-if="mode === 'preview'">
-                                <div class="tw:absolute tw:inset-0 tw:flex tw:flex-col tw:gap-2">
+                                <div class="tw:absolute tw:inset-0 tw:flex tw:flex-col">
                                     <div
                                         class="tw:relative tw:flex tw:min-h-0 tw:flex-1 tw:items-center tw:justify-center tw:overflow-hidden tw:rounded-none tw:bg-black tw:lg:rounded-md"
                                     >
@@ -818,21 +812,6 @@ onUnmounted(() => {
                                                 </span>
                                             </div>
                                         </Transition>
-                                    </div>
-
-                                    <!-- Same height as McAnnotatedImage's legend row, and the same
-                                     wording it shows with no steps, so only the content changes.
-
-                                     Desktop only: on a phone the run button sits over this corner,
-                                     and its own caption already says the image is unanalyzed. -->
-                                    <div
-                                        class="tw:hidden tw:h-12 tw:items-center tw:px-3 tw:lg:flex tw:lg:h-9"
-                                    >
-                                        <p
-                                            class="tw:text-[11px] tw:text-white/40 tw:lg:text-navy-40"
-                                        >
-                                            Not analyzed.
-                                        </p>
                                     </div>
                                 </div>
                             </template>

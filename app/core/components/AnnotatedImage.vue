@@ -9,20 +9,9 @@ import { useDetectionFilters } from '~/core/composables/detectionFilters'
  * rendered in a different part of the page's layout: both callers put them in a
  * right-hand panel, away from the image.
  */
-const props = withDefaults(
-    defineProps<{
-        src: string
-        /**
-         * The row under the picture: which classes are drawn, and how many boxes the filters are
-         * showing. Off for a caller that has no room for it - the detection page on a phone, where
-         * the image is the screen and the same counts are in the results below it.
-         */
-        legend?: boolean
-    }>(),
-    { legend: true },
-)
+const props = defineProps<{ src: string }>()
 
-const { steps, visibleBoxes, shownableBoxCount } = useDetectionFilters()
+const { visibleBoxes } = useDetectionFilters()
 
 // Box coordinates are normalized to the ORIGINAL image, but the image is letterboxed inside
 // this fixed-height box by object-scale-down, so drawing over the whole container throws the
@@ -76,8 +65,6 @@ const overlayStyle = computed(() => {
 const polygonBoxes = computed(() => visibleBoxes.value.filter((b) => b.polygon?.length))
 const rectBoxes = computed(() => visibleBoxes.value.filter((b) => !b.polygon?.length))
 
-const distinctLabels = computed(() => [...new Set(visibleBoxes.value.map((b) => b.label))])
-
 const polygonPoints = (box: DetectionBox): string =>
     (box.polygon ?? []).map(([x, y]) => `${(x ?? 0) * 100},${(y ?? 0) * 100}`).join(' ')
 
@@ -90,7 +77,7 @@ const boxStyle = (box: DetectionBox) => ({
 </script>
 
 <template>
-    <div class="tw:flex tw:flex-col tw:gap-2">
+    <div class="tw:flex tw:flex-col">
         <div
             ref="container"
             class="tw:relative tw:flex-1 tw:min-h-0 tw:bg-slate-950 tw:rounded-md tw:overflow-hidden tw:flex tw:items-center tw:justify-center"
@@ -151,53 +138,6 @@ const boxStyle = (box: DetectionBox) => ({
                     </span>
                 </div>
             </div>
-        </div>
-
-        <!-- FIXED height, not min-height: the image above is flex-1, so any change in this
-             row's height resizes it and the layout jumps. A fixed box stays put no matter what
-             text lands here (legend, the wrapped "below threshold" message, the count) — content
-             is vertically centred and anything taller is clipped rather than pushing the box.
-             Two lines' worth on narrow widths where the message wraps; one line at lg. -->
-        <div
-            v-if="legend"
-            class="tw:flex tw:h-12 tw:lg:h-9 tw:items-center tw:justify-between tw:gap-3 tw:overflow-hidden tw:px-3"
-        >
-            <div
-                v-if="distinctLabels.length"
-                class="tw:flex tw:flex-wrap tw:gap-3 tw:text-[11px] tw:text-navy-60"
-            >
-                <span
-                    v-for="label in distinctLabels"
-                    :key="label"
-                    class="tw:flex tw:items-center tw:gap-1.5"
-                >
-                    <span
-                        class="tw:inline-block tw:size-2.5 tw:rounded-sm"
-                        :class="colorForLabel(label).dot"
-                    ></span>
-                    {{ label }}
-                </span>
-            </div>
-            <!-- Distinguish "the model found nothing" from "you filtered everything out":
-                 both looked like the same generic message, which read as a layout glitch
-                 when raising the confidence slider silently swapped one for the other. -->
-            <p v-else-if="shownableBoxCount > 0" class="tw:text-[11px] tw:text-navy-40">
-                All elements are below the confidence threshold.
-            </p>
-            <!-- "detected nothing" and "nothing has run" are not the same claim, and saying
-                 the first when no model ever ran sends a grader looking for a fault in the
-                 image. Steps, not boxes: a model that ran and found nothing still has one. -->
-            <p v-else-if="steps.length" class="tw:text-[11px] tw:text-navy-40">
-                No elements detected.
-            </p>
-            <p v-else class="tw:text-[11px] tw:text-navy-40">Not analyzed.</p>
-
-            <p
-                v-if="shownableBoxCount > 0"
-                class="tw:shrink-0 tw:text-[11px] tw:text-navy-40 tw:tabular-nums"
-            >
-                {{ visibleBoxes.length }} / {{ shownableBoxCount }} shown
-            </p>
         </div>
     </div>
 </template>
