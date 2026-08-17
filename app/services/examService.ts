@@ -38,6 +38,17 @@ export interface CreateExamInput {
 export type UpdateExamInput = Partial<Omit<CreateExamInput, 'classId'>>
 
 export const examService = {
+    /**
+     * Every exam the caller can see, across classes — for a student that is their enrolled classes'
+     * exams, scoped by the API. Used to name the exam that is withholding the AI tool, which is a
+     * question about the student and not about one class.
+     */
+    async listMine(): Promise<ExamListItem[]> {
+        const { $api } = useNuxtApp()
+        const response = await $api(examRoutes.list)
+        return z.array(examListItemSchema).parse(response)
+    },
+
     async listByClass(classId: number): Promise<ExamListItem[]> {
         const { $api } = useNuxtApp()
         const response = await $api(`${examRoutes.list}?class_id=${classId}`)
