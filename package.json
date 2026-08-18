@@ -18,6 +18,11 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "typecheck": "nuxt typecheck",
+        "//release": "GitHub Releases mirrored from CHANGELOG.md (FE-ADR-009). release:check reports drift and exits non-zero; release:backfill publishes every tag that has none yet.",
+        "release:notes": "bash scripts/gh-release.sh notes",
+        "release:publish": "bash scripts/gh-release.sh publish",
+        "release:backfill": "bash scripts/gh-release.sh backfill",
+        "release:check": "bash scripts/gh-release.sh check",
         "prepare": "husky"
     },
     "dependencies": {

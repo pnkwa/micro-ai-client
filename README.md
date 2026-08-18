@@ -46,6 +46,8 @@ pages seem publicly reachable, check that first.
 | `pnpm typecheck` | `nuxt typecheck` |
 | `pnpm test` | vitest, for the pure helpers |
 | `pnpm lint:fix` | prettier then eslint |
+| `pnpm release:publish vX.Y.Z` | mirror a tag onto GitHub Releases from `CHANGELOG.md` |
+| `pnpm release:check` | report tags with no release, lightweight tags, missing changelog sections |
 
 Husky runs commitlint (conventional commits) and lint-staged on commit and push.
 
@@ -82,6 +84,31 @@ against, as documentation rather than an enforced pairing.
 
 `package.json`'s `version` is baked into `runtimeConfig.public.appVersion` at build time and shown in
 the admin console's About panel, so a release bump is the only place it needs changing.
+
+### Cutting a release
+
+1. Write the version's section in `CHANGELOG.md` — including the **Compatibility** notes naming the
+   `micro-ai-server` version it was built against.
+2. Bump `version` in `package.json`, commit both as `chore(release): vX.Y.Z — CHANGELOG and version bump`.
+3. **Tag it annotated** — `git tag -a vX.Y.Z` — with a subject line reading
+   `micro-ai-client vX.Y.Z — <what it is>` and a short body. The subject becomes the GitHub release
+   title, so it is worth a sentence's thought. Lightweight tags are a defect here, not a shortcut.
+4. `git push origin vX.Y.Z`, then `pnpm release:publish vX.Y.Z`.
+
+`pnpm release:check` reports drift — a tag with no GitHub release, a lightweight tag, a tag with no
+changelog section — and exits non-zero, so it can be run before a coordinated superproject release.
+
+### GitHub Releases
+
+The tag is the record; `scripts/gh-release.sh` mirrors it onto the repo's Releases page so a reader
+landing there sees what `CHANGELOG.md` says instead of a bare tag list. The body is that version's
+changelog section verbatim, the title is the annotated tag's subject, and `-rc.N` tags are published
+as **pre-releases** so "Latest" always points at a real one. Re-running it on an existing release
+updates that release rather than adding another, so a corrected changelog entry can be pushed out
+with `pnpm release:publish vX.Y.Z` again.
+
+Everything below `0.6.0-rc.1` was reconstructed from git history (FE-ADR-009); those releases carry a
+note saying so.
 
 ## Known state
 
