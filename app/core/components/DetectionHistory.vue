@@ -1,19 +1,15 @@
 <script setup lang="ts">
-import { History, Loader2, RefreshCw, User } from '@lucide/vue'
+import { History, Loader2, RefreshCw } from '@lucide/vue'
 import {
     detectionService,
     type DetectionRecord,
     type DetectionWithSubmitter,
 } from '~/services/detectionService'
 import {
-    boxCount,
     canBrowseAllDetections,
     filterHistory,
-    formatHistoryDate,
     historyClassOptions,
-    recordClasses,
     sortNewestFirst,
-    submitterName,
     type HistoryDateRange,
     type HistoryRecord,
     type HistoryScope,
@@ -64,8 +60,8 @@ const revokeThumbnails = () => {
     thumbnails.value = {}
 }
 
-// In flight as well as done: a row can be observed again (a filter change remounts the element)
-// before its first fetch has resolved, and without this that is a second request for the same image.
+// In flight as well as done: a row that scrolls out and back, or is remounted by a filter change,
+// announces itself again - and without this that is a second request for the same image.
 const pending = new Set<number>()
 
 const loadThumbnail = async (id: number) => {
@@ -81,52 +77,18 @@ const loadThumbnail = async (id: number) => {
 }
 
 /**
- * Rows fetch their own thumbnail as they come into view.
+ * Rows fetch their own thumbnail as they come into view (`McDetectionHistoryRow` owns the observing;
+ * this owns the cache and the fetching).
  *
  * The panel used to fetch every row's image at once and await all of them before clearing the
  * spinner, so opening it cost the whole history — on a few hundred rows that is hundreds of
  * concurrent full-resolution downloads for a list you can see eight rows of. Now the list appears as
  * soon as the metadata arrives and the images follow the scroll.
  *
- * One observer, rooted on the `<ul>` because that is the scroll container (the panel deliberately
- * scrolls only the list). `unobserve` on the first hit: a thumbnail is fetched once and then cached
- * in the map, so there is nothing to watch for afterwards.
- *
- * Created lazily and torn down with the component: the `<ul>` is behind a `v-if`, so it does not
- * exist to be a root until there is something to show.
+ * The `<ul>` is handed down as the observer root because it is the scroll container: the panel
+ * deliberately scrolls only the list, so the viewport is not what clips a row.
  */
 const listEl = useTemplateRef<HTMLElement>('list')
-let observer: IntersectionObserver | null = null
-
-const rowObserver = () => {
-    if (observer) return observer
-    if (!listEl.value) return null
-    observer = new IntersectionObserver(
-        (entries) => {
-            for (const entry of entries) {
-                if (!entry.isIntersecting) continue
-                const id = Number((entry.target as HTMLElement).dataset.detectionId)
-                observer?.unobserve(entry.target)
-                if (id) void loadThumbnail(id)
-            }
-        },
-        // A screen's worth of lead, so a row is fetched shortly before it is looked at rather than
-        // after — at 20 KB a row the cost of being early is negligible.
-        { root: listEl.value, rootMargin: '200px' },
-    )
-    return observer
-}
-
-/**
- * A function ref, so rows register and deregister themselves as the filters change what is
- * rendered. Vue calls it with the element on mount and with null on unmount.
- */
-const observeRow = (el: Element | ComponentPublicInstance | null, id: number) => {
-    if (!(el instanceof HTMLElement)) return
-    if (thumbnails.value[id]) return
-    el.dataset.detectionId = String(id)
-    rowObserver()?.observe(el)
-}
 
 const load = async () => {
     isLoading.value = true
@@ -213,11 +175,8 @@ const setScope = (next: HistoryScope) => {
 defineExpose({ refresh: load })
 
 onMounted(load)
-onUnmounted(() => {
-    observer?.disconnect()
-    observer = null
-    revokeThumbnails()
-})
+// Only the object URLs: the observer disposes itself with the component's effect scope.
+onUnmounted(revokeThumbnails)
 </script>
 
 <template>
@@ -356,56 +315,16 @@ onUnmounted(() => {
             ref="list"
             class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:divide-y tw:divide-slate-100 tw:overflow-y-auto"
         >
-            <!-- Each row registers itself with the observer above, which is what makes its
-                 thumbnail load when it is scrolled to rather than on open. -->
-            <li
+            <McDetectionHistoryRow
                 v-for="record in visibleRecords"
                 :key="record.id"
-                :ref="(el) => observeRow(el, record.id)"
-            >
-                <!-- A row, not a card. Each one used to be a bordered white box, which on a
-                     full-screen panel drew a 1392px frame around a line of text - the border was
-                     doing separation work that a divider does with less ink. The loaded record is
-                     marked by a tint and a left edge instead of a full outline. -->
-                <button
-                    type="button"
-                    class="tw:flex tw:w-full tw:cursor-pointer tw:items-center tw:gap-3 tw:border-l-2 tw:p-2 tw:text-left tw:transition-colors"
-                    :class="
-                        record.id === props.activeId
-                            ? 'tw:border-l-primary tw:bg-primary/5'
-                            : 'tw:border-l-transparent hover:tw:bg-slate-50'
-                    "
-                    @click="emit('select', record)"
-                >
-                    <img
-                        v-if="thumbnails[record.id]"
-                        :src="thumbnails[record.id]"
-                        alt=""
-                        class="tw:w-12 tw:h-12 tw:rounded-lg tw:object-cover tw:shrink-0 tw:bg-slate-100"
-                    />
-                    <span
-                        v-else
-                        class="tw:w-12 tw:h-12 tw:rounded-lg tw:bg-slate-100 tw:shrink-0"
-                    ></span>
-
-                    <span class="tw:flex tw:flex-col tw:min-w-0 tw:gap-0.5">
-                        <span class="tw:text-xs tw:font-semibold tw:text-slate-700 tw:truncate">
-                            {{ recordClasses(record).join(', ') || 'No findings' }}
-                        </span>
-                        <span class="tw:text-[11px] tw:text-slate-400 tw:truncate">
-                            {{ formatHistoryDate(record.created_at) }} ·
-                            {{ boxCount(record) }} box{{ boxCount(record) === 1 ? '' : 'es' }}
-                        </span>
-                        <span
-                            v-if="submitterName(record)"
-                            class="tw:flex tw:items-center tw:gap-1 tw:text-[11px] tw:text-slate-500 tw:truncate"
-                        >
-                            <User class="tw:w-3 tw:h-3 tw:shrink-0" />
-                            {{ submitterName(record) }}
-                        </span>
-                    </span>
-                </button>
-            </li>
+                :record="record"
+                :root="listEl"
+                :thumbnail="thumbnails[record.id]"
+                :active="record.id === props.activeId"
+                @visible="loadThumbnail(record.id)"
+                @select="emit('select', record)"
+            />
         </ul>
     </div>
 </template>

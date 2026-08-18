@@ -86,8 +86,11 @@ throughout — every rule below is gated on `lg`. The shape of it is **FE-ADR-01
 - **The history panel stopped downloading the whole history as pictures** (client side of **BE-ADR-026**,
   server v0.11.0-rc.1). It opened by fetching a full-resolution microscopy frame *per row, all at once*, and
   held the spinner until the slowest resolved — several hundred multi-MB downloads to fill a 48px slot. Rows
-  now fetch the server's cached 256px variant (`?size=thumb`, ~20 KB) **as they scroll into view**, through
-  one `IntersectionObserver` rooted on the list, and the spinner clears when the *metadata* arrives. The
+  now fetch the server's cached 256px variant (`?size=thumb`, ~20 KB) **as they scroll into view** — each
+  row observing itself (`McDetectionHistoryRow`) against the scrolling list as its root — and the spinner
+  clears when the *metadata* arrives. A row per observer rather than one over a `v-for` ref array, because
+  Vue mutates that array in place: a single observer kept targeting the `<li>`s that were detached the last
+  time the panel reloaded, and every row after a Refresh stayed blank. The
   `ETag` + `immutable` headers that shipped with it mean a remount costs nothing on the wire.
 - **The History badge counts without downloading anything.** `refreshHistoryCount` fetched the entire
   history — every step and every polygon of every run — and read `.length`; it now asks for one row and reads
