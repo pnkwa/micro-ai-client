@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { until } from '@vueuse/core'
 import { clampOffset, coverScale, cropRect, isUntouched } from '~/core/composables/imageCrop'
 
 /**
@@ -24,7 +25,21 @@ const emit = defineEmits<{ change: [] }>()
 const frame = useTemplateRef<HTMLElement>('frame')
 const img = useTemplateRef<HTMLImageElement>('img')
 
-const natural = ref({ w: 0, h: 0 })
+/**
+ * The source's decoded size, TOGETHER WITH the src it was measured from.
+ *
+ * Keyed rather than reset: a new picture invalidates the old measurement by derivation, so there is
+ * no instant where `src` has moved on and `natural` still describes the last image. That used to be
+ * a watcher whose whole job was to zero this out - state that has to be corrected after the fact is
+ * the thing worth removing, not the line that does the correcting.
+ */
+const measured = ref<{ src: string; w: number; h: number } | null>(null)
+
+const natural = computed(() =>
+    measured.value?.src === props.src
+        ? { w: measured.value.w, h: measured.value.h }
+        : { w: 0, h: 0 },
+)
 const size = ref(0)
 const scale = ref(1)
 const offset = ref({ x: 0, y: 0 })
@@ -43,6 +58,16 @@ const zoomPct = computed(() => {
 
 /** Odd, so one tick lands dead centre. */
 const TICKS = 21
+
+/**
+ * Has the picture measured yet?
+ *
+ * Everything here is derived from the source's natural size, so until the `<img>` has decoded there
+ * is no crop to compute - `cropRect` would be asked for a rectangle of a zero-sized image. A gallery
+ * pick on a phone is the case that bites: the file is staged, the run button is already live in the
+ * app bar, and a fast tap lands in the window before `load` fires.
+ */
+const ready = computed(() => natural.value.w > 0 && natural.value.h > 0 && size.value > 0)
 
 /** Nothing to pan and nothing worth zooming: an already-square image at rest. */
 const untouched = computed(() =>
@@ -64,7 +89,7 @@ const reset = () => {
 const onLoad = () => {
     const el = img.value
     if (!el) return
-    natural.value = { w: el.naturalWidth, h: el.naturalHeight }
+    measured.value = { src: props.src, w: el.naturalWidth, h: el.naturalHeight }
     measure()
     reset()
 }
@@ -75,14 +100,6 @@ useEventListener(window, 'resize', () => {
     measure()
     setScale(scale.value)
 })
-
-// A new file is a new image: whatever was framed for the last one means nothing for this one.
-watch(
-    () => props.src,
-    () => {
-        natural.value = { w: 0, h: 0 }
-    },
-)
 
 const setScale = (next: number) => {
     scale.value = Math.min(maxScale.value, Math.max(minScale.value, next))
@@ -153,9 +170,16 @@ const onWheel = (e: WheelEvent) => {
  * Hands back the original File when nothing has been changed: re-encoding an untouched JPEG spends
  * quality to produce the same picture, and the detector reads whatever we send.
  */
-const toBlob = (source: File | Blob, fileName: string): Promise<File | Blob> => {
+const toBlob = async (source: File | Blob, fileName: string): Promise<File | Blob> => {
+    // WAIT for the picture to measure rather than reading `natural` and giving up on zero. Returning
+    // the source there looks like the harmless "nothing was changed" path and is not: for a
+    // non-square image it silently sends bytes that are not what the frame showed, so the boxes come
+    // back measured against a picture the user never saw. Bounded, because a decode that never
+    // finishes must not hang the run - and past the timeout the original is genuinely all we have.
+    await until(ready).toBe(true, { timeout: 5000, throwOnTimeout: false })
+
     const el = img.value
-    if (!el || !natural.value.w || untouched.value) return Promise.resolve(source)
+    if (!el || !ready.value || untouched.value) return source
 
     const { sx, sy, side } = cropRect(natural.value, size.value, {
         scale: scale.value,
@@ -175,7 +199,7 @@ const toBlob = (source: File | Blob, fileName: string): Promise<File | Blob> => 
     })
 }
 
-defineExpose({ toBlob, reset, untouched })
+defineExpose({ toBlob, reset, untouched, ready })
 </script>
 
 <template>
@@ -207,8 +231,14 @@ defineExpose({ toBlob, reset, untouched })
         >
             <!-- Centred first, then transformed: the offsets in imageCrop are measured from the
                  centred position, so the two have to agree about where zero is. -->
+            <!-- Keyed on the src: a different picture gets a NEW element, so its `load` is always
+                 dispatched to a handler that is already attached. Patching the src of a reused
+                 element is what leaves room for a decode to land before anyone is listening - and a
+                 missed `load` here is not a cosmetic miss, it is `natural` stuck at zero with a
+                 perfectly good picture on screen and no crop to compute from it. -->
             <img
                 ref="img"
+                :key="src"
                 :src="src"
                 alt="Microscope Image"
                 class="tw:absolute tw:top-1/2 tw:left-1/2 tw:max-w-none tw:origin-center"

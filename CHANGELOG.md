@@ -34,8 +34,9 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
 
 ## [Unreleased]
 
-The phone half of `/image-detection`, worked through against a real iPhone. Desktop is untouched
-throughout — every rule below is gated on `lg`. The shape of it is **FE-ADR-010**.
+The phone half of `/image-detection`, worked through against a real iPhone: every rule below is gated on
+`lg` unless it says otherwise, and the shape of it is **FE-ADR-010**. Two entries under Changed are the
+exception — the desktop workbench's viewer needed the same treatment once the phone one had it.
 
 ### Added
 
@@ -44,7 +45,9 @@ throughout — every rule below is gated on `lg`. The shape of it is **FE-ADR-01
   `McImageCropper` plus `app/core/composables/imageCrop.ts` — `coverScale`, `clampOffset`, `cropRect`,
   `isUntouched` — pure and DOM-free, with 15 tests including an exhaustive sweep (3 aspect ratios × 4 zooms
   × 25 pan positions) asserting the selected rect never leaves the image. An untouched square photo submits
-  the **original bytes**, so the common path re-encodes nothing.
+  the **original bytes**, so the common path re-encodes nothing — and the run waits for the picture to
+  measure, so a tap that beats the `<img>`'s `load` event cannot submit the uncropped original behind the
+  frame's back.
 - **A zoom scrubber in the iOS idiom** — value above, 21 ticks with every fifth taller, filled behind the
   thumb — drawn over a real `<input type="range">` that keeps the dragging, the keyboard and the accessible
   name.
@@ -102,6 +105,38 @@ throughout — every rule below is gated on `lg`. The shape of it is **FE-ADR-01
   exist — the failure `classService.getStudents` warns about in its own docblock. Bounding the images gets
   the cost that actually hurts without touching what the filters mean. Paging stays available if the list
   JSON itself becomes the bottleneck.
+- **Desktop: the viewer holds one shape from viewfinder to result.** Four sizes used to pass in front of you
+  on the way to an answer — a live square of 583px, a 480px capture painting at its natural size, an upload
+  filling the panel at 632, and the result at 632 again — because the picture area was the whole panel with
+  `object-scale-down` while the viewfinder was a height-bound square. The staged image and the annotated
+  result are now that same square. Measured at 1440×900, all four states paint **583px at the same document
+  position**, where before the picture shrank and dropped 76px the instant you pressed the shutter.
+- **`McAnnotatedImage` gained `upscale`** — fill a fixed box, enlarging when the source is smaller than it,
+  as the sibling of `fill` (which instead lets the box take the image's height). The overlay follows for
+  free: `scale` is the single source for both the CSS and the box geometry, so a 480px capture and a 3478px
+  upload both draw their boxes exactly on the picture. Off by default, so the grading page is untouched.
+- **Desktop: the zoom row's band is reserved whether or not the control is in it.** It appeared with the
+  camera and vanished with it, and the stage above takes its height from what is left — so the stage itself
+  resized by 48px on every transition. A held space costs 48px once; a moving one costs a jump every time.
+- **`/image-detection` is no longer one 1,951-line file.** Nothing about it behaves differently; it is split
+  where the seams already were, so the next person to open it can find the part they came for:
+  `core/helpers/modelLabel.ts` (pure, and now tested — 11 cases for the name/descriptor split and how a
+  chained pass is attributed), `core/composables/detectionModels.ts` (the catalogue, the two selections and
+  the chaining rule), `features/components/detection/DetectionUnavailable.vue` (the door a blocked student
+  meets) and `.../DetectionOverlays.vue` (the model sheet, and history as a sheet or a modal). The page keeps
+  the scanner itself.
+- **Desktop: the viewer panel is a square**, sized by the column's spare height. The picture inside it is a
+  square in every state — the viewfinder has to be, since that is what the shutter keeps — so a panel wider
+  than the picture was a panel with black down both sides. The slack now falls outside the panel as page
+  background instead of inside it as bands: measured at 1440×900 and 1280×800, the live view, a capture and a
+  square upload all fill the stage exactly, 0px on every edge. A genuinely non-square upload still letterboxes
+  inside the square (a 4:3 file leaves 73px top and bottom) — the alternative is cropping bytes that desktop
+  submits whole.
+- **Desktop: the inline camera fills its stage** instead of sitting in a 16px gutter with its own corner
+  radius. The stage already draws a rounded, ringed, clipping box, so that made three nested frames — and
+  the gutter came off the *height*, which is the binding dimension there, so the decoration cost the picture
+  32px and widened the black bands beside it. The phone's full-bleed square and the exam flow's modal keep
+  what they had; only `inline && !fullBleed` changed.
 - **A blocked student is told which exam is blocking them, on the first screen.** The availability check
   already ran on arrival and greyed the nav item out correctly, but nothing on screen said *why* unless you
   hovered the padlock — so the way to find out was to go and open the exam, which is also the way to fix it.

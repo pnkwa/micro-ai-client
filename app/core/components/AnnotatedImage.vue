@@ -23,8 +23,24 @@ const props = withDefaults(
          * as a stamp floating in black.
          */
         fill?: boolean
+        /**
+         * Fill a FIXED box, enlarging when the source is smaller than it.
+         *
+         * The sibling of `fill`, not a variant of it: `fill` lets the box take the image's height,
+         * this keeps the box's own size and scales the picture into it.
+         *
+         * The detection page's desktop viewer turns it on so the picture holds ONE footprint from
+         * viewfinder to capture to result. Without it a 480px capture paints at 480 inside the 583px
+         * square the viewfinder had, so the composition jumps at exactly the moment the answer
+         * arrives. The grading page leaves it off: a submission shown at 1:1 is sharp, and it has the
+         * room.
+         *
+         * The overlay follows for free - `scale` below is the single source for both the CSS and the
+         * box geometry, so the two cannot disagree about where the picture is.
+         */
+        upscale?: boolean
     }>(),
-    { fill: false },
+    { fill: false, upscale: false },
 )
 
 const { visibleBoxes } = useDetectionFilters()
@@ -50,13 +66,14 @@ const natural = computed(() => (measured.value?.src === props.src ? measured.val
 // The rendered image rect within the container, computed the same way the browser lays the image
 // out - the overlay is positioned against this, so the two MUST agree or every box lands off the
 // picture. `contain` fits both axes; `scale-down` is contain that additionally never enlarges, hence
-// the extra 1. The image is then centred, which is where the letterbox offsets come from. Null until
-// both the container and the image have real dimensions.
+// the extra 1 - which `fill` and `upscale` both drop, because both of them mean "fill the box". The
+// image is then centred, which is where the letterbox offsets come from. Null until both the
+// container and the image have real dimensions.
 const imageRect = computed(() => {
     const nat = natural.value
     if (!containerW.value || !containerH.value || !nat?.w || !nat?.h) return null
     const fit = Math.min(containerW.value / nat.w, containerH.value / nat.h)
-    const scale = props.fill ? fit : Math.min(fit, 1)
+    const scale = props.fill || props.upscale ? fit : Math.min(fit, 1)
     const width = nat.w * scale
     const height = nat.h * scale
     return {
@@ -125,7 +142,9 @@ const boxStyle = (box: DetectionBox) => ({
                 :class="
                     fill
                         ? 'tw:block tw:h-auto'
-                        : 'tw:h-full tw:items-center tw:justify-center tw:object-scale-down'
+                        : upscale
+                          ? 'tw:h-full tw:object-contain'
+                          : 'tw:h-full tw:items-center tw:justify-center tw:object-scale-down'
                 "
                 @load="onImgLoad"
             />

@@ -11,14 +11,17 @@ import {
     ScanSearch,
     Target,
     Sparkles,
-    Lock,
     History,
 } from '@lucide/vue'
 import { useEventListener, useMediaQuery } from '@vueuse/core'
 import { toast } from 'vue-sonner'
-import { detectionService, type DetectionStep, type ModelSpec } from '~/services/detectionService'
+import { detectionService, type DetectionStep } from '~/services/detectionService'
 import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
 import { useBlockingExam } from '~/core/composables/blockingExam'
+import { resultModelLabel as labelForResult } from '~/core/helpers/modelLabel'
+import { useDetectionModels } from '~/core/composables/detectionModels'
+import McDetectionUnavailable from '~/features/components/detection/DetectionUnavailable.vue'
+import McDetectionOverlays from '~/features/components/detection/DetectionOverlays.vue'
 import type { HistoryRecord } from '~/core/helpers/detectionHistory'
 import {
     useCameraAvailability,
@@ -74,8 +77,6 @@ onMounted(() => {
     if (!aiAvailable.value && aiUnavailableReason.value === 'exam_open') void refreshBlockingExam()
 })
 
-const router = useRouter()
-
 /**
  * No breadcrumb on this page.
  *
@@ -102,67 +103,22 @@ const detectionSteps = ref<DetectionStep[]>([])
 // after a run. Only read while there are steps, so the clear paths don't have to reset it.
 const resultModel = ref('')
 
-// Model picker (FE-ADR-007): never hardcode a model name. Split in two because chaining
-// (ML-ADR-003) combines two independently-choosable models, not one: a classify/detect
-// model that runs first, and a segment model optionally chained behind it. Debug page, so
-// the segment choice is wired through for real (DetectionsService.buildJob's segmentModel
-// override) rather than just mirroring the server's automatic default.
-const NONE_SEGMENT = '__none__'
-const models = ref<ModelSpec[]>([])
+// The model catalogue and the two selections made from it (FE-ADR-007, ML-ADR-003) - see
+// `~/core/composables/detectionModels`, which owns the list, the options and the chaining rule.
+const {
+    models,
+    selectedModel,
+    selectedSegmentModel,
+    primaryModelOptions,
+    segmentModelOptions,
+    selectedModelSpec,
+    selectedSegmentSpec,
+    canChain,
+    segmentModelToSend,
+    load: loadModels,
+} = useDetectionModels()
 
-/**
- * The manifest's `displayName` separates the architecture from what it does with an em dash
- * ("RT-DETR-L — 5-class detector"). Split into the name and a parenthesised descriptor, because they
- * are not two peers: the name is what you are choosing between, the rest tells you what it does.
- * A middle dot was tried first and read as two equal halves of one long label.
- *
- * Done here rather than asked of the server: this is how the name is *rendered*, and the manifest is
- * another repo's payload. Only the separator is touched - a name carrying its own dashes
- * ("RT-DETR-L") keeps them, which is why this cannot be a blanket replace of every dash.
- */
-const modelParts = (spec: ModelSpec): [name: string, descriptor?: string] => {
-    const [name = spec.displayName, ...rest] = spec.displayName.split(/\s+—\s+/)
-    // Rejoined rather than taking rest[0]: a name with two separators keeps everything after the
-    // first inside the brackets instead of quietly losing the tail.
-    return [name, rest.join(' — ') || undefined]
-}
-
-const modelLabel = (spec: ModelSpec) => {
-    const [name, descriptor] = modelParts(spec)
-    return descriptor ? `${name} (${descriptor})` : name
-}
-
-const primaryModelOptions = computed(() =>
-    models.value
-        .filter((m) => m.task === 'classify' || m.task === 'detect')
-        .map((m) => ({ value: m.name, label: modelLabel(m) })),
-)
-const segmentModelOptions = computed(() => [
-    { value: NONE_SEGMENT, label: 'None (skip segmentation)' },
-    ...models.value
-        .filter((m) => m.task === 'segment')
-        .map((m) => ({ value: m.name, label: modelLabel(m) })),
-])
-
-const selectedModel = ref('')
-const selectedSegmentModel = ref('')
-const selectedModelSpec = computed(() => models.value.find((m) => m.name === selectedModel.value))
-const selectedSegmentSpec = computed(() =>
-    models.value.find((m) => m.name === selectedSegmentModel.value),
-)
-// Only a detector chains anything; the classifier and the segmenter itself run alone
-// regardless of what's picked in the second dropdown (DetectionsService.buildJob).
-const canChain = computed(() => selectedModelSpec.value?.task === 'detect')
-
-try {
-    models.value = await detectionService.listModels()
-    selectedModel.value =
-        models.value.find((m) => m.name === 'best__rtdetr_v2')?.name ?? models.value[0]?.name ?? ''
-    selectedSegmentModel.value =
-        models.value.find((m) => m.task === 'segment')?.name ?? NONE_SEGMENT
-} catch {
-    toast.error('Failed to load models')
-}
+await loadModels()
 
 // Split the result steps into the classify/detect pass and the optional fungal segmentation
 // pass so the summary can describe each. The segmenter's step name contains "segment"; its
@@ -217,20 +173,9 @@ const resultModelSpec = computed(() => models.value.find((m) => m.name === resul
  * The segmentation pass is named as a chained addition rather than a second model, because that
  * is what it is (ML-ADR-003) - the result payload carries one model plus the steps that ran.
  */
-const resultModelLabel = computed(() => {
-    if (!resultModel.value) return ''
-    const spec = resultModelSpec.value
-    if (!spec) {
-        return segmentStep.value ? `${resultModel.value} + segmentation` : resultModel.value
-    }
-
-    // Inside the brackets with the descriptor, not appended after them: what ran is one description
-    // of one run ("5-class detector + segmentation"), and hanging the chained pass outside the
-    // brackets read as a third thing after the name and the parenthetical.
-    const [name, descriptor] = modelParts(spec)
-    const ran = [descriptor, segmentStep.value ? 'segmentation' : null].filter(Boolean).join(' + ')
-    return ran ? `${name} (${ran})` : name
-})
+const resultModelLabel = computed(() =>
+    labelForResult(resultModelSpec.value?.displayName, resultModel.value, !!segmentStep.value),
+)
 
 // The summary prose. Assembled in `detectionSummary.ts` rather than as template branches so the
 // wording — which is the client's spec, and which has to stay diagnosis-free for students — is
@@ -322,6 +267,9 @@ const openModelPanel = async () => {
  * there would be invisible in precisely the state - nothing staged yet - that history is for.
  */
 const historyOpen = ref(false)
+
+// Handed up by McDetectionOverlays, which owns whichever of the two history surfaces is mounted.
+const history = ref<{ refresh: () => void } | null>(null)
 
 /**
  * How many past runs there are, for the badge on the History button.
@@ -602,7 +550,21 @@ const clearImage = () => {
  */
 const cropper = useTemplateRef<{
     toBlob: (source: File | Blob, fileName: string) => Promise<File | Blob>
+    /** False until the staged picture has decoded and measured - there is no crop before that. */
+    ready: boolean
 }>('cropper')
+
+/**
+ * Is the thing the button would submit actually ready to be submitted?
+ *
+ * On a phone the crop IS part of the submission, and the picture has to have measured before there
+ * is one. The window is small but real: a gallery pick stages the file, the action is already live
+ * in the app bar, and a fast tap gets there before the `<img>` fires `load`. `toBlob` waits it out
+ * as well - this is so the button says so rather than looking like it did nothing for a moment.
+ *
+ * Desktop submits the file as it arrived, so there is nothing to wait for.
+ */
+const submitReady = computed(() => !isCompact.value || cropper.value?.ready === true)
 
 const runDetection = async () => {
     if (!currentFile.value || !selectedModel.value) return
@@ -612,11 +574,6 @@ const runDetection = async () => {
     hasResults.value = false
     detectionSteps.value = []
     try {
-        const segmentModel = !canChain.value
-            ? undefined
-            : selectedSegmentModel.value === NONE_SEGMENT
-              ? null
-              : selectedSegmentModel.value
         // What was framed, not what was picked. Hands back the original bytes when the cropper
         // was never touched, so an untouched photo is not re-encoded on its way to the worker.
         const submitted =
@@ -635,7 +592,7 @@ const runDetection = async () => {
             submitted,
             selectedModel.value,
             currentSource.value,
-            segmentModel,
+            segmentModelToSend.value,
         )
         detectionSteps.value = result.steps
         resultModel.value = result.model
@@ -655,7 +612,6 @@ const runDetection = async () => {
 // Detection history (BE-ADR-024). The panel lists past runs; picking one loads it back into this
 // same viewer instead of re-running the worker. `activeRecordId` is only for the highlight, and is
 // cleared the moment the viewer shows something else — a new upload, a snapshot, or a clear.
-const history = useTemplateRef('history')
 const activeRecordId = ref<number | null>(null)
 
 const loadFromHistory = async (record: HistoryRecord) => {
@@ -691,58 +647,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div
+    <McDetectionUnavailable
         v-if="!aiAvailable"
-        class="tw:flex tw:min-h-[calc(100vh-80px)] tw:items-center tw:justify-center tw:px-4"
-    >
-        <!-- Blocked outright rather than disabled in place: a half-usable page invites a student to
-             try, and the tool's whole surface is the answer they are being examined on. -->
-        <!--
-            Same min-height as the working page below, so the block is a full screen rather than
-            content stranded at the top with empty space beneath it. No card around it: with nothing
-            else on the page there is nothing to separate it from, and the border only drew a box
-            around a message.
-        -->
-        <div
-            class="tw:flex tw:w-full tw:max-w-md tw:flex-col tw:items-center tw:gap-5 tw:text-center"
-        >
-            <div
-                class="tw:flex tw:size-14 tw:items-center tw:justify-center tw:rounded-full tw:bg-navy-5 tw:text-navy-40"
-            >
-                <Lock class="tw:size-7" />
-            </div>
-
-            <div class="tw:flex tw:flex-col tw:gap-2">
-                <h1 class="tw:text-lg tw:font-semibold tw:text-navy-100">
-                    Image Detection is unavailable
-                </h1>
-                <p class="tw:text-sm tw:leading-relaxed tw:text-navy-60">
-                    {{ aiUnavailableMessage }}
-                </p>
-                <!-- Named, when it can be: "an exam" is a thing to go and look for, and the student
-                     who is reading this is the one who did not know where. -->
-                <p v-if="blockingExam" class="tw:text-sm tw:font-semibold tw:text-navy-90">
-                    {{ blockingExam.name }}
-                </p>
-            </div>
-
-            <!--
-                The exam is the primary action, not Back: the reason the tool is withheld is an exam
-                the student has not submitted, so the thing they actually need is the way to it. Back
-                only returns them to where they already were. Falls back to the class list when the
-                exam cannot be named - one level of hunting rather than none, but never a dead end.
-            -->
-            <div class="tw:flex tw:flex-wrap tw:justify-center tw:gap-2">
-                <McButton variant="outline" size="sm" @click="router.push('/')">Back</McButton>
-                <McButton v-if="blockingExamPath" size="sm" @click="router.push(blockingExamPath)">
-                    Go to exam
-                </McButton>
-                <McButton v-else size="sm" @click="router.push('/classes')">
-                    Go to my classes
-                </McButton>
-            </div>
-        </div>
-    </div>
+        :message="aiUnavailableMessage"
+        :exam-name="blockingExam?.name"
+        :exam-path="blockingExamPath"
+    />
 
     <div v-else class="tw:flex tw:flex-col tw:lg:min-h-[calc(100vh-80px)] tw:lg:space-y-5">
         <!-- The min-height and the section spacing above are desktop shapes, hence the lg: gates:
@@ -898,8 +808,17 @@ onUnmounted(() => {
                             rather than as space. Auto margins collapse to nothing on a short screen,
                             so the layout there is unchanged.
                         -->
+                        <!--
+                            Square on lg, and only there: the picture inside it is a square in every
+                            state (the viewfinder must be, because that is what the shutter keeps),
+                            so a panel wider than the picture is a panel with black down both sides.
+                            Sized by height - flex-1 gives it the column's spare height, self-center
+                            releases the cross axis from stretch so aspect-square can set the width -
+                            which keeps the picture as large as the column allows and leaves the
+                            slack as page background beside it rather than as bands inside it.
+                        -->
                         <div
-                            class="tw:relative tw:w-full tw:overflow-hidden tw:rounded-none tw:bg-black tw:transition-[height] tw:duration-300 tw:lg:h-auto tw:lg:flex-1 tw:lg:rounded-md tw:lg:bg-linear-to-br tw:lg:from-slate-100 tw:lg:to-slate-50 tw:lg:ring-1 tw:lg:ring-slate-200/80"
+                            class="tw:relative tw:w-full tw:overflow-hidden tw:rounded-none tw:bg-black tw:transition-[height] tw:duration-300 tw:lg:aspect-square tw:lg:h-auto tw:lg:w-auto tw:lg:flex-1 tw:lg:self-center tw:lg:rounded-md tw:lg:bg-linear-to-br tw:lg:from-slate-100 tw:lg:to-slate-50 tw:lg:ring-1 tw:lg:ring-slate-200/80"
                             :class="[
                                 hasResults
                                     ? 'tw:h-auto'
@@ -1051,13 +970,19 @@ onUnmounted(() => {
                                      the screen, and a capture small enough to sit at natural size
                                      reads as a stamp floating in black. Desktop has room, so it
                                      keeps 1:1 and stays sharp. -->
+                                <!-- Desktop: the same square the viewfinder and the staged image
+                                     use, so the answer arrives without the picture moving. `upscale`
+                                     is what makes a small capture fill it rather than sit at natural
+                                     size inside it - and the overlay follows the same number, so the
+                                     boxes land on the picture either way. -->
                                 <McAnnotatedImage
                                     :src="imageUrl!"
                                     :fill="isCompact"
+                                    :upscale="!isCompact"
                                     :class="
                                         isCompact
                                             ? 'tw:relative tw:w-full'
-                                            : 'tw:absolute tw:inset-0 tw:h-full tw:w-full'
+                                            : 'tw:absolute tw:inset-y-0 tw:left-1/2 tw:aspect-square tw:h-full tw:w-auto tw:-translate-x-1/2'
                                     "
                                 />
                             </template>
@@ -1101,10 +1026,23 @@ onUnmounted(() => {
                                         v-else
                                         class="tw:relative tw:w-full tw:shrink-0 tw:bg-black tw:lg:flex tw:lg:min-h-0 tw:lg:flex-1 tw:lg:items-center tw:lg:justify-center tw:lg:rounded-md"
                                     >
+                                        <!--
+                                            The same square the viewfinder is, sized by the stage's
+                                            height - so pressing the shutter changes what is in the
+                                            box and nothing about the box. It used to be the full
+                                            panel with object-scale-down, which meant a 480px capture
+                                            painted at 480 inside a 583px live frame: the picture
+                                            shrank and moved down the instant it was taken.
+
+                                            contain, not scale-down: filling the square is the whole
+                                            point here, and a capture is upscaled by ~1.2x at most -
+                                            worth it to keep the composition still. What gets SENT is
+                                            untouched either way.
+                                        -->
                                         <img
                                             :src="imageUrl!"
                                             alt="Microscope Image"
-                                            class="tw:block tw:w-full tw:select-none tw:lg:h-full tw:lg:object-scale-down"
+                                            class="tw:block tw:aspect-square tw:h-full tw:w-auto tw:select-none tw:object-contain"
                                         />
 
                                         <!-- Analyzing overlay -->
@@ -1254,18 +1192,26 @@ onUnmounted(() => {
 
                         <!-- The desktop panel's own zoom row, under the viewfinder where it has always
                          been. On a phone the viewfinder carries its own instead, so this is hidden
-                         there and the component renders the control itself. -->
-                        <McCameraZoomControl
-                            v-if="!isCompact && cameraOpen && cameraRef?.canZoom"
-                            class="tw:mt-4"
-                            tone="dark"
-                            :zoom="cameraRef.zoom"
-                            :min="cameraRef.zoomMin"
-                            :max="cameraRef.zoomMax"
-                            :step="cameraRef.zoomStep"
-                            @update:zoom="cameraRef.applyZoom($event, cameraRef.track())"
-                            @step="cameraRef.zoomBy($event, cameraRef.track())"
-                        />
+                         there and the component renders the control itself.
+
+                         The BAND is reserved whether or not the control is in it, because the stage
+                         above takes its height from what is left: appearing with the camera and
+                         vanishing with it resized the stage by 48px, so the picture changed size the
+                         moment you pressed the shutter. A held space costs 48px once; a moving one
+                         costs a jump on every transition. -->
+                        <div v-if="!isCompact" class="tw:mt-4 tw:flex tw:h-8 tw:items-center">
+                            <McCameraZoomControl
+                                v-if="cameraOpen && cameraRef?.canZoom"
+                                class="tw:w-full"
+                                tone="dark"
+                                :zoom="cameraRef.zoom"
+                                :min="cameraRef.zoomMin"
+                                :max="cameraRef.zoomMax"
+                                :step="cameraRef.zoomStep"
+                                @update:zoom="cameraRef.applyZoom($event, cameraRef.track())"
+                                @step="cameraRef.zoomBy($event, cameraRef.track())"
+                            />
+                        </div>
 
                         <!-- Capture controls sit right under the viewer: a prominent shutter flanked by
                          Upload and Clear. On desktop the shutter captures while the feed is live,
@@ -1446,7 +1392,12 @@ onUnmounted(() => {
                                             ? 'tw:h-9 tw:rounded-lg tw:bg-transparent tw:px-2 tw:text-sm tw:font-bold tw:text-primary tw:shadow-none hover:tw:bg-primary/15'
                                             : 'tw:h-13 tw:rounded-xl tw:px-7 tw:text-sm tw:font-bold tw:shadow-lg tw:shadow-primary/25 hover:tw:shadow-xl disabled:tw:shadow-none'
                                     "
-                                    :disabled="!currentFile || !selectedModel || isAnalyzing"
+                                    :disabled="
+                                        !currentFile ||
+                                        !selectedModel ||
+                                        isAnalyzing ||
+                                        !submitReady
+                                    "
                                     @click="runDetection"
                                 >
                                     <Loader2
@@ -1768,123 +1719,25 @@ onUnmounted(() => {
             class="tw:pointer-events-none tw:fixed tw:inset-x-0 tw:bottom-0 tw:z-20 tw:h-14 tw:bg-linear-to-t tw:from-white tw:to-transparent tw:lg:hidden"
         ></div>
 
-        <!--
-            Phone only, and full screen: it still rises from the bottom, but it takes the whole
-            viewport rather than a slice of it.
-
-            h-dvh overrides the bottom variant's own h-auto through tailwind-merge, and rounded-none
-            drops the sheet's top corners - a panel covering the screen with rounded shoulders reads
-            as a card that overflowed rather than as a screen.
-        -->
-        <McSheet v-model:open="modelSettingsOpen">
-            <McSheetContent
-                side="bottom"
-                class="mc-slide-up tw:h-dvh tw:overflow-y-auto tw:rounded-none tw:lg:hidden"
-            >
-                <McSheetHeader>
-                    <McSheetTitle>Model</McSheetTitle>
-                    <McSheetDescription>
-                        Which models run when you tap Start detection.
-                    </McSheetDescription>
-                </McSheetHeader>
-
-                <div class="tw:px-4 tw:pb-6">
-                    <McDetectionModelPicker
-                        v-model:primary="selectedModel"
-                        v-model:segment="selectedSegmentModel"
-                        :primary-options="primaryModelOptions"
-                        :segment-options="segmentModelOptions"
-                        :primary-spec="selectedModelSpec"
-                        :segment-spec="selectedSegmentSpec"
-                        :can-chain="canChain"
-                        :disabled="isAnalyzing"
-                    />
-                </div>
-            </McSheetContent>
-        </McSheet>
-
-        <!--
-            Past runs, in the idiom each pointer expects: a bottom sheet under a thumb, a centred
-            modal under a mouse. A sheet on a desktop viewport anchors the list to the bottom edge,
-            about 700px from the button at the top of the stage that opened it, and it is a phone
-            convention borrowed for no reason - a mouse has no reach to accommodate.
-
-            v-if/v-else, so exactly ONE McDetectionHistory is mounted and the single `history` ref
-            and its thumbnail fetches are never doubled. Both close on a pick: the record loads
-            behind them, so staying open would hide the thing the click asked for.
-        -->
-        <McSheet v-if="isCompact" v-model:open="historyOpen">
-            <McSheetContent
-                side="bottom"
-                class="mc-slide-up tw:flex tw:h-dvh tw:flex-col tw:overflow-hidden tw:rounded-none"
-            >
-                <!-- Present for the dialog's accessible name, not shown: the panel below carries
-                     its own "Recent analyses" heading, and rendering both put the same words on
-                     screen twice with the sheet's copy adding nothing the list does not say. -->
-                <McSheetHeader class="tw:sr-only">
-                    <McSheetTitle>Recent analyses</McSheetTitle>
-                    <McSheetDescription>
-                        Past runs. Pick one to load it back into the viewer.
-                    </McSheetDescription>
-                </McSheetHeader>
-
-                <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:px-4 tw:pt-4 tw:pb-6">
-                    <McDetectionHistory
-                        ref="history"
-                        :active-id="activeRecordId"
-                        @select="
-                            (record) => {
-                                historyOpen = false
-                                loadFromHistory(record)
-                            }
-                        "
-                    />
-                </div>
-            </McSheetContent>
-        </McSheet>
-
-        <McDialog v-else v-model:open="historyOpen">
-            <!--
-                Full screen here too, not a centred box. This is a list of every run there has ever
-                been, and a 672px dialog showed five of two hundred - the browsing is the task, so
-                the surface should be the screen.
-
-                Content rather than ScrollContent: ScrollContent scrolls the OVERLAY and lets the
-                dialog grow, which is the opposite of what a fixed full-screen panel wants. The
-                overrides beat DialogContent's own centred-box defaults through tailwind-merge -
-                inset-0 with translate-none over the top/left 50% centring, rounded-none over
-                rounded-lg, and BOTH max-w-none and sm:max-w-none - tailwind-merge treats a
-                responsive variant as its own group, so the base one alone left sm:max-w-lg
-                standing and the panel came out 512px wide.
-
-                It rises rather than appearing, matching the phone's sheet - see `.mc-slide-up` in
-                main.css. The components' own `animate-in` / `slide-in-from-bottom` utilities are
-                inert in this project (no animation plugin, no keyframes), so the keyframes are
-                defined there rather than relied on here.
-            -->
-            <McDialogContent
-                class="mc-slide-up tw:inset-0 tw:top-0 tw:left-0 tw:h-dvh tw:w-screen tw:max-w-none tw:sm:max-w-none tw:translate-x-0 tw:translate-y-0 tw:flex tw:flex-col tw:overflow-hidden tw:rounded-none tw:border-0"
-            >
-                <McDialogHeader class="tw:sr-only">
-                    <McDialogTitle>Recent analyses</McDialogTitle>
-                    <McDialogDescription>
-                        Past runs. Pick one to load it back into the viewer.
-                    </McDialogDescription>
-                </McDialogHeader>
-
-                <McDetectionHistory
-                    ref="history"
-                    class="tw:min-h-0 tw:flex-1"
-                    :active-id="activeRecordId"
-                    @select="
-                        (record) => {
-                            historyOpen = false
-                            loadFromHistory(record)
-                        }
-                    "
-                />
-            </McDialogContent>
-        </McDialog>
+        <!-- The page's three overlays - the model sheet, and history as a sheet or a modal - live
+             in `~/features/components/detection/DetectionOverlays.vue`. Same picker and same list
+             the page already owns, rendered over it. -->
+        <McDetectionOverlays
+            v-model:model-settings-open="modelSettingsOpen"
+            v-model:history-open="historyOpen"
+            v-model:primary-model="selectedModel"
+            v-model:segment-model="selectedSegmentModel"
+            :compact="isCompact"
+            :active-record-id="activeRecordId"
+            :primary-options="primaryModelOptions"
+            :segment-options="segmentModelOptions"
+            :primary-spec="selectedModelSpec"
+            :segment-spec="selectedSegmentSpec"
+            :can-chain="canChain"
+            :disabled="isAnalyzing"
+            @select="loadFromHistory"
+            @history-ready="history = $event"
+        />
 
         <!-- The handoff to the phone's own camera app, for devices where our capture screen cannot
              run (an insecure origin, or no getUserMedia). `capture` is a touch-device hint that

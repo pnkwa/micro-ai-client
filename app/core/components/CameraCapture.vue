@@ -371,9 +371,20 @@ onBeforeUnmount(() => {
             </div>
 
             <!--
-                No padding on a phone: the frame is width-bound there, so every pixel of gutter
-                comes straight off the preview (32px of it, on a 375px screen). It only becomes a
-                floating panel once the screen is wide enough for that to look deliberate.
+                Three cases, not two.
+
+                INLINE (the desktop workbench) gets no padding and no radius of its own. It is not a
+                floating panel: it fills a stage that already has a rounded, ringed, clipping box
+                around it, so a 16px gutter and a second corner radius drew a frame inside a frame
+                inside a frame - and the gutter came off the height, which is the binding dimension
+                there, so the picture paid for the decoration twice. Black either side of the square
+                is the viewfinder's own surround, and it matches the staged image, which sits on
+                black in the same box.
+
+                No padding on a phone either: the frame is width-bound there, so every pixel of
+                gutter comes straight off the preview (32px of it, on a 375px screen). The modal the
+                exam flow opens is the one case that becomes a floating panel, once the screen is
+                wide enough for that to look deliberate.
 
                 Top-aligned on a phone for the same reason square mode looks right in a phone
                 camera app: the preview sits under the header and the controls own the space below
@@ -385,7 +396,9 @@ onBeforeUnmount(() => {
                 :class="
                     fullBleed
                         ? 'tw:items-center tw:px-0 tw:pt-14 tw:pb-0'
-                        : 'tw:items-start tw:p-0 tw:sm:items-center tw:sm:p-4'
+                        : inline
+                          ? 'tw:items-center tw:p-0'
+                          : 'tw:items-start tw:p-0 tw:sm:items-center tw:sm:p-4'
                 "
                 :style="fullBleed ? { containerType: 'size' } : undefined"
             >
@@ -439,12 +452,13 @@ onBeforeUnmount(() => {
                 -->
                 <div
                     class="tw:relative tw:overflow-hidden tw:bg-navy-100"
-                    :class="[
+                    :class="
                         fullBleed
                             ? 'tw:aspect-square tw:w-full tw:max-w-[min(100%,100cqh)]'
-                            : 'tw:aspect-square tw:w-full tw:max-w-[min(100%,70vh)] tw:rounded-none tw:sm:rounded-xl',
-                        inline && !fullBleed ? 'tw:lg:h-full tw:lg:w-auto tw:lg:max-w-none' : '',
-                    ]"
+                            : inline
+                              ? 'tw:aspect-square tw:w-full tw:max-w-[min(100%,70vh)] tw:rounded-none tw:lg:h-full tw:lg:w-auto tw:lg:max-w-none'
+                              : 'tw:aspect-square tw:w-full tw:max-w-[min(100%,70vh)] tw:rounded-none tw:sm:rounded-xl'
+                    "
                 >
                     <!--
                         Kept mounted under the still rather than swapped out: tearing the video down
