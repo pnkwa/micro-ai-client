@@ -32,11 +32,16 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
 
 ---
 
-## [Unreleased]
+## [0.8.0-rc.1] - 2026-08-19
 
-The phone half of `/image-detection`, worked through against a real iPhone: every rule below is gated on
-`lg` unless it says otherwise, and the shape of it is **FE-ADR-010**. Two entries under Changed are the
-exception - the desktop workbench's viewer needed the same treatment once the phone one had it.
+Two unrelated bodies of work. The phone half of `/image-detection`, worked through against a real
+iPhone: every rule below is gated on `lg` unless it says otherwise, and the shape of it is
+**FE-ADR-010**. Two entries under Changed are the exception, the desktop workbench's viewer needed
+the same treatment once the phone one had it.
+
+Then the exam and grading surfaces, where a student told to redo an exam could not get back into it
+and an instructor grading one was walked onto the wrong page. Neither needed a server change: in
+both cases the API had been right all along and the client was throwing the answer away.
 
 ### Added
 
@@ -83,6 +88,17 @@ exception - the desktop workbench's viewer needed the same treatment once the ph
   history was otherwise indistinguishable from one run under whatever model happens to be selected now.
 - **A `fill` mode for `McAnnotatedImage`**: the image sizes itself and the box takes its height, so the
   results sheet sits flush against the picture with a gradient softening the join.
+
+- **The slide label a student typed, kept and shown to the grader.** An exam answer now carries
+  `slide_number_raw` beside the canonical `slide_number`, and the grading card shows it, tinted,
+  with "no slide matched this label". Normalizing is lossy: a label outside the provisional pattern
+  in `slideNumber.ts` becomes null, and that answer used to reach the instructor as `Slide -`, so a
+  mistyped label and a skipped station looked identical to the one person who has to tell them
+  apart. **The server does not store the field yet**, see Compatibility.
+- **The date a submission was returned**, on the student's feedback page, under the instructor's
+  reason. `rejected_at` was on the wire from the detail read all along and the schema was dropping
+  it; a student saw "Submitted 14 Aug 2026 09:12" in the header and a returned notice with no date
+  under it, and could not tell which came first.
 
 ### Changed
 
@@ -177,8 +193,46 @@ exception - the desktop workbench's viewer needed the same treatment once the ph
   compact rows now ellipsize: the grouped list is ~40px short of the longest label at 393px, and clipping it
   mid-word left the bracket open, which reads as broken rather than as shortened.
 
+- **An exam accepts any slide label the student types.** The Slide field was checked against
+  `SLIDE_NUMBER_PATTERN` before the form would submit, and that pattern is marked PROVISIONAL: it
+  came from the single "Slide V7" example in the request, not from a real answer key. An unfamiliar
+  label therefore stopped a student submitting, in the one place where the cost cannot be
+  recovered. The server never asked for that strictness (**BE-ADR-017** has it store an
+  unresolvable label as null and route the answer to instructor review rather than fail the
+  upload), and keeping the raw entry above is what makes matching it safe.
+- **The station number stays on screen in an exam.** The badge used to swap the number for a check
+  icon once a station was complete, so the anchor a student uses to cross-reference the bench with
+  the screen disappeared on exactly the stations they had finished. Completion is the badge fill
+  now. The check beside "3 of 5 complete" went too: the count is the message.
+- **No em dashes or middle dots anywhere in the client**, in code comments, docs or on screen. The
+  nine middle dots were rewritten rather than swapped, since each was two facts pushed together:
+  the home page's locked notice reads "Lab Exam 2 closes at 18:30. The AI tool returns as soon as
+  you submit the exam, or once it closes", staff exam rows read "Open until Aug 19, 14:30",
+  detection boxes read "Candida (94%)". The one exception is the em dash inside the manifest's
+  model display names, which `modelLabel.ts` splits on and the client cannot change alone.
+
 ### Fixed
 
+- **A rejected exam was a dead end for the student.** `StudentExamForm` locked on any existing
+  submission, and a rejected one is still a submission, so a student an instructor had told to redo
+  their exam read "Your exam was submitted, it's final and can't be changed" with no way back in.
+  The assignment form has had the exception since PR #11 and the exam form never got it, which is
+  where it matters most: an objective assignment auto-finalizes to `graded` at submit and the
+  server refuses to reject anything that is not still `submitted`, so exams and image answers are
+  what actually gets returned. The rule is one tested function now, `isAnswerFormLocked`, called by
+  both forms rather than written inline in each, and the exam form shows the instructor's reason
+  the way the assignment form already did.
+- **Grading an exam walked the instructor onto the assignment page.** The breadcrumb, "Back to
+  Submissions" and the post-rejection redirect all hardcoded `/assignments/:id` as the parent of a
+  submission. For an exam that URL does not fail, because `GET /assignments/:id` serves exams too,
+  so the exam rendered as an ordinary assignment: no window, no countdown, no slide collection.
+  All three now read `assignment.is_exam` off the submission. The assignment page additionally
+  redirects an exam id to `/classes/:id/exams/:id`, which closes the same hole for a bookmark or a
+  stale link, including the student-facing case where the generic form renders no input at all for
+  a `slide_identification` question and the exam cannot be submitted.
+- **The student's "resubmit" button ignored exams** on the feedback page, sending them to the
+  assignment form. It is the entire recovery path out of a rejection (**BE-ADR-019**: re-submitting
+  is the only way out), so it is the last place to land someone on a form they cannot answer.
 - **Detection boxes drew against the wrong picture after a crop.** Coordinates come back normalised to what
   was *sent*, and the viewer was still showing the uncropped original - every box plausibly but wrongly
   placed. The viewer now swaps to the submitted crop.
@@ -218,6 +272,21 @@ exception - the desktop workbench's viewer needed the same treatment once the ph
   Start detection read as one row of unrelated controls, and `‹ Back ☰` in the results bar is the same
   interleaving. Navigation is one step away either way (back, then Retake), and the camera and the empty
   chooser - the flow's root - both keep the toggle, as does every other route.
+
+### Compatibility
+
+- **Pairs with `micro-ai-server` v0.11.0-rc.1**, unchanged. Nothing in this release needs a server
+  change to be correct: the exam fixes are client-side, and `is_exam` and `rejected_at` were both
+  already on the wire and merely unparsed.
+- **`slide_number_raw` is sent but not yet stored.** The API's `whitelist: true` strips an unknown
+  field rather than rejecting the request, so submitting is unaffected and the grading card falls
+  back to the canonical label until the server lands a nullable `varchar(64)` column, the field on
+  `AnswerDto` with no `@Transform`, and one assignment in `buildAnswer`. Inert, not broken.
+- **`rejected_at` is on the detail read only.** The list read model whitelists its fields, so the
+  returned-attempt banners on the assignment and exam forms still show the reason without a date.
+- No change to the slide-label contract (`app/core/helpers/slideNumber.ts`), unchanged since
+  `0.5.0-rc.1`. The exam form no longer *enforces* the pattern at entry, but the shared helper and
+  the canonical form it produces are untouched, so grading still compares like with like.
 
 ---
 
