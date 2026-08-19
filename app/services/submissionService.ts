@@ -16,6 +16,11 @@ const submissionBaseSchema = z.object({
     // Why staff returned this submission to the student to redo; set only when
     // status === 'rejected', absent on the list read.
     rejection_reason: z.string().nullable().optional(),
+    // When it was returned. The detail read serializes the whole submission row so this is on
+    // the wire beside the reason; the list read whitelists its fields and does not carry it,
+    // hence optional. A student redoing work needs the date as much as the reason: their own
+    // "Submitted <date>" is right above it, and without this the two cannot be told apart.
+    rejected_at: z.string().nullable().optional(),
     student: z
         .object({
             student_id: z.string(),

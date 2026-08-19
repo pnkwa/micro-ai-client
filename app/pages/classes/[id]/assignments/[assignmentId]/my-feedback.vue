@@ -131,7 +131,15 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
             >
                 <p class="tw:font-semibold tw:text-danger">Returned — please resubmit</p>
                 <p class="tw:text-sm tw:text-navy-70 tw:mt-1">
-                    Your instructor returned this submission without grading it:
+                    Your instructor returned this submission without grading it.
+                </p>
+                <!-- Its own line rather than inline in the sentence above: the formatter puts a
+                     conditional template on its own line and Vue condenses the newline, which
+                     left a space before the punctuation that followed it. It also pairs with
+                     the "Submitted <date>" line in the header, which is what a student is
+                     comparing it against. -->
+                <p v-if="submission.rejected_at" class="tw:text-xs tw:text-navy-50 tw:mt-1">
+                    Returned {{ formatDateTime(submission.rejected_at) }}
                 </p>
                 <p
                     v-if="submission.rejection_reason"
