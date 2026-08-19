@@ -422,16 +422,10 @@ const onSubmit = async () => {
             scrolls at body level and top-0 would park it underneath.
         -->
         <div class="tw:flex tw:flex-wrap tw:items-center tw:justify-between tw:gap-2 tw:px-1">
-            <div class="tw:flex tw:items-center tw:gap-2 tw:text-sm">
-                <CheckCircle2
-                    class="tw:size-4 tw:transition-colors"
-                    :class="allAnswered ? 'tw:text-primary' : 'tw:text-navy-30'"
-                />
-                <span class="tw:text-navy-70">
-                    <span class="tw:font-semibold tw:text-navy-100">{{ answeredCount }}</span>
-                    of {{ stations.length }} complete
-                </span>
-            </div>
+            <span class="tw:text-sm tw:text-navy-70">
+                <span class="tw:font-semibold tw:text-navy-100">{{ answeredCount }}</span>
+                of {{ stations.length }} complete
+            </span>
             <div
                 v-if="countdown"
                 class="tw:flex tw:items-center tw:gap-1.5 tw:text-sm tw:font-medium tw:tabular-nums"
@@ -453,8 +447,8 @@ const onSubmit = async () => {
         >
             <!--
                 The number is the anchor: stations are identical-looking cards, and without it a
-                student cross-referencing the bench has nothing to count against. It flips to a
-                check once the station is complete, so scanning the column shows what is left.
+                student cross-referencing the bench has nothing to count against, so it stays on
+                screen whatever the station's state. Completion is carried by the fill alone.
             -->
             <div class="tw:flex tw:items-start tw:gap-3">
                 <span
@@ -465,8 +459,7 @@ const onSubmit = async () => {
                             : 'tw:bg-navy-10 tw:text-navy-60'
                     "
                 >
-                    <CheckCircle2 v-if="isAnswered(s.id)" class="tw:size-4" />
-                    <template v-else>{{ s.index + 1 }}</template>
+                    {{ s.index + 1 }}
                 </span>
                 <p class="tw:font-medium tw:text-navy-100">
                     {{ s.prompt }}
