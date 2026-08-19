@@ -105,13 +105,25 @@ backfill() {
 }
 
 check() {
-  local tag missing=0 lightweight=0
+  local tag missing=0 lightweight=0 pending=0
   for tag in $(tags); do
+    # A version written up in the CHANGELOG but not tagged yet is the normal state DURING a
+    # release, not drift: reported, not failed. Checked first because a missing tag would
+    # otherwise read as a lightweight one (`git tag --format` prints nothing either way).
+    if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+      printf 'not tagged  %s  (in CHANGELOG, awaiting `git tag -a %s`)\n' "$tag" "$tag"
+      pending=$((pending + 1))
+      continue
+    fi
     gh release view "$tag" >/dev/null 2>&1 || { printf 'no release  %s\n' "$tag"; missing=$((missing + 1)); }
     [ -n "$(tag_subject "$tag")" ] || { printf 'lightweight %s\n' "$tag"; lightweight=$((lightweight + 1)); }
     [ -n "$(section "$tag")" ] || printf 'no changelog section  %s\n' "$tag"
   done
-  [ "$missing" -eq 0 ] && [ "$lightweight" -eq 0 ] && { printf 'all tags annotated and released\n'; return 0; }
+  if [ "$missing" -eq 0 ] && [ "$lightweight" -eq 0 ]; then
+    [ "$pending" -eq 0 ] && printf 'all tags annotated and released\n' \
+      || printf 'every tag annotated and released; %d version(s) still to tag\n' "$pending"
+    return 0
+  fi
   return 1
 }
 
