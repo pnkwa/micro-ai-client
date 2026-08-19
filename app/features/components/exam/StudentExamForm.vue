@@ -4,7 +4,7 @@ import { toast } from 'vue-sonner'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { assignmentTotalPoints } from '~/services/assignmentService'
 import type { Exam } from '~/services/examService'
-import { isValidSlideNumber, normalizeSlideNumber } from '~/core/helpers/slideNumber'
+import { normalizeSlideNumber } from '~/core/helpers/slideNumber'
 import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
 import { rejectUnusableImage } from '~/core/helpers/imageUpload'
 import { isAnswerFormLocked } from '~/core/helpers/studentAssignmentStatus'
@@ -90,10 +90,14 @@ const countdown = computed(() => {
     return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
 })
 
-// A station counts as answered once the slide label is one we can resolve, checked against the
-// canonical pattern, not Number(), which would reject every letter code.
+// A station counts as answered once it carries a label of some kind, a diagnosis and a photo.
+// The label is deliberately NOT checked against SLIDE_NUMBER_PATTERN here: that pattern is
+// provisional (see slideNumber.ts) and the server accepts a label it cannot resolve on purpose,
+// storing null and routing the answer to instructor review rather than failing the upload
+// (BE-ADR-017). A stricter rule on this side turns a guess about the format into a student
+// locked out of submitting mid-exam, which is the one place that cost is unrecoverable.
 const isAnswered = (id: number): boolean =>
-    isValidSlideNumber(answers[id]!.slideNumber) &&
+    answers[id]!.slideNumber.trim() !== '' &&
     answers[id]!.diagnosis.trim() !== '' &&
     images[id]?.file != null
 
@@ -121,9 +125,9 @@ const SHARED_FIELD_TOKENS =
     'tw:w-full tw:rounded-md tw:border tw:border-input tw:bg-transparent tw:px-3 tw:text-sm tw:shadow-xs tw:outline-none tw:transition-[color,box-shadow] tw:placeholder:text-muted-foreground tw:focus-visible:border-ring tw:focus-visible:ring-ring/50 tw:focus-visible:ring-[3px]'
 
 // A plain input, matching every other field in the app. Safe to drop the tw:uppercase that used to
-// be here: isValidSlideNumber and normalizeSlideNumber both uppercase before matching, so "v7"
-// validates and is stored as "V7" either way - the transform was only ever cosmetic. Dropping it
-// also lets the placeholder go back to "e.g. V7", which uppercase rendered as "E.G. V7".
+// be here: normalizeSlideNumber uppercases before matching on both sides of the wire, so "v7" is
+// stored as "V7" either way - the transform was only ever cosmetic. Dropping it also lets the
+// placeholder go back to "e.g. V7", which uppercase rendered as "E.G. V7".
 const SLIDE_INPUT_CLASS = `tw:h-9 ${SHARED_FIELD_TOKENS}`
 
 // min-h rather than h, plus resize-y: 4rem is a floor here, not a cap.
@@ -339,13 +343,21 @@ const onSubmit = async () => {
     try {
         const fd = new FormData()
         fd.append('assignment_id', String(props.exam.id))
-        const payload = stations.map((s) => ({
-            question_id: s.id,
-            response_text: answers[s.id]!.diagnosis.trim(),
-            // Normalized before sending so the grade-time lookup matches the stored key whatever
-            // the student typed. The server normalizes again; this is belt and braces, not trust.
-            slide_number: normalizeSlideNumber(answers[s.id]!.slideNumber),
-        }))
+        const payload = stations.map((s) => {
+            const typed = answers[s.id]!.slideNumber.trim()
+            return {
+                question_id: s.id,
+                response_text: answers[s.id]!.diagnosis.trim(),
+                // Normalized before sending so the grade-time lookup matches the stored key
+                // whatever the student typed. The server normalizes again; this is belt and
+                // braces, not trust.
+                slide_number: normalizeSlideNumber(typed),
+                // The untouched entry, so a label the pattern does not recognise reaches the
+                // instructor as text rather than as a blank. Normalizing is lossy and this is
+                // the one field a human has to check against the slide in front of them.
+                slide_number_raw: typed || null,
+            }
+        })
         fd.append('answers', JSON.stringify(payload))
         for (const s of stations) {
             const image = images[s.id]?.file

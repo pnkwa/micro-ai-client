@@ -71,6 +71,12 @@ const gradingAnswerSchema = z.object({
     // Exam slide_identification: the slide label the student self-reported; null otherwise.
     // Text, matching slideCollectionService's slideSchema; a label may carry a letter code.
     slide_number: z.string().nullable().optional(),
+    // What the student actually typed in the Slide field, before normalization. A label outside
+    // the canonical pattern normalizes to null (BE-ADR-017 keeps it out of the way of the upload
+    // rather than failing it), and the instructor grading that answer is exactly who needs to
+    // read it. Optional: absent until the server stores it, which is why the card falls back to
+    // the canonical form.
+    slide_number_raw: z.string().nullable().optional(),
     // image_detection / slide_identification: the ML run on the attached image; null otherwise.
     detection: detectionSchema.nullable(),
     // Autograder / detection suggestion: advisory, instructor confirms via is_correct/points_awarded.
