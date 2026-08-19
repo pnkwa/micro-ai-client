@@ -52,6 +52,23 @@ export function isLateSubmission(
 }
 
 /**
+ * Whether the student's answer form stays LOCKED: their work is in and they cannot change it.
+ *
+ * A `rejected` submission is the one state that reopens it: staff handed the attempt back to be
+ * redone, and re-submitting replaces the row (BE-ADR-019: there is no un-reject, the resubmit
+ * IS the recovery path). `submitted` and `graded` both stay locked.
+ *
+ * Shared by StudentExerciseForm and StudentExamForm because the rule was written inline in both
+ * and they drifted: the assignment form reopened on a rejection and the exam form did not, so a
+ * returned exam was a dead end for the student who had to redo it.
+ */
+export function isAnswerFormLocked(
+    submission: Pick<SubmissionTiming, 'status'> | null | undefined,
+): boolean {
+    return !!submission && submission.status !== 'rejected'
+}
+
+/**
  * The badge(s) for a submission itself, for the submissions table, the grading header and
  * the student's feedback page — which previously printed the raw `status` enum with a
  * capitalize class and so could never say "Late".

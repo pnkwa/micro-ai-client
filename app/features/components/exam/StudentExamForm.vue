@@ -7,6 +7,7 @@ import type { Exam } from '~/services/examService'
 import { isValidSlideNumber, normalizeSlideNumber } from '~/core/helpers/slideNumber'
 import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
 import { rejectUnusableImage } from '~/core/helpers/imageUpload'
+import { isAnswerFormLocked } from '~/core/helpers/studentAssignmentStatus'
 import {
     useCameraAvailability,
     cameraFailureMessage,
@@ -47,7 +48,11 @@ for (const s of stations) answers[s.id] = { slideNumber: '', diagnosis: '' }
 
 const invalidIds = reactive(new Set<number>())
 const submitting = ref(false)
-const submitted = ref(props.mySubmission !== null)
+// Locked out of answering: either they already had a submission on load, or they just made one.
+// Tracked locally as well as via the prop so the confirmation panel appears the instant the POST
+// returns, without waiting for the parent's refetch. isAnswerFormLocked holds the rejected
+// exception - staff handed the attempt back, so the form reopens (BE-ADR-019).
+const submitted = ref(isAnswerFormLocked(props.mySubmission))
 const isGraded = computed(() => props.mySubmission?.status === 'graded')
 const totalPoints = computed(() => assignmentTotalPoints(props.exam))
 
@@ -413,6 +418,23 @@ const onSubmit = async () => {
 
     <!-- open: the exam form -->
     <form v-else class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="onSubmit">
+        <!-- Reopened because staff returned the previous attempt. Lead with why, so the student
+             knows what to fix before re-photographing the stations. -->
+        <div
+            v-if="mySubmission?.status === 'rejected'"
+            class="tw:bg-danger/5 tw:border tw:border-danger/30 tw:rounded-lg tw:px-4 tw:py-3"
+        >
+            <p class="tw:text-sm tw:font-semibold tw:text-danger">
+                Your previous attempt was returned
+            </p>
+            <p
+                v-if="mySubmission.rejection_reason"
+                class="tw:text-sm tw:text-navy-90 tw:mt-1 tw:whitespace-pre-line"
+            >
+                {{ mySubmission.rejection_reason }}
+            </p>
+        </div>
+
         <!--
             A plain line rather than a card: it reads as a caption for the stations below it.
 
