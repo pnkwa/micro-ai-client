@@ -41,6 +41,17 @@ const loadAssignment = async () => {
     if (isInitialLoad) isLoadingAssignment.value = true
     try {
         assignment.value = await assignmentService.getById(assignmentId.value)
+        // GET /assignments/:id serves exams too (an exam IS an assignment with is_exam set), so
+        // this route resolves for an exam id instead of 404ing, and then renders it as a plain
+        // assignment: no window, no slide collection, and for a student a form with no input at
+        // all for a slide_identification question, which makes the exam unsubmittable. /exams
+        // guards the other direction server-side; this is the guard for this one.
+        if (assignment.value?.is_exam) {
+            await navigateTo(`/classes/${classId.value}/exams/${assignmentId.value}`, {
+                replace: true,
+            })
+            return
+        }
     } catch {
         toast.error('Failed to load assignment')
     } finally {

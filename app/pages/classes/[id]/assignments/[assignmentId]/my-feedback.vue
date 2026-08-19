@@ -60,6 +60,14 @@ breadcrumb.setBreadcrumbs(() => [
 
 const isGraded = computed(() => submission.value?.status === 'graded')
 const isRejected = computed(() => submission.value?.status === 'rejected')
+// An exam and an assignment are the same read but different pages, and this button is the whole
+// recovery path out of a rejection (BE-ADR-019: re-submitting is the only way out), so it has to
+// land on the form the student can actually answer. The detail read carries is_exam.
+const resubmitPath = computed(() =>
+    submission.value?.assignment?.is_exam
+        ? `/classes/${classId.value}/exams/${assignmentId.value}`
+        : `/classes/${classId.value}/assignments/${assignmentId.value}`,
+)
 const statusBadges = computed(() =>
     submission.value
         ? submissionBadges(submission.value, submission.value.assignment?.due_date)
@@ -131,11 +139,12 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                 >
                     {{ submission.rejection_reason }}
                 </p>
-                <McButton
-                    class="tw:mt-4"
-                    @click="router.push(`/classes/${classId}/assignments/${assignmentId}`)"
-                >
-                    Go to assignment to resubmit
+                <McButton class="tw:mt-4" @click="router.push(resubmitPath)">
+                    {{
+                        submission.assignment?.is_exam
+                            ? 'Go to exam to resubmit'
+                            : 'Go to assignment to resubmit'
+                    }}
                 </McButton>
             </div>
 

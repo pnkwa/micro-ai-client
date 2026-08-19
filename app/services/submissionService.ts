@@ -30,6 +30,11 @@ const submissionBaseSchema = z.object({
             id: z.number(),
             name: z.string(),
             due_date: z.string().nullable(),
+            // An exam is an assignment with is_exam set, and the two have different pages, so
+            // anything navigating back to the parent from a submission has to know which one it
+            // is. The server serializes the whole assignment relation, so this was on the wire
+            // already and only the schema was dropping it.
+            is_exam: z.boolean().optional().default(false),
             class: z.object({ id: z.number(), name: z.string() }).nullable(),
         })
         .nullable(),

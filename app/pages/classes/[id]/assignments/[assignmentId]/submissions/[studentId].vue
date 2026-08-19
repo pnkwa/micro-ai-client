@@ -65,6 +65,21 @@ const reload = () =>
     })
 await reload()
 
+/**
+ * Where "back" goes: the exam page for an exam, the assignment page for an assignment.
+ *
+ * Grading is one route for both, under /assignments, because the page is identical either way.
+ * The PARENT is not: an exam has its own page with the window, the slide collection and the
+ * exam-shaped detail tab. Sending a grader back to /assignments/:examId used to render the exam
+ * as a plain assignment, since GET /assignments/:id serves exams too, so nothing 404s and the
+ * mistake is silent.
+ */
+const isExam = computed(() => submission.value?.assignment?.is_exam === true)
+const parentPath = computed(
+    () =>
+        `/classes/${classId.value}/${isExam.value ? 'exams' : 'assignments'}/${assignmentId.value}`,
+)
+
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs(() => {
     const s = submission.value
@@ -72,8 +87,8 @@ breadcrumb.setBreadcrumbs(() => {
         { label: 'Classes', to: '/classes' },
         { label: s?.assignment?.class?.name ?? 'Class', to: `/classes/${classId.value}` },
         {
-            label: s?.assignment?.name ?? 'Assignment',
-            to: `/classes/${classId.value}/assignments/${assignmentId.value}`,
+            label: s?.assignment?.name ?? (isExam.value ? 'Exam' : 'Assignment'),
+            to: parentPath.value,
         },
         { label: 'Submission' },
     ]
@@ -174,10 +189,7 @@ const rejectSubmission = async () => {
         await submissionService.reject(submission.value.id, rejectReason.value.trim())
         rejectOpen.value = false
         toast.success('Submission returned to the student')
-        router.push({
-            path: `/classes/${classId.value}/assignments/${assignmentId.value}`,
-            query: { tab: 'submissions' },
-        })
+        router.push({ path: parentPath.value, query: { tab: 'submissions' } })
     } catch (e) {
         toast.error(apiErrorMessage(e, 'Failed to reject submission'))
     } finally {
@@ -190,12 +202,7 @@ const rejectSubmission = async () => {
     <div class="tw:mx-auto tw:flex tw:w-full tw:max-w-3xl tw:flex-col tw:gap-4">
         <button
             class="tw:flex tw:items-center tw:gap-1.5 tw:text-navy-60 tw:hover:text-primary tw:transition-colors tw:text-sm tw:self-start"
-            @click="
-                router.push({
-                    path: `/classes/${classId}/assignments/${assignmentId}`,
-                    query: { tab: 'submissions' },
-                })
-            "
+            @click="router.push({ path: parentPath, query: { tab: 'submissions' } })"
         >
             <ArrowLeft class="tw:w-4 tw:h-4" />
             Back to Submissions
