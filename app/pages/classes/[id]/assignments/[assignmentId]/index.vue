@@ -27,7 +27,7 @@ const assignmentId = computed(() => Number(route.params.assignmentId))
 const assignment = ref<Assignment | null>(null)
 const classItem = ref<ClassItem | null>(null)
 const submissions = ref<SubmissionView[]>([])
-// The class roster, so the Submissions tab can show every student — including who hasn't submitted.
+// The class roster, so the Submissions tab can show every student - including who hasn't submitted.
 const roster = ref<StudentRosterItem[]>([])
 const isLoadingAssignment = ref(false)
 const isLoadingSubmissions = ref(false)
@@ -151,7 +151,7 @@ const isReleased = computed(() => {
     return exercises.length > 0 && exercises.every((ex) => ex.released)
 })
 
-// The student's header standing — status badge + grade line — from the SAME shared helper the
+// The student's header standing - status badge + grade line - from the SAME shared helper the
 // class list uses, so the two never drift. The grade total is the summed question points (the
 // full assignment is loaded here), or the submission's max_score if present.
 const studentBadge = computed(() =>
@@ -213,7 +213,7 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                      invisible to students, so Draft/Released could only ever read "Released"
                      for them anyway. -->
                 <!-- Student header standing: the action badge with the grade as smaller text
-                     below — identical to the class list (shared helper). -->
+                     below - identical to the class list (shared helper). -->
                 <template v-if="isStudent">
                     <div class="tw:flex tw:flex-col tw:items-end tw:gap-1">
                         <McBadge v-if="studentBadge" :variant="studentBadge.variant">

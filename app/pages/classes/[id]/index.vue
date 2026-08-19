@@ -74,7 +74,7 @@ const loadClass = async () => {
 }
 
 // Each student's running grade in the class, keyed by student_id. Loaded with the roster (both
-// staff-only, both feed the Students tab). A student with no graded work isn't in the map → "—".
+// staff-only, both feed the Students tab). A student with no graded work isn't in the map → "-".
 const grades = ref<Map<string, StudentGrade>>(new Map())
 
 // The roster is read one page at a time, so this holds only the page on screen; `studentTotal`
@@ -191,7 +191,7 @@ const loadExams = async () => {
 
 // This student's own submissions, keyed by assignment, so every row in the list can show
 // where they stand. One request covers the whole page: GET /submissions ignores its filters
-// for a student and returns all of their rows. Instructors don't need it — their pill is the
+// for a student and returns all of their rows. Instructors don't need it - their pill is the
 // assignment's own Active/Closed.
 const mySubmissions = ref<Map<number, SubmissionView>>(new Map())
 
@@ -236,7 +236,7 @@ const examWindow = (exam: ExamListItem): string => {
     const closes = exam.exam_closes_at ? $dayjs(exam.exam_closes_at) : null
     if (opens && now.isBefore(opens)) return `Opens ${opens.format('MMM D, HH:mm')}`
     if (closes && now.isAfter(closes)) return `Closed ${closes.format('MMM D')}`
-    if (closes) return `Open · closes ${closes.format('MMM D, HH:mm')}`
+    if (closes) return `Open until ${closes.format('MMM D, HH:mm')}`
     return opens ? 'Open now' : 'No window'
 }
 
@@ -360,7 +360,7 @@ const studentSearch = ref('')
 const studentPage = ref(1)
 const studentPerPage = ref(15)
 
-// Writable rather than a ref the table owns, so changing the page IS the refetch — no watcher
+// Writable rather than a ref the table owns, so changing the page IS the refetch - no watcher
 // mirroring table state back into a request. TanStack counts pages from 0; the API from 1.
 const studentPagination = computed<PaginationState>({
     get: () => ({ pageIndex: studentPage.value - 1, pageSize: studentPerPage.value }),
@@ -372,7 +372,7 @@ const studentPagination = computed<PaginationState>({
 })
 
 // Debounced so a request isn't fired per keystroke, and back to page 1 because the result set
-// changes under the pager — page 4 of the old search is meaningless for the new one.
+// changes under the pager - page 4 of the old search is meaningless for the new one.
 const onStudentSearch = useDebounceFn(() => {
     studentPage.value = 1
     void loadStudents()
@@ -451,7 +451,7 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                             {{ classItem.name }}
                         </h1>
                         <p class="tw:text-sm tw:text-navy-60">
-                            {{ classItem.semester }} · {{ classItem.code }}
+                            {{ classItem.semester }}, {{ classItem.code }}
                         </p>
                     </div>
                 </div>
@@ -523,7 +523,7 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                  the assignment's own state, which is what they author. -->
                             <template v-if="isStudent">
                                 <!-- Status badge (the action) with the grade as smaller text just
-                                     below it — "Graded: 2/5", only once graded. -->
+                                     below it - "Graded: 2/5", only once graded. -->
                                 <div class="tw:flex tw:flex-col tw:items-end tw:gap-1">
                                     <McBadge :variant="rowStatus(assignment).variant">
                                         {{ rowStatus(assignment).label }}

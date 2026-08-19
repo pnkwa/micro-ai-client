@@ -19,10 +19,10 @@ export const badgeVariants = cva(
                 warning: 'tw:border-warning tw:text-warning tw:bg-transparent',
                 success: 'tw:border-primary tw:text-primary tw:bg-transparent',
                 info: 'tw:border-sky-500 tw:text-sky-500 tw:bg-transparent',
-                // Outlined red — the same transparent treatment as warning/info/success, for
+                // Outlined red - the same transparent treatment as warning/info/success, for
                 // states that are negative but shouldn't shout with a solid destructive fill.
                 danger: 'tw:border-destructive tw:text-destructive tw:bg-transparent',
-                // Outlined grey — a quiet, neutral state (e.g. nothing done yet), no fill.
+                // Outlined grey - a quiet, neutral state (e.g. nothing done yet), no fill.
                 muted: 'tw:border-navy-20 tw:text-navy-60 tw:bg-transparent',
             },
         },

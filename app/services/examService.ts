@@ -13,10 +13,10 @@ const examExtraFields = {
     exam_confidence_threshold: z.number().nullable(),
 }
 
-// GET /exams/:id — the full tree plus exam scalars.
+// GET /exams/:id - the full tree plus exam scalars.
 const examSchema = assignmentSchema.extend(examExtraFields)
 
-// GET /exams — full rows, scalars only (no tree); still carries the exam window.
+// GET /exams - full rows, scalars only (no tree); still carries the exam window.
 const examListItemSchema = assignmentListItemSchema.extend(examExtraFields)
 
 export type Exam = z.infer<typeof examSchema>
@@ -39,7 +39,7 @@ export type UpdateExamInput = Partial<Omit<CreateExamInput, 'classId'>>
 
 export const examService = {
     /**
-     * Every exam the caller can see, across classes — for a student that is their enrolled classes'
+     * Every exam the caller can see, across classes - for a student that is their enrolled classes'
      * exams, scoped by the API. Used to name the exam that is withholding the AI tool, which is a
      * question about the student and not about one class.
      */

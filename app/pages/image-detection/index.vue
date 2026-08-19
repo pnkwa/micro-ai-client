@@ -39,7 +39,7 @@ type ViewerMode = 'empty' | 'preview'
 /**
  * Turned away at the door while an exam is open (client request 5.2, BE-ADR-012).
  *
- * The server refuses the run regardless — this is so a student meets a clear message here rather
+ * The server refuses the run regardless - this is so a student meets a clear message here rather
  * than after picking a model and uploading a photo. Checked before the page renders anything, so
  * the tool is never briefly usable.
  */
@@ -99,7 +99,7 @@ const currentSource = ref<'upload' | 'camera'>('upload')
 const isAnalyzing = ref(false)
 const hasResults = ref(false)
 const detectionSteps = ref<DetectionStep[]>([])
-// The model that produced the steps on screen — not `selectedModel`, which the user can change
+// The model that produced the steps on screen - not `selectedModel`, which the user can change
 // after a run. Only read while there are steps, so the clear paths don't have to reset it.
 const resultModel = ref('')
 
@@ -137,7 +137,7 @@ const fungalConfidence = computed(() => {
 
 // A detect/segment pass that found nothing reports predicted_class 'none' (worker-contract:
 // the top box's label, or 'none' when there were no boxes). That's the absence of a class,
-// not one the user detected — and the summary already says so — so it doesn't belong among
+// not one the user detected - and the summary already says so - so it doesn't belong among
 // the per-class confidence bars or the "classes found" count.
 const classSteps = computed(() => detectionSteps.value.filter((s) => s.predicted_class !== 'none'))
 
@@ -152,8 +152,8 @@ const classSteps = computed(() => detectionSteps.value.filter((s) => s.predicted
 const hasFilterableBoxes = computed(() => detectionSteps.value.some((s) => s.boxes.length > 0))
 
 // Students get the morphology, not the diagnosis. Naming the class ("Bacterial vaginosis") hands
-// over the answer they are here to reach themselves; the element the detector boxes — "Clue
-// cell", "Pseudohyphae / budding yeast" — describes what it recognised and leaves the reading to
+// over the answer they are here to reach themselves; the element the detector boxes - "Clue
+// cell", "Pseudohyphae / budding yeast" - describes what it recognised and leaves the reading to
 // them. Staff see the class outright, since they are checking the model rather than learning
 // from it. Same principle as the server withholding exam detection from students (BE-ADR-012).
 // `buildSummary` is where this actually gets enforced, and where the tests hold it.
@@ -161,7 +161,7 @@ const authStore = useAuth()
 const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
 
 // Sourced from the manifest the server reports (GET /models), keyed by the model that actually
-// ran — never a copy of the vocabulary kept here, so a model that adds a class needs no client
+// ran - never a copy of the vocabulary kept here, so a model that adds a class needs no client
 // change. Empty when that model reports no vocabulary (the legacy classifier).
 const resultModelSpec = computed(() => models.value.find((m) => m.name === resultModel.value))
 
@@ -178,7 +178,7 @@ const resultModelLabel = computed(() =>
 )
 
 // The summary prose. Assembled in `detectionSummary.ts` rather than as template branches so the
-// wording — which is the client's spec, and which has to stay diagnosis-free for students — is
+// wording - which is the client's spec, and which has to stay diagnosis-free for students - is
 // one testable pure function instead of markup. Bold runs come back as segments because the
 // client renders no markdown.
 const summarySegments = computed(() => {
@@ -598,7 +598,7 @@ const runDetection = async () => {
         resultModel.value = result.model
         hasResults.value = result.steps.length > 0
         // The run is now a history row, including a deduped one that reused a cached result
-        // (BE-ADR-024) — it is still recorded as this caller's own. Highlight it and re-list.
+        // (BE-ADR-024) - it is still recorded as this caller's own. Highlight it and re-list.
         activeRecordId.value = result.id
         history.value?.refresh()
         refreshHistoryCount()
@@ -611,7 +611,7 @@ const runDetection = async () => {
 
 // Detection history (BE-ADR-024). The panel lists past runs; picking one loads it back into this
 // same viewer instead of re-running the worker. `activeRecordId` is only for the highlight, and is
-// cleared the moment the viewer shows something else — a new upload, a snapshot, or a clear.
+// cleared the moment the viewer shows something else - a new upload, a snapshot, or a clear.
 const activeRecordId = ref<number | null>(null)
 
 const loadFromHistory = async (record: HistoryRecord) => {
@@ -1659,7 +1659,7 @@ onUnmounted(() => {
                                      `v-text` rather than an interpolated child on purpose. The
                                      segments carry their own spacing and punctuation (". These
                                      fungal…"), so any whitespace Vue keeps around one shows up as
-                                     "Clue cell , which it" — the bug the old markup had. A child
+                                     "Clue cell , which it" - the bug the old markup had. A child
                                      would be indented onto its own line by Prettier and condense
                                      back to a leading/trailing space; an element with no children
                                      gives it nothing to reflow. -->

@@ -40,7 +40,7 @@ watch(
     },
 )
 
-const formatDate = (d?: Date) => (d ? new Date(d).toLocaleDateString() : '—')
+const formatDate = (d?: Date) => (d ? new Date(d).toLocaleDateString() : '-')
 
 // ---- Inline edit ------------------------------------------------------------------------------
 const editingId = ref<number | null>(null)
@@ -80,7 +80,7 @@ const changeRole = async (user: AdminUser, role: string) => {
         await userAdminService.setRole(user.userID, role as StaffRole)
         toast.success(`${user.email} is now ${role}`)
     } catch (e) {
-        // Backend rejects self-demotion and demoting the last admin — surface its message.
+        // Backend rejects self-demotion and demoting the last admin - surface its message.
         toast.error(apiErrorMessage(e, 'Failed to change role'))
     } finally {
         emit('changed')
@@ -144,7 +144,7 @@ const removeUser = async (user: AdminUser) => {
                             <McBadge variant="outline">{{ u.user_type }}</McBadge>
                         </McTableCell>
                         <McTableCell class="tw:text-navy-60">
-                            {{ u.role ?? u.student_id ?? '—' }}
+                            {{ u.role ?? u.student_id ?? '-' }}
                         </McTableCell>
                         <McTableCell v-if="showAzure" class="tw:text-navy-60">
                             {{ u.azure_oid ? 'Linked' : 'Not linked' }}
@@ -193,7 +193,7 @@ const removeUser = async (user: AdminUser) => {
                                 </option>
                             </McNativeSelect>
                             <span v-else class="tw:text-sm tw:text-navy-60">
-                                {{ u.student_id ?? '—' }}
+                                {{ u.student_id ?? '-' }}
                             </span>
                         </McTableCell>
                         <McTableCell v-if="showAzure">

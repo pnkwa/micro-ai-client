@@ -18,7 +18,7 @@ const props = withDefaults(
         submitLabel?: string
         heading?: string
         // Forces the question type (exams: 'slide_identification') and hides the type picker.
-        // Such a question is prompt + points only — no options, no key (it lives on the slide).
+        // Such a question is prompt + points only - no options, no key (it lives on the slide).
         fixedType?: string
     }>(),
     {
@@ -83,7 +83,7 @@ const buildInitial = (): FormValues => {
     return {
         type: props.fixedType ?? 'multiple_choice',
         prompt: '',
-        // A new question is worth 1 point unless the author changes it — the common case, and
+        // A new question is worth 1 point unless the author changes it - the common case, and
         // it keeps a just-added question from silently contributing 0 to the total.
         points: 1,
         options: [{ text: '', correct: false }],
@@ -104,7 +104,7 @@ const {
 } = useFieldArray<{ text: string; correct: boolean }>('options')
 
 const isChoice = computed(() => choiceTypes.has(values.type))
-// slide_identification carries neither options nor a key — just prompt + points.
+// slide_identification carries neither options nor a key - just prompt + points.
 const isSlideId = computed(() => values.type === 'slide_identification')
 
 const addOption = () => pushOption({ text: '', correct: false })

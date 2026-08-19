@@ -34,7 +34,7 @@ const displayName = computed(() => {
 const roleLabel = computed(() => {
     const user = authStore.user
     if (isInstructor.value) return 'Instructor'
-    return user?.student_id ? `Student · ${user.student_id}` : 'Student'
+    return user?.student_id ? `Student ${user.student_id}` : 'Student'
 })
 
 // Disables Image Detection for a student sitting an exam (request 5.2). Cosmetic by design: the
@@ -46,7 +46,7 @@ const roleLabel = computed(() => {
 // reason answers that in place.
 //
 // RE-CHECKED, not checked once. This component mounts once around NuxtPage for the whole signed-in
-// session, so a single onMounted call would answer at sign-in and never again — a student who
+// session, so a single onMounted call would answer at sign-in and never again - a student who
 // entered mid-exam would keep the item disabled after submitting, until a full reload. That fails in
 // the direction that locks someone out of a tool they are entitled to.
 //

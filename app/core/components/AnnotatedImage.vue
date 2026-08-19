@@ -216,7 +216,7 @@ const boxStyle = (box: DetectionBox) => ({
                         class="tw:absolute tw:-top-5 tw:left-0 tw:px-1.5 tw:py-0.5 tw:rounded tw:text-[10px] tw:font-semibold tw:whitespace-nowrap tw:text-white"
                         :class="colorForLabel(box.label).dot"
                     >
-                        {{ box.label }} · {{ Math.round(box.confidence * 100) }}%
+                        {{ box.label }} ({{ Math.round(box.confidence * 100) }}%)
                     </span>
                 </div>
             </div>

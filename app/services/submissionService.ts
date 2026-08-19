@@ -9,12 +9,13 @@ const submissionBaseSchema = z.object({
     student_id: z.string(),
     status: z.enum(['submitted', 'graded', 'rejected']),
     score: z.number().nullable(),
-    // Total possible points (Σ question points), from the list read — lets a list surface show
+    // Total possible points (Σ question points), from the list read - lets a list surface show
     // "score / max_score" without loading the question tree. Absent on the detail read.
     max_score: z.number().nullable().optional(),
     submitted_at: z.string(),
     // Why staff returned this submission to the student to redo; set only when
-    // status === 'rejected', absent on the list read.
+    // status === 'rejected'. Present on the list read too (BE-ADR-019), which is what lets the
+    // student's assignment and exam forms show the reason without fetching the detail.
     rejection_reason: z.string().nullable().optional(),
     // When it was returned. The detail read serializes the whole submission row so this is on
     // the wire beside the reason; the list read whitelists its fields and does not carry it,

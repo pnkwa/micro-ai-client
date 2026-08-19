@@ -41,7 +41,7 @@ const onSubmit = handleSubmit((values) => {
                 Name
                 <span class="tw:text-red-500">*</span>
             </label>
-            <McInput name="name" placeholder="e.g. Vaginal smear — teaching set" />
+            <McInput name="name" placeholder="e.g. Vaginal smear - teaching set" />
         </div>
         <div class="tw:flex tw:flex-col tw:gap-1">
             <label class="tw:text-xs tw:font-medium tw:text-navy-60">Description</label>

@@ -36,11 +36,11 @@ const slots = defineSlots<{
     footer?: () => unknown
 }>()
 
-const answerLabel = (options: string[]): string => (options.length ? options.join(', ') : '—')
+const answerLabel = (options: string[]): string => (options.length ? options.join(', ') : '-')
 
 // Both types carry a submitted photo and a detection run; the exam slide question adds a
 // self-reported slide number and a written diagnosis on top. (For exam students the server
-// strips the detection, but this card is staff-grading only for slide answers — BE-ADR-012.)
+// strips the detection, but this card is staff-grading only for slide answers - BE-ADR-012.)
 const isSlide = computed(() => props.answer.question.type === 'slide_identification')
 const isImage = computed(() => props.answer.question.type === 'image_detection' || isSlide.value)
 
@@ -52,7 +52,7 @@ const isImage = computed(() => props.answer.question.type === 'image_detection' 
  * falling back to `slide_number_raw` is what lets the grader read what the student wrote and check
  * it against the slide in front of them, instead of grading a blank.
  */
-const slideLabel = computed(() => props.answer.slide_number ?? props.answer.slide_number_raw ?? '—')
+const slideLabel = computed(() => props.answer.slide_number ?? props.answer.slide_number_raw ?? '-')
 const slideUnresolved = computed(
     () => props.answer.slide_number == null && !!props.answer.slide_number_raw,
 )
@@ -90,7 +90,7 @@ const clearanceClass = computed(() => {
                 <span
                     class="tw:shrink-0 tw:text-sm tw:font-semibold tw:text-navy-70 tw:tabular-nums"
                 >
-                    {{ answer.points_awarded ?? '—' }} / {{ answer.question.points }} pt
+                    {{ answer.points_awarded ?? '-' }} / {{ answer.question.points }} pt
                 </span>
             </slot>
         </div>
@@ -131,7 +131,7 @@ const clearanceClass = computed(() => {
                 </div>
                 <p class="tw:text-sm tw:text-navy-90">
                     <span class="tw:text-navy-40">Diagnosis:</span>
-                    {{ answer.response_text || '—' }}
+                    {{ answer.response_text || '-' }}
                 </p>
             </div>
 
@@ -184,7 +184,7 @@ const clearanceClass = computed(() => {
                 <span class="tw:text-navy-40">Answer:</span>
                 {{
                     answer.question.type === 'fill_in'
-                        ? (answer.response_text ?? '—')
+                        ? (answer.response_text ?? '-')
                         : answerLabel(answer.selected_options)
                 }}
             </div>

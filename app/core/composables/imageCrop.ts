@@ -3,7 +3,7 @@
  *
  * Pure arithmetic, no DOM: the component owns the pointer events and the canvas, this owns the
  * numbers. That is what makes the mapping back to source pixels testable, and the mapping is the
- * part worth testing — an off-by-one in the CSS is a wobble, an off-by-one here submits a different
+ * part worth testing - an off-by-one in the CSS is a wobble, an off-by-one here submits a different
  * region of the slide than the one on screen.
  *
  * The model: the image is drawn `scale`d and offset by `x`/`y` (CSS pixels, relative to centring
@@ -16,7 +16,7 @@ export type CropTransform = { scale: number; x: number; y: number }
 export type Natural = { w: number; h: number }
 
 /**
- * The scale at which the image exactly covers the window — the minimum we ever allow.
+ * The scale at which the image exactly covers the window - the minimum we ever allow.
  *
  * Cover, not contain: a crop window showing letterbox would let someone select a region that is
  * partly nothing, and the file that came back would have blank bands baked into it.
@@ -75,7 +75,7 @@ export function cropRect(
 }
 
 /**
- * Is this transform the untouched one — the image sitting exactly as it arrived?
+ * Is this transform the untouched one - the image sitting exactly as it arrived?
  *
  * A square source at cover scale with no offset selects the whole file, so the crop is a no-op and
  * the caller can submit the original bytes rather than a re-encoded copy of them. Re-encoding a

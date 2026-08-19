@@ -18,7 +18,7 @@ const GRADED: StatusBadge = { label: 'Graded', variant: 'success' }
 const LATE: StatusBadge = { label: 'Late', variant: 'warning' }
 const SUBMITTED: StatusBadge = { label: 'Submitted', variant: 'info' }
 // Outlined red (not a solid destructive fill), matching the other status badges everywhere
-// submissionBadges is shown — the submissions table, the student's feedback page.
+// submissionBadges is shown - the submissions table, the student's feedback page.
 const REJECTED: StatusBadge = { label: 'Rejected', variant: 'danger' }
 
 /** Only the fields the rule reads, so this works on both Assignment and AssignmentListItem. */
@@ -41,7 +41,7 @@ type SubmissionTiming = {
  * when due_date was a bare midnight date and any same-day hand-in counted as on time.
  *
  * A standalone predicate because lateness is a property of the submission independent of
- * whether it's been graded — the "Late Submissions" count wants every late one, including
+ * whether it's been graded - the "Late Submissions" count wants every late one, including
  * those already graded, which submissionBadges reports as [Graded, Late].
  */
 export function isLateSubmission(
@@ -70,7 +70,7 @@ export function isAnswerFormLocked(
 
 /**
  * The badge(s) for a submission itself, for the submissions table, the grading header and
- * the student's feedback page — which previously printed the raw `status` enum with a
+ * the student's feedback page - which previously printed the raw `status` enum with a
  * capitalize class and so could never say "Late".
  *
  * Usually one badge; a late submission that's since been graded gets two, [Graded, Late], so
@@ -109,7 +109,7 @@ export function studentAssignmentBadges(
 
     // Nothing handed in. A closed assignment is as shut as a past-due one, so both read the
     // same way: the chance to submit has gone. Instant granularity, matching isLateSubmission
-    // — due_date carries a real time-of-day deadline now, so "overdue" flips at that instant,
+    // - due_date carries a real time-of-day deadline now, so "overdue" flips at that instant,
     // not at the following midnight.
     const pastDue = dayjs().isAfter(dayjs(assignment.due_date))
     if (pastDue || assignment.status === 'closed') {
@@ -127,7 +127,7 @@ export interface StudentStatus {
 }
 
 /**
- * A student's *action* status as one outlined badge — deliberately orthogonal to the grade, which
+ * A student's *action* status as one outlined badge - deliberately orthogonal to the grade, which
  * studentGradeText renders separately. Nothing handed in reads a quiet grey "Not submitted" before
  * the deadline, a red "Overdue" after it; a submission reads by its timing ("Submitted" / "Late
  * submission") even once graded (grading isn't an action); a returned attempt is "Rejected".
@@ -152,7 +152,7 @@ export function studentStatus(
 
 /**
  * The grade for a graded submission, as the small "Graded: 2/5" line shown beneath the status
- * badge. Null until graded. `total` is whatever point total the caller has — the submission's
+ * badge. Null until graded. `total` is whatever point total the caller has - the submission's
  * max_score on a list read, or the summed question points on a fully-loaded assignment.
  */
 export function studentGradeText(

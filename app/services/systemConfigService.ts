@@ -15,7 +15,7 @@ export const systemConfigEntrySchema = z.object({
 
 export type SystemConfigEntry = z.infer<typeof systemConfigEntrySchema>
 
-// PATCH returns the persisted row only — the bare `system_config` entity, WITHOUT the derived
+// PATCH returns the persisted row only - the bare `system_config` entity, WITHOUT the derived
 // `description`/`source` that GET synthesises. Parsing it against the full entry schema would
 // throw on success (the "Failed" toast bug), so writes validate against just what comes back.
 const systemConfigRowSchema = z.object({
@@ -28,7 +28,7 @@ const systemConfigRowSchema = z.object({
 export type SystemConfigRow = z.infer<typeof systemConfigRowSchema>
 
 export const systemConfigService = {
-    // Every known key with its effective value — including keys never written, which report their
+    // Every known key with its effective value - including keys never written, which report their
     // env-seeded default with source 'env-seed'.
     async list(): Promise<SystemConfigEntry[]> {
         const { $api } = useNuxtApp()

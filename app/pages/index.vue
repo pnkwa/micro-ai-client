@@ -102,14 +102,14 @@ watchEffect(() => {
     else if (aiAvailable.value) clearBlockingExam()
 })
 
-/** "closes 18:30" / "closes Aug 19, 09:00" - the near case is the one a student is watching. */
+/** "closes at 18:30" / "closes Aug 19 at 09:00" - the near case is the one a student is watching. */
 const closesAtText = computed(() => {
     const closes = blockingExam.value?.exam_closes_at
     if (!closes) return null
     const at = $dayjs(closes)
     return at.isSame($dayjs(), 'day')
-        ? `closes ${at.format('HH:mm')}`
-        : `closes ${at.format('MMM D, HH:mm')}`
+        ? `closes at ${at.format('HH:mm')}`
+        : `closes ${at.format('MMM D')} at ${at.format('HH:mm')}`
 })
 </script>
 
@@ -202,11 +202,10 @@ const closesAtText = computed(() => {
                                     <span class="tw:font-semibold">{{ blockingExam.name }}</span>
                                     <!-- ml-1, not a leading space: the formatter puts this span on
                                          its own line and Vue condenses the newline away, so the
-                                         separator ended up glued to the exam's name. -->
-                                    <span v-if="closesAtText" class="tw:ml-1">
-                                        · {{ closesAtText }}
-                                    </span>
-                                    — the AI tool returns as soon as you submit it, or once the exam
+                                         word ended up glued to the exam's name. The full stop
+                                         lives inside the span for the same reason. -->
+                                    <span class="tw:ml-1">{{ closesAtText ?? 'is open' }}.</span>
+                                    The AI tool returns as soon as you submit the exam, or once it
                                     closes.
                                 </template>
                                 <template v-else>{{ aiMessage }}</template>

@@ -6,7 +6,7 @@ const { open, isMobile } = useSidebar()
 
 // Phones: the full trail wraps to three or four lines, and because this bar is sticky that
 // height is stolen from every screen for the whole session (a 4-crumb trail measured 143px
-// of a 667px viewport). Keep the root — so there's still an escape upward — and the current
+// of a 667px viewport). Keep the root - so there's still an escape upward - and the current
 // page, and collapse whatever sits between them into an ellipsis. Desktop is unchanged.
 const crumbs = computed(() => {
     const items = breadcrumb.items
@@ -29,7 +29,7 @@ const crumbs = computed(() => {
         ]"
     >
         <!-- Sticky so the breadcrumb/trigger bar stays put as the page scrolls (the window is
-             the scroll container — nothing between here and <body> sets overflow). z-30 keeps
+             the scroll container - nothing between here and <body> sets overflow). z-30 keeps
              it above page content and any in-page sticky table headers, below dialogs/popovers. -->
         <div
             class="tw:sticky tw:top-0 tw:z-30 tw:flex tw:items-center tw:justify-between tw:bg-white tw:px-4 tw:min-h-12 tw:border-b"

@@ -2,7 +2,7 @@
  * The "AI Analysis Summary" prose on /image-detection.
  *
  * The summary exists to *teach*, not to announce a verdict. It points the student at the
- * morphology worth looking at and leaves the reading to them — the class the model picked is
+ * morphology worth looking at and leaves the reading to them - the class the model picked is
  * scaffolding for that, never the answer. This is ML-ADR-001 ("boxes are elements, not
  * verdicts") expressed as copy, and the wording is the client's, from
  * `.claude/image_detection_summary_spec.md`.
@@ -29,7 +29,7 @@ export type SummarySegment = { text: string; bold?: boolean }
  * When a second class counts as a live alternative worth naming.
  *
  * Both conditions matter. `ALT_MIN` keeps near-zero classes from being dressed up as
- * "possibilities" — with five classes there is always a runner-up, and one at 0.04 is noise.
+ * "possibilities" - with five classes there is always a runner-up, and one at 0.04 is noise.
  * `ALT_GAP` keeps the callout off a confident call, where raising a doubt the model does not
  * have would be its own kind of misdirection.
  */
@@ -42,7 +42,7 @@ const NONE = 'none'
 /**
  * The spec's per-class copy, keyed by class **code**, pre-split at the `**…**` boundaries.
  *
- * Verbatim from the spec — including its British/American mix and its hedging, which is
+ * Verbatim from the spec - including its British/American mix and its hedging, which is
  * deliberate. Do not tighten the language into something more assertive: "may appear",
  * "consider whether" is the whole point.
  */
@@ -106,7 +106,7 @@ export const CLASS_SUMMARIES: Record<string, SummarySegment[]> = {
 }
 
 /**
- * `probs` and `labels` are parallel arrays straight off the worker contract — `probs[i]` is
+ * `probs` and `labels` are parallel arrays straight off the worker contract - `probs[i]` is
  * `labels[i]`'s best box confidence. Zip and rank them.
  *
  * `labels` is null for the legacy classifier, whose vocabulary was never stored; there is
@@ -121,7 +121,7 @@ export function rankedClasses(step: DetectionStep): { label: string; prob: numbe
 }
 
 /**
- * The runner-up class, when it has enough support to be worth raising — otherwise null.
+ * The runner-up class, when it has enough support to be worth raising - otherwise null.
  *
  * Ranked off `probs` rather than trusting `predicted_class` to be the top entry, so the two
  * cannot disagree. A `none` runner-up is not a competing reading and is skipped.
@@ -138,9 +138,9 @@ export function alternativeClass(step: DetectionStep): string | null {
 
 export interface SummaryInput {
     step: DetectionStep
-    /** `ModelSpec.elements` for the model that ran — code → morphology. */
+    /** `ModelSpec.elements` for the model that ran - code → morphology. */
     elements: Record<string, string>
-    /** `ModelSpec.displayText` for the model that ran — code → diagnosis name. */
+    /** `ModelSpec.displayText` for the model that ran - code → diagnosis name. */
     displayText: Record<string, string>
     /** Staff are checking the model; students are learning from it. */
     isStaff: boolean
@@ -166,7 +166,7 @@ function classBody(step: DetectionStep, elements: Record<string, string>): Summa
 
     // Not one of the five vaginal-smear classes. The model dropdown still offers the legacy
     // Fungi/Non-Fungi classifier and the fungal segmenter, whose vocabularies the spec says
-    // nothing about — so fall back to describing whatever element the manifest names for the
+    // nothing about - so fall back to describing whatever element the manifest names for the
     // code, and stay silent rather than blank if it names none.
     const element = elements[predicted]
     if (!element) {
@@ -192,7 +192,7 @@ function classBody(step: DetectionStep, elements: Record<string, string>): Summa
  *
  * Staff get the alternative's diagnosis name; students get only its discriminating
  * morphology. Handing a student "Bacterial vaginosis" is handing over the answer they are
- * there to reach — the same reason the main summary is keyed on `elements` rather than
+ * there to reach - the same reason the main summary is keyed on `elements` rather than
  * `displayText` (BE-ADR-012, and ML-ADR-001's scoping of "without giving an explicit
  * diagnosis" to a student actively being assessed).
  */
@@ -260,7 +260,7 @@ function segmentBlock(segment: SummaryInput['segment']): SummarySegment[] {
 
 /**
  * Assemble the whole summary, in reading order: what to look at, what else it might be, how
- * sure the model was, what the fungal pass said, and — staff only — the class itself.
+ * sure the model was, what the fungal pass said, and - staff only - the class itself.
  */
 export function buildSummary(input: SummaryInput): SummarySegment[] {
     const { step, elements, displayText, isStaff, segment } = input
@@ -270,7 +270,7 @@ export function buildSummary(input: SummaryInput): SummarySegment[] {
     if (alt) out.push(...alternativeBlock(alt, elements, displayText, isStaff))
 
     // Phrased without a subject ("it") on purpose: the class copy above does not always leave
-    // one — the HL paragraph describes a field, not a finding — so "recognised it" would dangle.
+    // one - the HL paragraph describes a field, not a finding - so "recognised it" would dangle.
     if (step.predicted_class && step.predicted_class !== NONE) {
         out.push({ text: ' The model’s confidence in this reading was ' })
         out.push({ text: `${pct(step.confidence)}%`, bold: true })
@@ -281,7 +281,7 @@ export function buildSummary(input: SummaryInput): SummarySegment[] {
 
     out.push({
         text:
-            ' These are the features the model keyed on, not a diagnosis — read them against the field ' +
+            ' These are the features the model keyed on, not a diagnosis - read them against the field ' +
             'yourself and reach your own.',
     })
 

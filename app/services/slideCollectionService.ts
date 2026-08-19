@@ -27,7 +27,7 @@ const slideCollectionSchema = z.object({
     updated_at: z.string(),
 })
 
-// GET /slide-collections (list) omits the slides — scalars only.
+// GET /slide-collections (list) omits the slides - scalars only.
 const slideCollectionListItemSchema = slideCollectionSchema.omit({ slides: true })
 
 export type Slide = z.infer<typeof slideSchema>

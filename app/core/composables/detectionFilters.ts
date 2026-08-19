@@ -41,7 +41,7 @@ export const detectionFiltersKey: InjectionKey<DetectionFilters> = Symbol('detec
 export function createDetectionFilters(getSteps: () => DetectionStepLike[]): DetectionFilters {
     const steps = computed(getSteps)
 
-    // Identity of the current detection — its step ids and box counts. A new detection is a
+    // Identity of the current detection - its step ids and box counts. A new detection is a
     // new set of boxes, so a threshold or hidden layer carried over from the previous one
     // would silently hide results the user just asked for. Rather than a watcher resetting
     // the state on change, the state is DERIVED from this key: edits below are stamped with
@@ -52,7 +52,7 @@ export function createDetectionFilters(getSteps: () => DetectionStepLike[]): Det
 
     // The user's overlay tweaks, stamped with the detection in force when they were made.
     // When detectionKey moves to a new detection the stamp stops matching, `active` is null,
-    // and the getters fall back to their defaults — the reset, expressed as derived state.
+    // and the getters fall back to their defaults - the reset, expressed as derived state.
     const edits = ref<{ key: string; minConfidence: number; hiddenSteps: Set<number> } | null>(null)
     const active = computed(() => (edits.value?.key === detectionKey.value ? edits.value : null))
 

@@ -25,7 +25,7 @@ const loadAssignment = async () => {
     try {
         assignment.value = await assignmentService.getById(assignmentId.value)
     } catch {
-        // Left null so the template falls through to "Assignment not found" — which covers
+        // Left null so the template falls through to "Assignment not found" - which covers
         // a deleted id and a class the caller isn't on alike, since the server answers both
         // the same way.
         assignment.value = null
@@ -49,8 +49,8 @@ const loadMySubmission = async () => {
 
 await Promise.all([loadAssignment(), ...(isStudent.value ? [loadMySubmission()] : [])])
 
-// This route carries no class in its path, so everything class-scoped — the way back, and
-// the exercise tree a student actually answers — is reachable only once the assignment has
+// This route carries no class in its path, so everything class-scoped - the way back, and
+// the exercise tree a student actually answers - is reachable only once the assignment has
 // told us which class it belongs to.
 const classId = computed(() => assignment.value?.class_id ?? null)
 
@@ -61,7 +61,7 @@ breadcrumb.setBreadcrumbs([
     { label: assignment.value?.name ?? 'Assignment' },
 ])
 
-// Σ question points — assignments.points is a manually-typed field that goes stale as soon
+// Σ question points - assignments.points is a manually-typed field that goes stale as soon
 // as questions are edited, and the backend's own scoring never reads it.
 const totalPoints = computed(() => (assignment.value ? assignmentTotalPoints(assignment.value) : 0))
 

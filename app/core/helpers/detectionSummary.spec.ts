@@ -12,7 +12,7 @@ import {
 
 /**
  * The summary is the one surface where a student is told what to look at, so the tests that
- * matter most here are not about formatting — they are that a student is never handed the
+ * matter most here are not about formatting - they are that a student is never handed the
  * diagnosis, and that the class map is keyed on the codes the models actually emit.
  */
 

@@ -14,8 +14,8 @@ import {
  *
  * A component per row rather than one observer over a `v-for` ref array, and that is not a
  * stylistic call: Vue MUTATES a `v-for` ref array in place instead of assigning a new one, so a
- * shallow ref holding it never triggers, and `useIntersectionObserver` — which rebuilds when its
- * targets or root change — keeps a targets list of `<li>`s that were detached when the panel last
+ * shallow ref holding it never triggers, and `useIntersectionObserver` - which rebuilds when its
+ * targets or root change - keeps a targets list of `<li>`s that were detached when the panel last
  * reloaded. Measured: every row after a Refresh stayed blank. A row that owns its own observer has
  * nothing to go stale; it is created when the row mounts, torn down with it by the effect scope, and
  * a reload replaces both the root and every row together.
@@ -24,7 +24,7 @@ import {
  */
 const props = defineProps<{
     record: HistoryRecord
-    /** The scrolling `<ul>`, as the observer's root — a phone's viewport is not what clips this. */
+    /** The scrolling `<ul>`, as the observer's root - a phone's viewport is not what clips this. */
     root?: HTMLElement | null
     /** Object URL of the already-loaded thumbnail, if there is one. */
     thumbnail?: string
@@ -42,7 +42,7 @@ useIntersectionObserver(
         if (entry?.isIntersecting) emit('visible')
     },
     // A screen's worth of lead, so a row is fetched shortly before it is looked at rather than
-    // after — at ~20 KB a row the cost of being early is negligible.
+    // after - at ~20 KB a row the cost of being early is negligible.
     { root: () => props.root, rootMargin: '200px' },
 )
 </script>
@@ -76,9 +76,9 @@ useIntersectionObserver(
                     {{ recordClasses(record).join(', ') || 'No findings' }}
                 </span>
                 <span class="tw:text-[11px] tw:text-slate-400 tw:truncate">
-                    {{ formatHistoryDate(record.created_at) }} · {{ boxCount(record) }} box{{
+                    {{ formatHistoryDate(record.created_at) }} ({{ boxCount(record) }} box{{
                         boxCount(record) === 1 ? '' : 'es'
-                    }}
+                    }})
                 </span>
                 <span
                     v-if="submitterName(record)"

@@ -1,12 +1,12 @@
 /**
  * Detection history browsing (BE-ADR-024).
  *
- * Two scopes over the same list: a user's own runs (`GET /detections`) and — for an admin —
+ * Two scopes over the same list: a user's own runs (`GET /detections`) and - for an admin -
  * everyone's, each row carrying its submitter (`GET /detections/all`). The panel that renders
  * them is `McDetectionHistory`; the pieces here are the parts worth testing without a DOM.
  *
  * The scope toggle is **UX only**. `listAll()` is enforced server-side by the RolesGuard, so a
- * student who forces the toggle gets a 403 and nothing else — same posture as the route guard in
+ * student who forces the toggle gets a 403 and nothing else - same posture as the route guard in
  * `middleware/auth.global.ts`.
  */
 import type { DetectionRecord, DetectionWithSubmitter } from '~/services/detectionService'
@@ -21,7 +21,7 @@ export type HistoryScope = 'mine' | 'all'
  *
  * Mirrors the `requiredRole === 'admin'` arm of `middleware/auth.global.ts`: staff **and** the
  * `admin` role claim, which is the same claim the backend's RolesGuard reads. Read from the JWT
- * in preference to the stored profile — both live in localStorage, but the token is what the API
+ * in preference to the stored profile - both live in localStorage, but the token is what the API
  * judges the request on, so the two cannot drift.
  */
 export function canBrowseAllDetections(
@@ -40,7 +40,7 @@ export function submitterName(record: HistoryRecord): string | null {
 }
 
 /**
- * "14 Aug 2026, 03:31" — absolute, not relative.
+ * "14 Aug 2026, 03:31" - absolute, not relative.
  *
  * A lab session spans hours and a student compares runs against each other, so "2 hours ago"
  * forces mental arithmetic that an absolute stamp does not. Locale-fixed to en-GB for a stable
@@ -95,7 +95,7 @@ export function sortNewestFirst<T extends HistoryRecord>(records: T[]): T[] {
  * none.
  *
  * Deliberately the same string the row already prints as its title, so picking "BV" in the filter
- * keeps exactly the rows that say "BV" — a filter whose options do not match what is on screen
+ * keeps exactly the rows that say "BV" - a filter whose options do not match what is on screen
  * sends people looking for rows that were never labelled that way. A multi-class run is its own
  * combination ("VVC, fungus") rather than being counted under each part: the row is one analysis,
  * and splitting it would make the counts sum to more than the list.
@@ -125,7 +125,7 @@ export type HistoryDateRange = 'all' | 'today' | '7d' | '30d'
  *
  * Days, not rolling 24-hour windows: "today" has to mean the calendar day a student is having a lab
  * session in, and a rolling window would drop this morning's runs by the afternoon. Local, not UTC,
- * for the same reason — the boundary that matters is the one on the wall.
+ * for the same reason - the boundary that matters is the one on the wall.
  *
  * `now` is a parameter so this is testable without freezing the clock.
  */
@@ -148,7 +148,7 @@ export function withinDateRange(
 /**
  * The list as filtered, order preserved.
  *
- * `classLabel` of null means "every class" — null rather than an empty string because a class
+ * `classLabel` of null means "every class" - null rather than an empty string because a class
  * label legitimately can be empty-ish, and `''` would be indistinguishable from "no filter".
  */
 export function filterHistory<T extends HistoryRecord>(

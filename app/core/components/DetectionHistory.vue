@@ -19,14 +19,14 @@ import {
  * Past detection runs, newest first (BE-ADR-024).
  *
  * Picking a row loads it back into the page's existing viewer rather than re-running the worker
- * — the parent owns that, so this only emits the record. Nothing here re-derives what the viewer
+ * - the parent owns that, so this only emits the record. Nothing here re-derives what the viewer
  * shows, which is what keeps the student-vs-staff rule honoured automatically: it is the same
  * viewer, reading the same `isStudent`.
  */
 const emit = defineEmits<{ select: [record: HistoryRecord] }>()
 
 const props = defineProps<{
-    /** Highlighted row — the record currently loaded in the viewer. */
+    /** Highlighted row - the record currently loaded in the viewer. */
     activeId?: number | null
 }>()
 
@@ -48,7 +48,7 @@ const loadError = ref<string | null>(null)
  *
  * `<img src>` cannot carry the Authorization header `$api` attaches, so each one is fetched as a
  * blob and held as an object URL. They are cached because switching scope re-lists the same rows,
- * and every one of them is revoked on unmount — an object URL pins its blob in memory until it is.
+ * and every one of them is revoked on unmount - an object URL pins its blob in memory until it is.
  *
  * The server's 256px variant (BE-ADR-026), not the original: this slot is 48px, and the originals
  * are multi-MB microscopy frames that were being downloaded whole and then shrunk by CSS.
@@ -70,7 +70,7 @@ const loadThumbnail = async (id: number) => {
     try {
         thumbnails.value[id] = await detectionService.imageBlobUrl(id, 'thumb')
     } catch {
-        // A missing image is not worth failing the row over — the metadata still reads fine.
+        // A missing image is not worth failing the row over - the metadata still reads fine.
     } finally {
         pending.delete(id)
     }
@@ -81,7 +81,7 @@ const loadThumbnail = async (id: number) => {
  * this owns the cache and the fetching).
  *
  * The panel used to fetch every row's image at once and await all of them before clearing the
- * spinner, so opening it cost the whole history — on a few hundred rows that is hundreds of
+ * spinner, so opening it cost the whole history - on a few hundred rows that is hundreds of
  * concurrent full-resolution downloads for a list you can see eight rows of. Now the list appears as
  * soon as the metadata arrives and the images follow the scroll.
  *

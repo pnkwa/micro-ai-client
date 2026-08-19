@@ -38,7 +38,7 @@ export const detectionSchema = z.object({
 })
 
 // The admin browse (GET /detections/all, BE-ADR-024) enriches each row with its submitter. The
-// server selects only safe columns off the creator — never the password hash — and leaves it
+// server selects only safe columns off the creator - never the password hash - and leaves it
 // null for anonymous runs.
 const submitterSchema = z.object({
     userID: z.number(),
@@ -132,7 +132,7 @@ export const detectionService = {
     },
 
     // Admin-only: every user's history, newest first, each row carrying its submitter
-    // (BE-ADR-024). The API enforces the admin role — a non-admin caller gets 403.
+    // (BE-ADR-024). The API enforces the admin role - a non-admin caller gets 403.
     async listAll(): Promise<DetectionWithSubmitter[]> {
         const { $api } = useNuxtApp()
         const response = await $api(detectionRoutes.listAll)
@@ -142,11 +142,11 @@ export const detectionService = {
     /**
      * How many detections the caller has run, without downloading them.
      *
-     * One row and the `total` beside it (BE-ADR-026), rather than the whole history — which carries
-     * every step and every polygon of every run — to put a number in a badge.
+     * One row and the `total` beside it (BE-ADR-026), rather than the whole history - which carries
+     * every step and every polygon of every run - to put a number in a badge.
      *
      * A server older than v0.11.0-rc.1 ignores the paging params and answers with the bare list, so
-     * the envelope does not parse — and that response is itself the answer, counted in place. One
+     * the envelope does not parse - and that response is itself the answer, counted in place. One
      * request either way: retrying against the unpaged route would put a second 401 in the log for
      * every anonymous visitor, who is exactly who cannot have a history in the first place.
      */
@@ -163,7 +163,7 @@ export const detectionService = {
      * The image a detection ran on. An `<img src>` can't carry the Authorization header `$api`
      * attaches, so fetch it as a blob and hand back an object URL; caller must revoke it.
      *
-     * `size: 'thumb'` asks for the server's cached 256px downscale (BE-ADR-026) — ~20 KB against a
+     * `size: 'thumb'` asks for the server's cached 256px downscale (BE-ADR-026) - ~20 KB against a
      * multi-MB microscopy frame, and all a 48px list row can show. Opt-in, because the two callers
      * that draw boxes over the picture need the pixels the coordinates were measured against.
      *

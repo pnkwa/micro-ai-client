@@ -261,7 +261,7 @@ defineExpose({ toBlob, reset, untouched, ready })
                 <!-- Said once, and only while it is true: a square photo at rest is already the
                      whole frame, so telling someone to drag it would be advice to make it worse. -->
                 <p class="tw:text-center tw:text-[11px] tw:text-white/75">
-                    Drag to move · pinch to zoom
+                    Drag to move, pinch to zoom
                 </p>
             </div>
         </div>

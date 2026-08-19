@@ -122,7 +122,7 @@ const onSignInWithCmu = () => {
                 <p
                     class="tw:text-center tw:text-[11px] tw:text-slate-300 tw:mt-3 tw:sm:mt-4 tw:tracking-wide"
                 >
-                    secured · encrypted session
+                    secured, encrypted session
                 </p>
             </div>
         </div>

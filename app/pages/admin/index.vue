@@ -95,7 +95,7 @@ const createForm = reactive({
 })
 
 // A native <select> hands back an AcceptableValue (widened, possibly undefined); these coerce it
-// back to the field's literal union. They live in the script on purpose — a TS `as` cast inside
+// back to the field's literal union. They live in the script on purpose - a TS `as` cast inside
 // an inline template handler trips Nuxt's macro parser at build time.
 const onFilterTypeChange = (v: unknown) => {
     filterType.value = String(v) as '' | 'staff' | 'student'
@@ -189,7 +189,7 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
                         Backend
                     </span>
                     <span class="tw:text-lg tw:font-semibold tw:text-navy-100 tw:font-mono">
-                        {{ systemInfo?.backend.version ?? '—' }}
+                        {{ systemInfo?.backend.version ?? '-' }}
                     </span>
                     <span class="tw:text-xs tw:text-navy-60">micro-ai-server</span>
                 </div>
@@ -205,7 +205,7 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
                     </span>
                     <span class="tw:flex tw:items-center tw:gap-2">
                         <span class="tw:text-lg tw:font-semibold tw:text-navy-100 tw:font-mono">
-                            {{ systemInfo?.imageProcessor.version ?? '—' }}
+                            {{ systemInfo?.imageProcessor.version ?? '-' }}
                         </span>
                         <!-- The only component whose liveness we can actually observe: it
                              publishes a heartbeat, and a missing one IS the down signal. -->
@@ -260,7 +260,7 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
             <div>
                 <h2 class="tw:text-lg tw:font-semibold tw:text-navy-100">Runtime config</h2>
                 <p class="tw:text-sm tw:text-navy-60">
-                    Operator switches. Changes take effect immediately — no restart.
+                    Operator switches. Changes take effect immediately - no restart.
                 </p>
             </div>
 
@@ -346,7 +346,7 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
 
             <AccountsTable
                 title="Local accounts"
-                subtitle="Password sign-in — the local-auth fallback to CMU SSO."
+                subtitle="Password sign-in - the local-auth fallback to CMU SSO."
                 :accounts="localAccounts"
                 empty-text="No local accounts match."
                 @changed="loadUsers"

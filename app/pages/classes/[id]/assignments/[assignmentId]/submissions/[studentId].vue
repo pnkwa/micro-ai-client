@@ -181,7 +181,7 @@ const saveGrade = async () => {
 
 // Hand the submission back to the student to redo. The reason is required (the button below
 // stays disabled until it's non-empty) and shown to the student on their feedback page. On
-// success we leave the grading page — there's nothing left to grade here.
+// success we leave the grading page - there's nothing left to grade here.
 const rejectSubmission = async () => {
     if (!submission.value || rejectReason.value.trim() === '') return
     isRejecting.value = true
@@ -229,7 +229,7 @@ const rejectSubmission = async () => {
                         </McBadge>
                     </div>
                     <p class="tw:text-xs tw:text-navy-50 tw:mt-0.5">
-                        {{ submission.assignment?.name }} · submitted
+                        {{ submission.assignment?.name }}, submitted
                         {{ formatDateTime(submission.submitted_at) }}
                     </p>
                 </div>
@@ -380,7 +380,7 @@ const rejectSubmission = async () => {
                     </label>
                     <McTextarea
                         v-model="rejectReason"
-                        placeholder="e.g. The field-of-view photo is out of focus — please re-photograph and resubmit."
+                        placeholder="e.g. The field-of-view photo is out of focus - please re-photograph and resubmit."
                         class="tw:text-sm"
                         :rows="3"
                     />

@@ -24,14 +24,14 @@ REPO_URL=$(gh repo view --json url -q .url)
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
-# Released versions, oldest first, in CHANGELOG order — the changelog, not `sort -V`, is
+# Released versions, oldest first, in CHANGELOG order - the changelog, not `sort -V`, is
 # what knows that v0.7.0-rc.1 came before v0.7.0. Only versions that carry a tag are listed.
 tags() {
   sed -n 's/^## \[\([0-9][^]]*\)\].*/v\1/p' "$CHANGELOG" | tail -r 2>/dev/null || \
   sed -n 's/^## \[\([0-9][^]]*\)\].*/v\1/p' "$CHANGELOG" | tac
 }
 
-# The newest tag that is not a release candidate — the one GitHub should mark "Latest".
+# The newest tag that is not a release candidate - the one GitHub should mark "Latest".
 latest_tag() { tags | grep -v -- '-rc\.' | tail -1; }
 
 # The CHANGELOG section for a version, without its own heading or the trailing rule.
@@ -66,7 +66,7 @@ notes() {
     "$REPO_URL" "$tag"
   case "$tag" in
     v0.0.1|v0.1.0|v0.2.0|v0.3.0|v0.4.0-rc.1|v0.5.0-rc.1)
-      printf '\n> Reconstructed from git history after the fact, not written at release time — this repo\n'
+      printf '\n> Reconstructed from git history after the fact, not written at release time - this repo\n'
       printf '> had no changelog and no tags before 2026-08-12 (FE-ADR-009). The linked commits are the\n'
       printf '> primary source.\n' ;;
   esac

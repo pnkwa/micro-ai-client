@@ -49,7 +49,7 @@ const record = (over: Partial<HistoryRecord> = {}): HistoryRecord =>
 describe('canBrowseAllDetections', () => {
     /**
      * Mirrors the `requiredRole === 'admin'` arm of middleware/auth.global.ts. If these drift,
-     * the panel offers a scope toggle the API will 403 — or hides one it would have allowed.
+     * the panel offers a scope toggle the API will 403 - or hides one it would have allowed.
      */
     it.each([
         ['staff', 'admin', true],
@@ -110,7 +110,7 @@ describe('boxCount', () => {
         expect(boxCount(record({ steps: [step('BV', 3), step('fungus', 4)] }))).toBe(7)
     })
 
-    it('is zero when nothing was found — a real answer, not a failure', () => {
+    it('is zero when nothing was found - a real answer, not a failure', () => {
         expect(boxCount(record({ steps: [step('none', 0)] }))).toBe(0)
     })
 })

@@ -2,7 +2,7 @@
  * Which exam, if any, is the reason a student cannot use the AI tool.
  *
  * `GET /detections/availability` answers *whether* the tool is withheld and why in one word
- * (`exam_open`), which is all the server needs to say — it is the one enforcing BE-ADR-012. It does
+ * (`exam_open`), which is all the server needs to say - it is the one enforcing BE-ADR-012. It does
  * not say WHICH exam, and a student reading "you have an exam open" with three classes enrolled has
  * nowhere to go with that. These functions re-derive the same rule over the two lists the student can
  * already read, purely so the notice can name the exam and link to it.
@@ -11,7 +11,7 @@
  * `studentHasOpenExam` query beside it, by hand and with no codegen. If the two ever disagree the
  * server still decides: the tool stays locked or unlocked exactly as the API says, and the worst a
  * drift here can do is name the wrong exam in a sentence, or fail to name one at all. That is why
- * this lives in the client and is allowed to be approximate — see `docs/cross-repo-contract.md` for
+ * this lives in the client and is allowed to be approximate - see `docs/cross-repo-contract.md` for
  * the seams where it would not be.
  */
 
@@ -50,7 +50,7 @@ export function isExamOpen(exam: ExamWindowLike, now: Date): boolean {
 }
 
 /**
- * The open exam a student has not submitted — the one to name and link to.
+ * The open exam a student has not submitted - the one to name and link to.
  *
  * ANY submission row counts as submitted, whatever its status. The server's query joins on
  * `assignment_id`/`student_id` with no status filter, so a rejected submission releases the tool

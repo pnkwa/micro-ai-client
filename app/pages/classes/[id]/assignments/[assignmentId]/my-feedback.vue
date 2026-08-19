@@ -129,7 +129,7 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                 v-if="isRejected"
                 class="tw:bg-danger/5 tw:border tw:border-danger/30 tw:rounded-xl tw:px-6 tw:py-5"
             >
-                <p class="tw:font-semibold tw:text-danger">Returned — please resubmit</p>
+                <p class="tw:font-semibold tw:text-danger">Returned - please resubmit</p>
                 <p class="tw:text-sm tw:text-navy-70 tw:mt-1">
                     Your instructor returned this submission without grading it.
                 </p>

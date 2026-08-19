@@ -45,7 +45,7 @@ const filterOptions: { value: StatusFilter; label: string }[] = [
 
 const isStatusFilter = (v: unknown): v is StatusFilter => filterOptions.some((o) => o.value === v)
 
-// One row per enrolled student, carrying their submission if any — null means "not submitted".
+// One row per enrolled student, carrying their submission if any - null means "not submitted".
 interface RosterRow {
     studentId: string
     name: string
@@ -63,7 +63,7 @@ const rows = computed<RosterRow[]>(() => {
     }))
 })
 
-// Status via the shared helper — a null submission yields "Not submitted" / "Overdue".
+// Status via the shared helper - a null submission yields "Not submitted" / "Overdue".
 const statusFor = (r: RosterRow) => studentStatus(props.assignment, r.submission)
 
 const filteredRows = computed<RosterRow[]>(() => {
