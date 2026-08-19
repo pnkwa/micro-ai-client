@@ -4,9 +4,10 @@ import { toast } from 'vue-sonner'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { assignmentTotalPoints } from '~/services/assignmentService'
 import type { Exam } from '~/services/examService'
-import { isValidSlideNumber, normalizeSlideNumber } from '~/core/helpers/slideNumber'
+import { normalizeSlideNumber } from '~/core/helpers/slideNumber'
 import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
 import { rejectUnusableImage } from '~/core/helpers/imageUpload'
+import { isAnswerFormLocked } from '~/core/helpers/studentAssignmentStatus'
 import {
     useCameraAvailability,
     cameraFailureMessage,
@@ -47,7 +48,11 @@ for (const s of stations) answers[s.id] = { slideNumber: '', diagnosis: '' }
 
 const invalidIds = reactive(new Set<number>())
 const submitting = ref(false)
-const submitted = ref(props.mySubmission !== null)
+// Locked out of answering: either they already had a submission on load, or they just made one.
+// Tracked locally as well as via the prop so the confirmation panel appears the instant the POST
+// returns, without waiting for the parent's refetch. isAnswerFormLocked holds the rejected
+// exception - staff handed the attempt back, so the form reopens (BE-ADR-019).
+const submitted = ref(isAnswerFormLocked(props.mySubmission))
 const isGraded = computed(() => props.mySubmission?.status === 'graded')
 const totalPoints = computed(() => assignmentTotalPoints(props.exam))
 
@@ -85,10 +90,14 @@ const countdown = computed(() => {
     return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
 })
 
-// A station counts as answered once the slide label is one we can resolve, checked against the
-// canonical pattern, not Number(), which would reject every letter code.
+// A station counts as answered once it carries a label of some kind, a diagnosis and a photo.
+// The label is deliberately NOT checked against SLIDE_NUMBER_PATTERN here: that pattern is
+// provisional (see slideNumber.ts) and the server accepts a label it cannot resolve on purpose,
+// storing null and routing the answer to instructor review rather than failing the upload
+// (BE-ADR-017). A stricter rule on this side turns a guess about the format into a student
+// locked out of submitting mid-exam, which is the one place that cost is unrecoverable.
 const isAnswered = (id: number): boolean =>
-    isValidSlideNumber(answers[id]!.slideNumber) &&
+    answers[id]!.slideNumber.trim() !== '' &&
     answers[id]!.diagnosis.trim() !== '' &&
     images[id]?.file != null
 
@@ -116,9 +125,9 @@ const SHARED_FIELD_TOKENS =
     'tw:w-full tw:rounded-md tw:border tw:border-input tw:bg-transparent tw:px-3 tw:text-sm tw:shadow-xs tw:outline-none tw:transition-[color,box-shadow] tw:placeholder:text-muted-foreground tw:focus-visible:border-ring tw:focus-visible:ring-ring/50 tw:focus-visible:ring-[3px]'
 
 // A plain input, matching every other field in the app. Safe to drop the tw:uppercase that used to
-// be here: isValidSlideNumber and normalizeSlideNumber both uppercase before matching, so "v7"
-// validates and is stored as "V7" either way - the transform was only ever cosmetic. Dropping it
-// also lets the placeholder go back to "e.g. V7", which uppercase rendered as "E.G. V7".
+// be here: normalizeSlideNumber uppercases before matching on both sides of the wire, so "v7" is
+// stored as "V7" either way - the transform was only ever cosmetic. Dropping it also lets the
+// placeholder go back to "e.g. V7", which uppercase rendered as "E.G. V7".
 const SLIDE_INPUT_CLASS = `tw:h-9 ${SHARED_FIELD_TOKENS}`
 
 // min-h rather than h, plus resize-y: 4rem is a floor here, not a cap.
@@ -334,13 +343,21 @@ const onSubmit = async () => {
     try {
         const fd = new FormData()
         fd.append('assignment_id', String(props.exam.id))
-        const payload = stations.map((s) => ({
-            question_id: s.id,
-            response_text: answers[s.id]!.diagnosis.trim(),
-            // Normalized before sending so the grade-time lookup matches the stored key whatever
-            // the student typed. The server normalizes again; this is belt and braces, not trust.
-            slide_number: normalizeSlideNumber(answers[s.id]!.slideNumber),
-        }))
+        const payload = stations.map((s) => {
+            const typed = answers[s.id]!.slideNumber.trim()
+            return {
+                question_id: s.id,
+                response_text: answers[s.id]!.diagnosis.trim(),
+                // Normalized before sending so the grade-time lookup matches the stored key
+                // whatever the student typed. The server normalizes again; this is belt and
+                // braces, not trust.
+                slide_number: normalizeSlideNumber(typed),
+                // The untouched entry, so a label the pattern does not recognise reaches the
+                // instructor as text rather than as a blank. Normalizing is lossy and this is
+                // the one field a human has to check against the slide in front of them.
+                slide_number_raw: typed || null,
+            }
+        })
         fd.append('answers', JSON.stringify(payload))
         for (const s of stations) {
             const image = images[s.id]?.file
@@ -413,6 +430,23 @@ const onSubmit = async () => {
 
     <!-- open: the exam form -->
     <form v-else class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="onSubmit">
+        <!-- Reopened because staff returned the previous attempt. Lead with why, so the student
+             knows what to fix before re-photographing the stations. -->
+        <div
+            v-if="mySubmission?.status === 'rejected'"
+            class="tw:bg-danger/5 tw:border tw:border-danger/30 tw:rounded-lg tw:px-4 tw:py-3"
+        >
+            <p class="tw:text-sm tw:font-semibold tw:text-danger">
+                Your previous attempt was returned
+            </p>
+            <p
+                v-if="mySubmission.rejection_reason"
+                class="tw:text-sm tw:text-navy-90 tw:mt-1 tw:whitespace-pre-line"
+            >
+                {{ mySubmission.rejection_reason }}
+            </p>
+        </div>
+
         <!--
             A plain line rather than a card: it reads as a caption for the stations below it.
 
@@ -422,16 +456,10 @@ const onSubmit = async () => {
             scrolls at body level and top-0 would park it underneath.
         -->
         <div class="tw:flex tw:flex-wrap tw:items-center tw:justify-between tw:gap-2 tw:px-1">
-            <div class="tw:flex tw:items-center tw:gap-2 tw:text-sm">
-                <CheckCircle2
-                    class="tw:size-4 tw:transition-colors"
-                    :class="allAnswered ? 'tw:text-primary' : 'tw:text-navy-30'"
-                />
-                <span class="tw:text-navy-70">
-                    <span class="tw:font-semibold tw:text-navy-100">{{ answeredCount }}</span>
-                    of {{ stations.length }} complete
-                </span>
-            </div>
+            <span class="tw:text-sm tw:text-navy-70">
+                <span class="tw:font-semibold tw:text-navy-100">{{ answeredCount }}</span>
+                of {{ stations.length }} complete
+            </span>
             <div
                 v-if="countdown"
                 class="tw:flex tw:items-center tw:gap-1.5 tw:text-sm tw:font-medium tw:tabular-nums"
@@ -453,8 +481,8 @@ const onSubmit = async () => {
         >
             <!--
                 The number is the anchor: stations are identical-looking cards, and without it a
-                student cross-referencing the bench has nothing to count against. It flips to a
-                check once the station is complete, so scanning the column shows what is left.
+                student cross-referencing the bench has nothing to count against, so it stays on
+                screen whatever the station's state. Completion is carried by the fill alone.
             -->
             <div class="tw:flex tw:items-start tw:gap-3">
                 <span
@@ -465,8 +493,7 @@ const onSubmit = async () => {
                             : 'tw:bg-navy-10 tw:text-navy-60'
                     "
                 >
-                    <CheckCircle2 v-if="isAnswered(s.id)" class="tw:size-4" />
-                    <template v-else>{{ s.index + 1 }}</template>
+                    {{ s.index + 1 }}
                 </span>
                 <p class="tw:font-medium tw:text-navy-100">
                     {{ s.prompt }}

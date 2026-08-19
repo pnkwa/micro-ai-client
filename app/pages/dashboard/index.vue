@@ -60,7 +60,7 @@ const loadAllStudents = async () => {
 }
 
 // Load the instructor's whole set once; the class filter scopes it client-side (below),
-// the same way scopedSubmissions does — so switching classes re-derives, never re-fetches.
+// the same way scopedSubmissions does - so switching classes re-derives, never re-fetches.
 const loadAssignments = async () => {
     allAssignments.value = await assignmentService.list()
 }
@@ -180,14 +180,14 @@ const activeAssignmentsCount = computed(
 const avgSubmissionsPerDay = computed(() => (scopedSubmissions.value.length / 7).toFixed(1))
 
 const completionRate = computed(() => {
-    if (!enrolledCount.value) return '—'
+    if (!enrolledCount.value) return '-'
     const unique = new Set(scopedSubmissions.value.map((s) => s.student_id)).size
     return `${Math.round((unique / enrolledCount.value) * 100)}%`
 })
 
 const avgGrade = computed(() => {
     const graded = scopedSubmissions.value.filter((s) => s.status === 'graded' && s.score != null)
-    if (!graded.length) return '—'
+    if (!graded.length) return '-'
     const percentages = graded
         .map((s) => {
             const points = assignmentPointsMap.value.get(s.assignment_id)
@@ -195,7 +195,7 @@ const avgGrade = computed(() => {
             return (s.score! / points) * 100
         })
         .filter((v): v is number => v != null)
-    if (!percentages.length) return '—'
+    if (!percentages.length) return '-'
     return `${Math.round(percentages.reduce((a, b) => a + b, 0) / percentages.length)}%`
 })
 
@@ -237,8 +237,8 @@ const filteredSubmissions = computed((): AssessmentData[] =>
             ? `${s.student.user.firstname} ${s.student.user.lastname}`
             : s.student_id,
         studentId: s.student_id,
-        className: s.assignment?.class?.name ?? '—',
-        assignment: s.assignment?.name ?? '—',
+        className: s.assignment?.class?.name ?? '-',
+        assignment: s.assignment?.name ?? '-',
         assignmentId: s.assignment_id,
         classId: s.assignment?.class?.id ?? null,
         submittedAt: s.submitted_at,
@@ -307,7 +307,7 @@ const formatSubmittedAt = (dateString: string) => dayjs(dateString).fromNow()
                 <!-- No max-y: bucket values are submission counts (per weekday / per week), which
                      aren't bounded by the student count, so a fixed student-count cap made busy
                      buckets overflow the top and quiet ones vanish. Let the chart scale to its
-                     own data instead — BarChart rounds up to a clean axis max. -->
+                     own data instead - BarChart rounds up to a clean axis max. -->
                 <BarChart
                     v-model:selected-period="selectedPeriod"
                     title="Submission Activity"

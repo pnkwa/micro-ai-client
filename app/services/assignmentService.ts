@@ -19,7 +19,7 @@ const questionSchema = z.object({
         'fill_in',
         'image_detection',
         // Exam mode: the student self-reports a slide number, writes a diagnosis and attaches
-        // a FOV photo. Carries no options or key of its own — the key lives on the slide.
+        // a FOV photo. Carries no options or key of its own - the key lives on the slide.
         'slide_identification',
     ]),
     prompt: z.string(),
@@ -51,7 +51,7 @@ const exerciseSchema = z.object({
 export { exerciseSchema, attachmentSchema }
 
 // Returned by GET /assignments (list): scalars only, no tree. `is_exam` is present because
-// the endpoint returns raw rows and does NOT filter exams out — the client separates them.
+// the endpoint returns raw rows and does NOT filter exams out - the client separates them.
 export const assignmentListItemSchema = z.object({
     id: z.number(),
     class_id: z.number(),

@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { assignmentTotalPoints, type Assignment } from '~/services/assignmentService'
 import { rejectUnusableImage } from '~/core/helpers/imageUpload'
+import { isAnswerFormLocked } from '~/core/helpers/studentAssignmentStatus'
 
 const props = defineProps<{
     assignment: Assignment
@@ -72,9 +73,10 @@ const submitting = ref(false)
 // Locked out of answering: either they already had a submission on load, or they just made
 // one. Tracked locally as well as via the prop so the confirmation panel appears the instant
 // the POST returns, without waiting for the parent's refetch to come back.
-// A REJECTED submission is the exception — staff handed it back to redo, so the form must
-// reopen; re-submitting replaces the rejected row (one submission per student per assignment).
-const submitted = ref(props.mySubmission !== null && props.mySubmission.status !== 'rejected')
+// isAnswerFormLocked holds the REJECTED exception: staff handed it back to redo, so the form
+// must reopen; re-submitting replaces the rejected row (one submission per student per
+// assignment). Shared with StudentExamForm, which had the rule wrong until it was pulled out.
+const submitted = ref(isAnswerFormLocked(props.mySubmission))
 
 const isGraded = computed(() => props.mySubmission?.status === 'graded')
 // Same derivation the grading page and the submissions table use: summed from the

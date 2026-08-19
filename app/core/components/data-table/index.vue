@@ -34,9 +34,9 @@ const props = withDefaults(
         /**
          * Hold the table to a fixed height (any CSS length) instead of growing with the rows: the
          * rows scroll inside it under a stuck header, the pagination bar below stays in view, and
-         * the footprint is the same whether it holds two rows, two hundred, or none — the loading
+         * the footprint is the same whether it holds two rows, two hundred, or none - the loading
          * and empty placeholders fill the same space rather than sitting in a short card above
-         * dead space. Unset — the default everywhere else — lets the table grow and the window
+         * dead space. Unset - the default everywhere else - lets the table grow and the window
          * scroll it.
          */
         bodyHeight?: string
@@ -378,7 +378,7 @@ const stickyHeaderClass = computed(() =>
 const hasRows = computed(() => !props.loading && (table.value.getRowModel().rows?.length ?? 0) > 0)
 
 // A fixed-height table takes a fixed layout too, so each column's width comes from its declared
-// size rather than from whatever text this particular page happens to hold — otherwise the
+// size rather than from whatever text this particular page happens to hold - otherwise the
 // columns jump as you step through pages of longer and shorter names. A cell can no longer
 // stretch to fit, so overflow is clipped to an ellipsis instead of spilling into its neighbour.
 const fixedLayoutClass = computed(() => (props.bodyHeight ? 'tw:table-fixed' : ''))
@@ -387,7 +387,7 @@ const fixedCellClass = computed(() =>
 )
 
 // Only the table with rows in it takes the leftover space. With none, it keeps its natural
-// height — the header row alone — and the placeholder below claims the rest, so the message
+// height - the header row alone - and the placeholder below claims the rest, so the message
 // lands in the middle of the card rather than halfway down an empty grid.
 const tableRegionStyle = computed(() => {
     if (!props.bodyHeight) return undefined

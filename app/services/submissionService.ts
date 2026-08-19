@@ -9,13 +9,19 @@ const submissionBaseSchema = z.object({
     student_id: z.string(),
     status: z.enum(['submitted', 'graded', 'rejected']),
     score: z.number().nullable(),
-    // Total possible points (Σ question points), from the list read — lets a list surface show
+    // Total possible points (Σ question points), from the list read - lets a list surface show
     // "score / max_score" without loading the question tree. Absent on the detail read.
     max_score: z.number().nullable().optional(),
     submitted_at: z.string(),
     // Why staff returned this submission to the student to redo; set only when
-    // status === 'rejected', absent on the list read.
+    // status === 'rejected'. Present on the list read too (BE-ADR-019), which is what lets the
+    // student's assignment and exam forms show the reason without fetching the detail.
     rejection_reason: z.string().nullable().optional(),
+    // When it was returned. The detail read serializes the whole submission row so this is on
+    // the wire beside the reason; the list read whitelists its fields and does not carry it,
+    // hence optional. A student redoing work needs the date as much as the reason: their own
+    // "Submitted <date>" is right above it, and without this the two cannot be told apart.
+    rejected_at: z.string().nullable().optional(),
     student: z
         .object({
             student_id: z.string(),
@@ -30,6 +36,11 @@ const submissionBaseSchema = z.object({
             id: z.number(),
             name: z.string(),
             due_date: z.string().nullable(),
+            // An exam is an assignment with is_exam set, and the two have different pages, so
+            // anything navigating back to the parent from a submission has to know which one it
+            // is. The server serializes the whole assignment relation, so this was on the wire
+            // already and only the schema was dropping it.
+            is_exam: z.boolean().optional().default(false),
             class: z.object({ id: z.number(), name: z.string() }).nullable(),
         })
         .nullable(),
@@ -66,6 +77,12 @@ const gradingAnswerSchema = z.object({
     // Exam slide_identification: the slide label the student self-reported; null otherwise.
     // Text, matching slideCollectionService's slideSchema; a label may carry a letter code.
     slide_number: z.string().nullable().optional(),
+    // What the student actually typed in the Slide field, before normalization. A label outside
+    // the canonical pattern normalizes to null (BE-ADR-017 keeps it out of the way of the upload
+    // rather than failing it), and the instructor grading that answer is exactly who needs to
+    // read it. Optional: absent until the server stores it, which is why the card falls back to
+    // the canonical form.
+    slide_number_raw: z.string().nullable().optional(),
     // image_detection / slide_identification: the ML run on the attached image; null otherwise.
     detection: detectionSchema.nullable(),
     // Autograder / detection suggestion: advisory, instructor confirms via is_correct/points_awarded.

@@ -20,7 +20,7 @@ export const studentRosterSchema = z.object({
 })
 
 // The roster read is paged: `total` counts what the search matched before paging, which is what
-// a pager needs — the rows in `data` are only the requested page.
+// a pager needs - the rows in `data` are only the requested page.
 export const studentRosterPageSchema = z.object({
     data: z.array(studentRosterSchema),
     total: z.number(),

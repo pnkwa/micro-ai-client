@@ -34,7 +34,7 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
     // This is UX, not a security boundary: the API is what actually enforces access, and
     // must keep doing so. Read the role from the JWT rather than the stored profile: both
     // live in localStorage, but the token is what the API will judge the request on, so the
-    // two cannot drift apart. 'admin' additionally checks the staff `role` claim — the same
+    // two cannot drift apart. 'admin' additionally checks the staff `role` claim - the same
     // claim the backend's RolesGuard reads on the admin-only routes.
     const requiredRole = to.meta.role
     if (requiredRole && auth.isSignedIn) {

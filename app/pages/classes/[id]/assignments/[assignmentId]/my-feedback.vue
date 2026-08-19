@@ -60,6 +60,14 @@ breadcrumb.setBreadcrumbs(() => [
 
 const isGraded = computed(() => submission.value?.status === 'graded')
 const isRejected = computed(() => submission.value?.status === 'rejected')
+// An exam and an assignment are the same read but different pages, and this button is the whole
+// recovery path out of a rejection (BE-ADR-019: re-submitting is the only way out), so it has to
+// land on the form the student can actually answer. The detail read carries is_exam.
+const resubmitPath = computed(() =>
+    submission.value?.assignment?.is_exam
+        ? `/classes/${classId.value}/exams/${assignmentId.value}`
+        : `/classes/${classId.value}/assignments/${assignmentId.value}`,
+)
 const statusBadges = computed(() =>
     submission.value
         ? submissionBadges(submission.value, submission.value.assignment?.due_date)
@@ -121,9 +129,17 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                 v-if="isRejected"
                 class="tw:bg-danger/5 tw:border tw:border-danger/30 tw:rounded-xl tw:px-6 tw:py-5"
             >
-                <p class="tw:font-semibold tw:text-danger">Returned — please resubmit</p>
+                <p class="tw:font-semibold tw:text-danger">Returned - please resubmit</p>
                 <p class="tw:text-sm tw:text-navy-70 tw:mt-1">
-                    Your instructor returned this submission without grading it:
+                    Your instructor returned this submission without grading it.
+                </p>
+                <!-- Its own line rather than inline in the sentence above: the formatter puts a
+                     conditional template on its own line and Vue condenses the newline, which
+                     left a space before the punctuation that followed it. It also pairs with
+                     the "Submitted <date>" line in the header, which is what a student is
+                     comparing it against. -->
+                <p v-if="submission.rejected_at" class="tw:text-xs tw:text-navy-50 tw:mt-1">
+                    Returned {{ formatDateTime(submission.rejected_at) }}
                 </p>
                 <p
                     v-if="submission.rejection_reason"
@@ -131,11 +147,12 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                 >
                     {{ submission.rejection_reason }}
                 </p>
-                <McButton
-                    class="tw:mt-4"
-                    @click="router.push(`/classes/${classId}/assignments/${assignmentId}`)"
-                >
-                    Go to assignment to resubmit
+                <McButton class="tw:mt-4" @click="router.push(resubmitPath)">
+                    {{
+                        submission.assignment?.is_exam
+                            ? 'Go to exam to resubmit'
+                            : 'Go to assignment to resubmit'
+                    }}
                 </McButton>
             </div>
 

@@ -36,7 +36,7 @@ const onPeriodChange = (value: unknown) => {
 
 // Integer gridlines that never repeat. The counts here are whole numbers, and for a small max
 // (e.g. 1) taking quarter-fractions and rounding produced "1, 1, 1, 0". Instead pick an integer
-// step (~4 divisions, at least 1), round the top up to a multiple of it, and walk down to 0 —
+// step (~4 divisions, at least 1), round the top up to a multiple of it, and walk down to 0 -
 // so every label is a distinct whole number and the top of the axis always clears the tallest bar.
 const yAxisSteps = computed(() => {
     const rawMax = props.maxY ?? Math.max(0, ...props.data.map((d) => d.value))

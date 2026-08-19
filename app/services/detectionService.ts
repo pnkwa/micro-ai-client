@@ -38,7 +38,7 @@ export const detectionSchema = z.object({
 })
 
 // The admin browse (GET /detections/all, BE-ADR-024) enriches each row with its submitter. The
-// server selects only safe columns off the creator — never the password hash — and leaves it
+// server selects only safe columns off the creator - never the password hash - and leaves it
 // null for anonymous runs.
 const submitterSchema = z.object({
     userID: z.number(),
@@ -56,6 +56,16 @@ export type DetectionBox = z.infer<typeof detectionBoxSchema>
 export type DetectionStep = z.infer<typeof detectionStepSchema>
 export type DetectionWithSubmitter = z.infer<typeof detectionWithSubmitterSchema>
 export type DetectionRecord = z.infer<typeof detectionSchema>
+
+/**
+ * What the list endpoints return WHEN PAGED (BE-ADR-026). The shape follows the opt-in: no
+ * `per_page` and the response is a bare array exactly as before, which is why `listMine` below is
+ * unchanged and only the paged callers parse this.
+ */
+const detectionPageSchema = z.object({
+    data: z.array(detectionSchema),
+    total: z.number(),
+})
 
 // GET /models (FE-ADR-007): the manifest the server actually runs. The client never
 // hardcodes a model name so a model added server-side shows up with no client change.
@@ -122,19 +132,50 @@ export const detectionService = {
     },
 
     // Admin-only: every user's history, newest first, each row carrying its submitter
-    // (BE-ADR-024). The API enforces the admin role — a non-admin caller gets 403.
+    // (BE-ADR-024). The API enforces the admin role - a non-admin caller gets 403.
     async listAll(): Promise<DetectionWithSubmitter[]> {
         const { $api } = useNuxtApp()
         const response = await $api(detectionRoutes.listAll)
         return z.array(detectionWithSubmitterSchema).parse(response)
     },
 
-    // The image a detection ran on. An <img src> can't carry the Authorization header $api
-    // attaches, so fetch it as a blob and hand back an object URL; caller must revoke it.
-    async imageBlobUrl(detectionId: number): Promise<string> {
+    /**
+     * How many detections the caller has run, without downloading them.
+     *
+     * One row and the `total` beside it (BE-ADR-026), rather than the whole history - which carries
+     * every step and every polygon of every run - to put a number in a badge.
+     *
+     * A server older than v0.11.0-rc.1 ignores the paging params and answers with the bare list, so
+     * the envelope does not parse - and that response is itself the answer, counted in place. One
+     * request either way: retrying against the unpaged route would put a second 401 in the log for
+     * every anonymous visitor, who is exactly who cannot have a history in the first place.
+     */
+    async countMine(): Promise<number> {
+        const { $api } = useNuxtApp()
+        const response = await $api(detectionRoutes.listMine, {
+            query: { page: 1, per_page: 1 },
+        })
+        const paged = detectionPageSchema.safeParse(response)
+        return paged.success ? paged.data.total : z.array(detectionSchema).parse(response).length
+    },
+
+    /**
+     * The image a detection ran on. An `<img src>` can't carry the Authorization header `$api`
+     * attaches, so fetch it as a blob and hand back an object URL; caller must revoke it.
+     *
+     * `size: 'thumb'` asks for the server's cached 256px downscale (BE-ADR-026) - ~20 KB against a
+     * multi-MB microscopy frame, and all a 48px list row can show. Opt-in, because the two callers
+     * that draw boxes over the picture need the pixels the coordinates were measured against.
+     *
+     * No fallback path needed in either direction: a server too old to know `size` ignores the query
+     * param and returns the original, and a current one returns the original when the image is
+     * already smaller than the cap or cannot be decoded.
+     */
+    async imageBlobUrl(detectionId: number, size?: 'thumb'): Promise<string> {
         const { $api } = useNuxtApp()
         const blob = await $api<Blob>(detectionRoutes.image(detectionId), {
             responseType: 'blob',
+            ...(size && { query: { size } }),
         })
         return URL.createObjectURL(blob)
     },

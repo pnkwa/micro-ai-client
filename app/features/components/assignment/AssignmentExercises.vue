@@ -18,7 +18,7 @@ const props = defineProps<{
     released: boolean
     /**
      * When set (exams pass 'slide_identification'), the question form is locked to this type
-     * and hides its picker — an exam's questions are all one type. Undefined = the normal
+     * and hides its picker - an exam's questions are all one type. Undefined = the normal
      * assignment picker with every type available.
      */
     fixedQuestionType?: string

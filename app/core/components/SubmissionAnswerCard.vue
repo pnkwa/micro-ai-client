@@ -36,13 +36,26 @@ const slots = defineSlots<{
     footer?: () => unknown
 }>()
 
-const answerLabel = (options: string[]): string => (options.length ? options.join(', ') : '—')
+const answerLabel = (options: string[]): string => (options.length ? options.join(', ') : '-')
 
 // Both types carry a submitted photo and a detection run; the exam slide question adds a
 // self-reported slide number and a written diagnosis on top. (For exam students the server
-// strips the detection, but this card is staff-grading only for slide answers — BE-ADR-012.)
+// strips the detection, but this card is staff-grading only for slide answers - BE-ADR-012.)
 const isSlide = computed(() => props.answer.question.type === 'slide_identification')
 const isImage = computed(() => props.answer.question.type === 'image_detection' || isSlide.value)
+
+/**
+ * The slide label to put in front of the grader, and whether it is one the system could resolve.
+ *
+ * `slide_number` is the canonical form and is null whenever the student's entry fell outside the
+ * (provisional) pattern. That answer is precisely the one routed to a human (BE-ADR-017), so
+ * falling back to `slide_number_raw` is what lets the grader read what the student wrote and check
+ * it against the slide in front of them, instead of grading a blank.
+ */
+const slideLabel = computed(() => props.answer.slide_number ?? props.answer.slide_number_raw ?? '-')
+const slideUnresolved = computed(
+    () => props.answer.slide_number == null && !!props.answer.slide_number_raw,
+)
 
 const detection = computed(() => props.answer.detection ?? null)
 const steps = computed(() => detection.value?.steps ?? [])
@@ -77,7 +90,7 @@ const clearanceClass = computed(() => {
                 <span
                     class="tw:shrink-0 tw:text-sm tw:font-semibold tw:text-navy-70 tw:tabular-nums"
                 >
-                    {{ answer.points_awarded ?? '—' }} / {{ answer.question.points }} pt
+                    {{ answer.points_awarded ?? '-' }} / {{ answer.question.points }} pt
                 </span>
             </slot>
         </div>
@@ -98,16 +111,27 @@ const clearanceClass = computed(() => {
             <!-- Exam slide answer: what the student reported (the number and the written
                  diagnosis) sits above the photo + AI panel below. -->
             <div v-if="isSlide" class="tw:mb-3 tw:flex tw:flex-col tw:gap-1.5">
-                <div class="tw:flex tw:items-center tw:gap-2">
+                <div class="tw:flex tw:flex-wrap tw:items-center tw:gap-2">
                     <span
-                        class="tw:inline-flex tw:items-center tw:rounded tw:bg-navy-10 tw:px-2 tw:py-0.5 tw:text-xs tw:font-medium tw:text-navy-70"
+                        class="tw:inline-flex tw:items-center tw:rounded tw:px-2 tw:py-0.5 tw:text-xs tw:font-medium"
+                        :class="
+                            slideUnresolved
+                                ? 'tw:bg-warning/10 tw:text-warning'
+                                : 'tw:bg-navy-10 tw:text-navy-70'
+                        "
                     >
-                        Slide {{ answer.slide_number ?? '—' }}
+                        Slide {{ slideLabel }}
+                    </span>
+                    <!-- Says why the label is tinted, and reads the same way to both audiences
+                         this card serves: the grader learns why the answer is waiting on them,
+                         the student learns why their entry did not land. -->
+                    <span v-if="slideUnresolved" class="tw:text-xs tw:text-navy-50">
+                        no slide matched this label
                     </span>
                 </div>
                 <p class="tw:text-sm tw:text-navy-90">
                     <span class="tw:text-navy-40">Diagnosis:</span>
-                    {{ answer.response_text || '—' }}
+                    {{ answer.response_text || '-' }}
                 </p>
             </div>
 
@@ -160,7 +184,7 @@ const clearanceClass = computed(() => {
                 <span class="tw:text-navy-40">Answer:</span>
                 {{
                     answer.question.type === 'fill_in'
-                        ? (answer.response_text ?? '—')
+                        ? (answer.response_text ?? '-')
                         : answerLabel(answer.selected_options)
                 }}
             </div>

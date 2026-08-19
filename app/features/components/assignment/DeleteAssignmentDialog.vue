@@ -14,7 +14,7 @@ import { assignmentService, type Assignment } from '~/services/assignmentService
  */
 const props = defineProps<{
     open: boolean
-    // Accepts an exam too — an exam is an assignment underneath, so it satisfies this shape.
+    // Accepts an exam too - an exam is an assignment underneath, so it satisfies this shape.
     assignment: Assignment
     /** From the page's already-loaded list, so the warning can name a real number. */
     submissionCount: number
@@ -58,7 +58,7 @@ const destroysWork = computed(() => knownSubmissions.value > 0 || conflictCount.
 const canDelete = computed(() => typed.value.trim() === CONFIRM_WORD && !isDeleting.value)
 
 // Clear the confirmation whenever the dialog closes, so it can never reopen still holding a
-// valid word — which would let a second, unintended delete through on one click. Every way
+// valid word - which would let a second, unintended delete through on one click. Every way
 // out routes through here (Cancel, Escape, the overlay); a successful delete navigates away.
 const onOpenChange = (value: boolean) => {
     if (!value) {

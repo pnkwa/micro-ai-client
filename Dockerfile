@@ -20,7 +20,7 @@ COPY . .
 ENV NUXT_PUBLIC_AUTH_DISABLED=false
 # `generate`, not `build`: this SPA (ssr:false) is served statically by Caddy with no Node process,
 # so it needs a prerendered static index.html in .output/public. `nuxt build` targets the Nitro
-# server and emits no static entry HTML — Caddy's try_files /index.html would 404.
+# server and emits no static entry HTML - Caddy's try_files /index.html would 404.
 RUN pnpm generate
 
 FROM alpine:3.22

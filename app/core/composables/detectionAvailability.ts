@@ -4,7 +4,7 @@ import { detectionService } from '~/services/detectionService'
  * Whether the signed-in caller may use the AI detection tool (client request 5.2).
  *
  * The rule is BE-ADR-012's: a student sitting an exam must not have it, because the detector's
- * class labels ARE the diagnosis being examined. Staff always may — the auto-grader is the same
+ * class labels ARE the diagnosis being examined. Staff always may - the auto-grader is the same
  * endpoint.
  *
  * NONE OF THIS IS THE BOUNDARY. `POST /detections` re-derives the rule server-side and 403s
@@ -15,8 +15,8 @@ import { detectionService } from '~/services/detectionService'
  * STATE IS SHARED (useState), not per-caller. The sidebar mounts once around NuxtPage for the
  * whole session, so a per-caller ref there would be answered once and then never again: a student
  * who entered the app mid-exam would keep Image Detection disabled after submitting, until a full
- * reload. Sharing means whoever refreshes it — a navigation, a tab refocus, the exam form on
- * submit — updates every reader at once.
+ * reload. Sharing means whoever refreshes it - a navigation, a tab refocus, the exam form on
+ * submit - updates every reader at once.
  *
  * Fails OPEN on a network error, deliberately. A flaky request must not lock a student out of a
  * tool they are entitled to; if they are not entitled to it the server refuses the run anyway, so
@@ -35,7 +35,7 @@ export function useDetectionAvailability() {
     const authStore = useAuth()
 
     /**
-     * `force` skips the throttle, for the moments we know the answer just changed — submitting an
+     * `force` skips the throttle, for the moments we know the answer just changed - submitting an
      * exam is the obvious one, and making the student wait out a throttle there is exactly the
      * lockout this is meant to fix.
      */
