@@ -85,15 +85,35 @@ against, as documentation rather than an enforced pairing.
 `package.json`'s `version` is baked into `runtimeConfig.public.appVersion` at build time and shown in
 the admin console's About panel, so a release bump is the only place it needs changing.
 
+### Branches
+
+**`feature` -> `develop` -> `release`.** Work happens on a branch off `develop` and goes back in
+through a PR. `release` is a standing branch that carries what `develop` has blessed, and it is only
+ever **fast-forwarded** from it:
+
+```sh
+git checkout release && git merge --ff-only develop && git push origin release
+```
+
+A release is never cut from a feature branch. `release` should hold the same commit as `develop`
+whenever no release is in flight, so a fast-forward is always possible and a merge commit on
+`release` means something went in sideways.
+
+**Merge PRs with a merge commit, not a squash or a rebase.** A version tag sits on the real commit
+that bumped it, which lives on the feature branch; squashing or rebasing rewrites that commit and
+leaves the tag pointing at something outside `develop`'s history.
+
 ### Cutting a release
 
 1. Write the version's section in `CHANGELOG.md` - including the **Compatibility** notes naming the
    `micro-ai-server` version it was built against.
 2. Bump `version` in `package.json`, commit both as `chore(release): vX.Y.Z - CHANGELOG and version bump`.
-3. **Tag it annotated** - `git tag -a vX.Y.Z` - with a subject line reading
+3. Merge the PR into `develop`, then fast-forward `release` onto it (above). The tag goes on that
+   tip, so `release`, `develop` and the tag all name one commit.
+4. **Tag it annotated** - `git tag -a vX.Y.Z` - with a subject line reading
    `micro-ai-client vX.Y.Z - <what it is>` and a short body. The subject becomes the GitHub release
    title, so it is worth a sentence's thought. Lightweight tags are a defect here, not a shortcut.
-4. `git push origin vX.Y.Z`, then `pnpm release:publish vX.Y.Z`.
+5. `git push origin vX.Y.Z`, then `pnpm release:publish vX.Y.Z`.
 
 `pnpm release:check` reports drift - a tag with no GitHub release, a lightweight tag, a tag with no
 changelog section - and exits non-zero, so it can be run before a coordinated superproject release.
