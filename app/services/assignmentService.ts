@@ -62,6 +62,11 @@ export const assignmentListItemSchema = z.object({
     points: z.number().nullable(),
     status: z.enum(['active', 'closed']),
     is_exam: z.boolean().optional().default(false),
+    // The slide collection a slide_identification question grades against (BE-ADR-011). Set on an
+    // exam by definition, and optional on a normal assignment, which may also carry slide
+    // questions - without one the grader cannot resolve the slide and every such answer routes to
+    // instructor review. Declared here or z.object strips it and the picker reads null forever.
+    slide_collection_id: z.number().nullable().optional(),
     created_at: z.string(),
     updated_at: z.string(),
 })
@@ -135,7 +140,10 @@ export const assignmentService = {
 
     async update(
         id: number,
-        payload: Partial<Omit<CreateAssignmentFormData, 'classId'>>,
+        payload: Partial<Omit<CreateAssignmentFormData, 'classId'>> & {
+            /** null clears the collection; undefined leaves it untouched. */
+            slideCollectionId?: number | null
+        },
     ): Promise<Assignment> {
         const { $api } = useNuxtApp()
         const body: Record<string, unknown> = {}
@@ -144,6 +152,9 @@ export const assignmentService = {
         if (payload.status !== undefined) body.status = payload.status
         if (payload.description !== undefined) body.description = payload.description
         if (payload.instructions !== undefined) body.instructions = payload.instructions
+        // null clears it, so this checks for undefined rather than truthiness.
+        if (payload.slideCollectionId !== undefined)
+            body.slide_collection_id = payload.slideCollectionId
         const response = await $api(assignmentRoutes.byId(id), { method: 'PATCH', body })
         return assignmentSchema.parse(response)
     },

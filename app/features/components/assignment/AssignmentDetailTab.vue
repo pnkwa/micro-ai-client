@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Calendar, Trophy, ClipboardList, Paperclip, FileText, Pencil } from '@lucide/vue'
+import { Calendar, Trophy, ClipboardList, Paperclip, FileText, Pencil, Layers } from '@lucide/vue'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import type { z } from 'zod'
@@ -10,6 +10,10 @@ import {
     type Assignment,
 } from '~/services/assignmentService'
 import { createAssignmentFormSchema } from '~/features/types/forms/assignment'
+import {
+    slideCollectionService,
+    type SlideCollectionListItem,
+} from '~/services/slideCollectionService'
 
 const props = defineProps<{
     assignment: Assignment
@@ -32,6 +36,46 @@ const statusOptions = [
 const isEditing = ref(false)
 const isSaving = ref(false)
 
+/**
+ * The slide collection a `slide_identification` question grades against (BE-ADR-011).
+ *
+ * Outside the vee-validate schema, like the exam tab's own picker: that schema is the shared
+ * create-assignment shape and this field is not part of it. Only offered once the assignment
+ * actually has a slide question, or already has a collection, so an assignment of multiple-choice
+ * questions is not asked about something it has no use for.
+ *
+ * Without one the grader cannot resolve the slide, so every slide answer routes to instructor
+ * review - the submission still works, it just cannot be marked automatically.
+ */
+const collections = ref<SlideCollectionListItem[]>([])
+const slideCollectionId = ref(0)
+
+const hasSlideQuestions = computed(() =>
+    props.assignment.exercises.some((ex) =>
+        ex.questions.some((q) => q.type === 'slide_identification'),
+    ),
+)
+const showCollection = computed(
+    () => hasSlideQuestions.value || props.assignment.slide_collection_id != null,
+)
+const collectionName = computed(
+    () => collections.value.find((c) => c.id === props.assignment.slide_collection_id)?.name ?? '-',
+)
+const collectionOptions = computed(() => [
+    { value: 0, label: 'None (grade slide answers by hand)' },
+    ...collections.value.map((c) => ({ value: c.id, label: c.name })),
+])
+
+// The list endpoint is staff-only, so a student never calls it.
+onMounted(async () => {
+    if (props.isStudent || !showCollection.value) return
+    try {
+        collections.value = await slideCollectionService.list()
+    } catch {
+        /* the name just falls back to the placeholder dash */
+    }
+})
+
 const totalPoints = computed(() => assignmentTotalPoints(props.assignment))
 
 const currentValues = (): EditValues => ({
@@ -49,6 +93,7 @@ const { handleSubmit, resetForm, errors } = useForm<EditValues>({
 
 const enableEdit = () => {
     resetForm({ values: currentValues() })
+    slideCollectionId.value = props.assignment.slide_collection_id ?? 0
     isEditing.value = true
 }
 
@@ -61,6 +106,9 @@ const onSave = handleSubmit(async (values) => {
             status: values.status,
             description: values.description || undefined,
             instructions: values.instructions || undefined,
+            // Only when the field is on screen, so editing an ordinary assignment never sends it.
+            // 0 is the "None" option and clears the collection.
+            ...(showCollection.value ? { slideCollectionId: slideCollectionId.value || null } : {}),
         })
         emit('reload')
         isEditing.value = false
@@ -127,6 +175,22 @@ const onSave = handleSubmit(async (values) => {
             <span v-if="errors.status" class="tw:text-xs tw:text-red-500">{{ errors.status }}</span>
         </div>
 
+        <div v-if="showCollection" class="tw:flex tw:flex-col tw:gap-2">
+            <label class="tw:text-sm tw:font-medium">Slide collection</label>
+            <McSelect
+                v-model="slideCollectionId"
+                placeholder="Select a slide collection"
+                :options="collectionOptions"
+                option-value="value"
+                option-label="label"
+                class="tw:bg-white/50 tw:rounded-md"
+            />
+            <span class="tw:text-xs tw:text-navy-50">
+                Slide identification answers are graded against this collection. Without one they go
+                to you for manual marking.
+            </span>
+        </div>
+
         <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">Description</label>
             <McTextarea
@@ -179,6 +243,25 @@ const onSave = handleSubmit(async (values) => {
                     <p class="tw:text-sm tw:text-navy-60">Total Points</p>
                     <p class="tw:text-base tw:font-medium">
                         {{ totalPoints }} pt{{ totalPoints === 1 ? '' : 's' }}
+                    </p>
+                </div>
+            </div>
+            <!-- Staff only, and only where a slide question makes it mean something. A student is
+                 never shown which collection their answers are keyed against: it is the answer
+                 key by another name. -->
+            <div
+                v-if="showCollection && !isStudent"
+                class="tw:col-span-2 tw:flex tw:items-center tw:gap-4 tw:p-4 tw:bg-white/50 tw:rounded-md tw:border tw:border-navy-20"
+            >
+                <Layers class="tw:w-5 tw:h-5 tw:text-navy-60" />
+                <div>
+                    <p class="tw:text-sm tw:text-navy-60">Slide collection</p>
+                    <p class="tw:text-base tw:font-medium">{{ collectionName }}</p>
+                    <p
+                        v-if="assignment.slide_collection_id == null"
+                        class="tw:text-xs tw:text-warning"
+                    >
+                        Slide answers will come to you for manual marking.
                     </p>
                 </div>
             </div>
