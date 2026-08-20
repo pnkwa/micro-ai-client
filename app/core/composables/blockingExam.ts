@@ -1,6 +1,10 @@
 import { examService } from '~/services/examService'
 import { submissionService } from '~/services/submissionService'
-import { pickBlockingExam, type BlockingExamLike } from '~/core/helpers/examWindow'
+import {
+    detectionReleaseText,
+    pickBlockingExam,
+    type BlockingExamLike,
+} from '~/core/helpers/examWindow'
 
 /**
  * The exam that is withholding the AI detection tool from this student, if one is.
@@ -8,8 +12,9 @@ import { pickBlockingExam, type BlockingExamLike } from '~/core/helpers/examWind
  * `useDetectionAvailability` already knows the tool is withheld and why (`exam_open`). This answers
  * the follow-up question a student actually has - *which* exam, and where is it - so the lock can be
  * explained at the door instead of being something they work out by opening classes one at a time.
- * That was the whole complaint: the tool unlocked once you found the exam and submitted it, and
- * nothing on the way in said that was what it wanted.
+ * It also owns the sentence saying WHEN the tool comes back, because that answer depends on the
+ * exam: since BE-ADR-022's amendment of 2026-08-19 a windowed exam holds the lock even after the
+ * student submits, and only an exam with no closing time is released by handing it in.
  *
  * Derived from two lists the student can already read (`GET /exams`, `GET /submissions`) and the same
  * window rule the server uses - see `~/core/helpers/examWindow`. NOT a gate: the server decides, and
@@ -29,6 +34,7 @@ export function useBlockingExam() {
     const isLoading = useState('blocking-exam-loading', () => false)
 
     const authStore = useAuth()
+    const { $dayjs } = useNuxtApp()
 
     /** Where the student goes to deal with it. Null when there is nothing to point at. */
     const path = computed(() =>
@@ -65,11 +71,24 @@ export function useBlockingExam() {
         }
     }
 
+    /** "closes at 18:30" / "closes Aug 19 at 09:00" - the near case is the one a student watches. */
+    const closesAtText = computed(() => {
+        const closes = exam.value?.exam_closes_at
+        if (!closes) return null
+        const at = $dayjs(closes)
+        return at.isSame($dayjs(), 'day')
+            ? `closes at ${at.format('HH:mm')}`
+            : `closes ${at.format('MMM D')} at ${at.format('HH:mm')}`
+    })
+
+    /** The "you get it back when..." sentence, in one place so the two surfaces cannot drift. */
+    const releaseText = computed(() => detectionReleaseText(exam.value, closesAtText.value))
+
     /** For the moment the tool comes back: the exam that was blocking it no longer is. */
     const clear = () => {
         exam.value = null
         lastCheckedAt.value = 0
     }
 
-    return { exam, path, isLoading, refresh, clear }
+    return { exam, path, closesAtText, releaseText, isLoading, refresh, clear }
 }

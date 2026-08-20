@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { isExamOpen, pickBlockingExam, type BlockingExamLike } from './examWindow'
+import {
+    detectionReleaseText,
+    isExamOpen,
+    pickBlockingExam,
+    releasesOnSubmit,
+    type BlockingExamLike,
+} from './examWindow'
 
 const at = (iso: string) => new Date(iso)
 
@@ -68,9 +74,20 @@ describe('pickBlockingExam', () => {
         expect(pickBlockingExam([later], none, now)).toBeNull()
     })
 
-    /** Any submission row releases the tool server-side, whatever its status. */
-    it('ignores an exam the student has already submitted', () => {
-        expect(pickBlockingExam([exam()], new Set([1]), now)).toBeNull()
+    /**
+     * The case that used to be wrong. Submitting stopped releasing the tool on 2026-08-19
+     * (BE-ADR-022, amended), so filtering the exam out here left the student locked with nothing
+     * named and no way back to the exam.
+     */
+    it('still names a windowed exam the student has already submitted', () => {
+        expect(pickBlockingExam([exam()], new Set([1]), now)?.id).toBe(1)
+    })
+
+    /** The anti-lockout valve: with no end, handing it in IS the release, so it blocks no longer. */
+    it('drops a submitted exam that has no closing time', () => {
+        const openEnded = exam({ exam_closes_at: null })
+        expect(pickBlockingExam([openEnded], new Set([1]), now)).toBeNull()
+        expect(pickBlockingExam([openEnded], none, now)?.id).toBe(1)
     })
 
     it('picks the one closing soonest', () => {
@@ -92,5 +109,40 @@ describe('pickBlockingExam', () => {
         const input = [late, soon]
         pickBlockingExam(input, none, now)
         expect(input.map((e) => e.id)).toEqual([1, 2])
+    })
+})
+
+describe('releasesOnSubmit', () => {
+    it('is true only when the exam has no closing bound', () => {
+        expect(releasesOnSubmit(exam())).toBe(false)
+        expect(releasesOnSubmit(exam({ exam_closes_at: null }))).toBe(true)
+    })
+
+    /** Same rule isExamOpen uses: a bound it cannot parse is no bound at all. */
+    it('treats an unparseable closing time as no bound', () => {
+        expect(releasesOnSubmit(exam({ exam_closes_at: 'not a date' }))).toBe(true)
+    })
+})
+
+describe('detectionReleaseText', () => {
+    it('promises nothing about submitting when the exam cannot be named', () => {
+        expect(detectionReleaseText(null, null)).toBe('It returns when the exam closes.')
+    })
+
+    it('names the closing time when there is one', () => {
+        expect(detectionReleaseText(exam(), 'closes at 18:30')).toBe(
+            'It returns when the exam closes at 18:30.',
+        )
+    })
+
+    it('falls back to the plain sentence when the time was not formatted', () => {
+        expect(detectionReleaseText(exam(), null)).toBe('It returns when the exam closes.')
+    })
+
+    /** The valve case, and the only one where submitting is still the answer. */
+    it('says submitting releases an exam with no closing time', () => {
+        expect(detectionReleaseText(exam({ exam_closes_at: null }), null)).toBe(
+            'It returns once you submit.',
+        )
     })
 })

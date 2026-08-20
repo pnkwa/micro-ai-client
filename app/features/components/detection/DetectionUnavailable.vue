@@ -16,6 +16,8 @@ import { Lock } from '@lucide/vue'
 defineProps<{
     /** Why the tool is withheld, in a sentence. */
     message: string | null
+    /** When it comes back, when that can be answered. Depends on the exam, so it arrives separately. */
+    releaseText?: string
     /** The exam that is withholding it, when it can be named. */
     examName?: string
     /** Where that exam lives, when it can be linked. */
@@ -50,6 +52,9 @@ const router = useRouter()
                 </h1>
                 <p class="tw:text-sm tw:leading-relaxed tw:text-navy-60">
                     {{ message }}
+                    <!-- Its own sentence, appended rather than baked into `message`: only an exam
+                     lock has a release condition, and only the caller knows which exam. -->
+                    <template v-if="releaseText">{{ releaseText }}</template>
                 </p>
                 <!-- Named, when it can be: "an exam" is a thing to go and look for, and the student
                  who is reading this is the one who did not know where. -->
@@ -59,10 +64,12 @@ const router = useRouter()
             </div>
 
             <!--
-            The exam is the primary action, not Back: the reason the tool is withheld is an exam
-            the student has not submitted, so the thing they actually need is the way to it. Back
-            only returns them to where they already were. Falls back to the class list when the
-            exam cannot be named - one level of hunting rather than none, but never a dead end.
+            The exam is the primary action, not Back: the reason the tool is withheld is an open
+            exam, so the thing they actually need is the way to it. Still true once they have
+            submitted - a windowed exam keeps the lock until it closes (BE-ADR-022, amended
+            2026-08-19), and the exam page is where the closing time is. Back only returns them to
+            where they already were. Falls back to the class list when the exam cannot be named -
+            one level of hunting rather than none, but never a dead end.
         -->
             <div class="tw:flex tw:flex-wrap tw:justify-center tw:gap-2">
                 <McButton variant="outline" size="sm" @click="router.push('/')">Back</McButton>
