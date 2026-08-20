@@ -156,20 +156,26 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                 </McButton>
             </div>
 
-            <!-- Reachable before grading if the student keeps the URL, so say so plainly
-                 rather than showing a page of blank marks. -->
+            <!-- Waiting to be marked. A notice, not a wall: the answers below are the student's
+                 own work and they can read them at any point. Only the MARKS are unpublished, and
+                 the server has already nulled every one of them for a non-graded read. -->
             <div
                 v-else-if="!isGraded"
-                class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-xl tw:py-12 tw:text-center"
+                class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-xl tw:py-6 tw:text-center"
             >
                 <p class="tw:font-semibold tw:text-navy-100">Not graded yet</p>
                 <p class="tw:text-sm tw:text-navy-60 tw:mt-1">
-                    Your score and your instructor's feedback appear here once your work has been
-                    graded.
+                    What you submitted is below. Your score and your instructor's feedback appear
+                    here once your work has been graded.
                 </p>
             </div>
 
-            <template v-else>
+            <!-- Every state that has a submission, not just `graded`. A student told to redo
+                 returned work cannot fix answers they are not allowed to see, and one waiting on a
+                 mark should still be able to read what they handed in. The cards are the student's
+                 view by construction (no slots, no marking controls, no answer key), and
+                 `is_correct` is null until grading, so they render neutral on their own. -->
+            <template v-if="submission">
                 <template v-for="group in answerGroups" :key="group.exerciseId">
                     <div class="tw:flex tw:items-center tw:gap-2.5">
                         <span

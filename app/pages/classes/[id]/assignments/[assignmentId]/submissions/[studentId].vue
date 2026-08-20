@@ -36,9 +36,16 @@ const isRejecting = ref(false)
 const rejectOpen = ref(false)
 const rejectReason = ref('')
 
-// Only a still-`submitted` submission can be handed back; a graded one is regraded through
-// the answers instead (the server enforces this too).
-const canReject = computed(() => submission.value?.status === 'submitted')
+// Handed back from `submitted`, and from `graded` when the SYSTEM graded it (`graded_by` null).
+// An exam with no review-bound answer finalizes itself at submit, so it never passes through
+// `submitted` and this button would never appear for it - which is why exams looked as though they
+// had no reject at all. A grade an instructor finalized is still regraded through the answers
+// instead, and the server enforces the same split.
+const canReject = computed(
+    () =>
+        submission.value?.status === 'submitted' ||
+        (submission.value?.status === 'graded' && submission.value.graded_by === null),
+)
 
 interface Draft {
     is_correct: boolean | null
@@ -144,6 +151,9 @@ const responseBoxClass = (questionId: number): string => {
     const state = drafts[questionId]?.is_correct
     if (state === true) return 'tw:border-success/40 tw:bg-success/5'
     if (state === false) return 'tw:border-danger/40 tw:bg-danger/5'
+    // Neutral while undecided, `needs_review` included: the box carries the GRADER's verdict, and
+    // colouring it for an answer nobody has judged yet says the system reached one. That state is
+    // carried by the "Needs your review" chip in the header instead.
     return 'tw:border-navy-15 tw:bg-navy-10/20'
 }
 
@@ -269,6 +279,7 @@ const rejectSubmission = async () => {
                     :tint-class="responseBoxClass(answer.question_id)"
                     :highlight="drafts[answer.question_id]?.is_correct === null"
                     show-answer-key
+                    show-review-flag
                 >
                     <template #points>
                         <label
