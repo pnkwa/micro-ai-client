@@ -62,6 +62,7 @@ const {
 const {
     exam: blockingExam,
     path: blockingExamPath,
+    releaseText,
     refresh: refreshBlockingExam,
 } = useBlockingExam()
 
@@ -619,7 +620,10 @@ const loadFromHistory = async (record: HistoryRecord) => {
     // left running behind the picture keeps the camera light on with nothing to show for it.
     cameraOpen.value = false
     try {
-        const blobUrl = await detectionService.imageBlobUrl(record.id)
+        // By image name, not detection id: this URL is the cacheable one, and the id-addressed
+        // route can mean a different picture after a database recreate (BE-ADR-027).
+        if (!record.image_id) throw new Error('history record carries no image name')
+        const blobUrl = await detectionService.imageBlobUrl(record.image_id)
         if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
         imageUrl.value = blobUrl
         // The bytes as well as the URL, so an old run is a re-runnable image and not just a picture:
@@ -650,6 +654,7 @@ onUnmounted(() => {
     <McDetectionUnavailable
         v-if="!aiAvailable"
         :message="aiUnavailableMessage"
+        :release-text="aiUnavailableReason === 'exam_open' ? releaseText : undefined"
         :exam-name="blockingExam?.name"
         :exam-path="blockingExamPath"
     />
