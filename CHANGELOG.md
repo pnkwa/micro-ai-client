@@ -83,7 +83,26 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
   which collection is in use, with a warning when none is. Staff only: which collection keys the
   answers is the answer key by another name.
 
+- **Whole-page states rendered as a short card at the top of an empty page**: submitted, outside
+  the exam window, nothing to answer. All five now fill the viewport, via a shared `McStatePanel`.
+  A component rather than a class string on purpose: Tailwind only extracts class names from
+  templates, so a height that lives in a script constant is never emitted at all.
+- **A closed exam told the student to resubmit.** Rejection reopens the form, never the window, so
+  the button led to a page the server would refuse. The feedback page and the exam page now say
+  what happened and point at the instructor instead, and a returned exam past its closing time
+  shows its reason and a link to the work rather than a bare padlock.
+- **A submitted photo was fitted into a black band.** A portrait phone photo arrived as two black
+  pillars either side of it, tall enough to push the answer and the next question off screen. It
+  now renders at its own shape, bounded by width, with the rounding the other mode always had.
+
+### Added
+- **An Admin item in the sidebar**, for a staff account whose role is `admin`. `/admin` was
+  reachable only by typing it. Gated on the same rule as the route guard, read the same way.
+
 ### Changed
+- **The admin console uses `McSelect`**, the app's select everywhere else, for all five of its
+  selects. Choices are data with labels now, so `local` and `azure` read as "Local (password)" and
+  "Azure (SSO)" rather than as the enum values underneath them.
 - **A student can now see the answers they submitted before their work is graded.** The feedback
   page showed the answer cards only once `graded`, so a student told to redo returned work could
   not see what they were fixing, and one waiting on a mark saw nothing at all. Both states now
