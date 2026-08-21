@@ -315,10 +315,7 @@ const onSubmit = handleSubmit(async (v) => {
 </script>
 
 <template>
-    <div
-        v-if="submitted"
-        class="tw:flex tw:min-h-[calc(100vh-160px)] tw:flex-col tw:items-center tw:justify-center tw:gap-2 tw:rounded-lg tw:border tw:border-primary/20 tw:bg-white tw:px-4 tw:py-16 tw:text-center"
-    >
+    <McStatePanel v-if="submitted" tone="primary">
         <CheckCircle2 class="tw:size-10 tw:text-primary" />
 
         <template v-if="isGraded">
@@ -341,14 +338,11 @@ const onSubmit = handleSubmit(async (v) => {
                 appear here once your instructor has graded it.
             </p>
         </template>
-    </div>
+    </McStatePanel>
 
-    <div
-        v-else-if="allQuestions.length === 0"
-        class="tw:text-sm tw:text-navy-50 tw:py-8 tw:text-center"
-    >
-        No exercises yet.
-    </div>
+    <McStatePanel v-else-if="allQuestions.length === 0">
+        <p class="tw:text-sm tw:text-navy-50">No exercises yet.</p>
+    </McStatePanel>
 
     <form v-else class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="onSubmit">
         <!-- Reopened because staff returned the previous attempt. Lead with why, so the

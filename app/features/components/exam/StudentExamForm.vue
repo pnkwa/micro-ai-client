@@ -124,6 +124,11 @@ const opensAt = computed(() => (props.exam.exam_opens_at ? $dayjs(props.exam.exa
 const closesAt = computed(() =>
     props.exam.exam_closes_at ? $dayjs(props.exam.exam_closes_at) : null,
 )
+/** Their own submission, on the shared feedback page. Exams route through /assignments/. */
+const feedbackPath = computed(
+    () => `/classes/${props.exam.class_id}/assignments/${props.exam.id}/my-feedback`,
+)
+
 const windowState = computed<'before' | 'open' | 'closed'>(() => {
     if (opensAt.value && now.value.isBefore(opensAt.value)) return 'before'
     if (closesAt.value && now.value.isAfter(closesAt.value)) return 'closed'
@@ -458,10 +463,7 @@ const onSubmit = async () => {
 
 <template>
     <!-- already submitted -->
-    <div
-        v-if="submitted"
-        class="tw:flex tw:min-h-[calc(100vh-160px)] tw:flex-col tw:items-center tw:justify-center tw:gap-2 tw:rounded-lg tw:border tw:border-primary/20 tw:bg-white tw:px-4 tw:py-16 tw:text-center"
-    >
+    <McStatePanel v-if="submitted" tone="primary">
         <CheckCircle2 class="tw:size-10 tw:text-primary" />
         <template v-if="isGraded">
             <p class="tw:text-lg tw:font-semibold tw:text-navy-100">Your exam has been graded</p>
@@ -475,31 +477,58 @@ const onSubmit = async () => {
                 It's final and can't be changed. Your score appears here once it's graded.
             </p>
         </template>
-    </div>
+    </McStatePanel>
 
-    <!-- before open / after close -->
-    <div
-        v-else-if="windowState !== 'open'"
-        class="tw:flex tw:flex-col tw:items-center tw:gap-2 tw:bg-white tw:border tw:border-navy-15 tw:rounded-lg tw:py-16 tw:text-center"
-    >
+    <!--
+        Before open, or after close.
+
+        A student who submitted never reaches here: the confirmation above claims them, closed or
+        not. What lands here is someone with nothing in, or someone whose attempt was handed BACK
+        and who ran out of window to redo it - and that second case used to get a bare padlock,
+        with no reason, no answers and no way to reach either. Being locked out is not the useful
+        half of that sentence; where their work went is.
+    -->
+    <McStatePanel v-else-if="windowState !== 'open'">
         <Lock class="tw:size-8 tw:text-navy-40" />
-        <p class="tw:text-lg tw:font-semibold tw:text-navy-100">
-            {{ windowState === 'before' ? 'This exam has not opened yet' : 'This exam has closed' }}
-        </p>
-        <p v-if="windowState === 'before' && opensAt" class="tw:text-sm tw:text-navy-60">
-            Opens {{ opensAt.format('MMM D, YYYY HH:mm') }}
-        </p>
-        <p v-else-if="windowState === 'closed' && closesAt" class="tw:text-sm tw:text-navy-60">
-            Closed {{ closesAt.format('MMM D, YYYY HH:mm') }}
-        </p>
-    </div>
 
-    <div
-        v-else-if="stations.length === 0"
-        class="tw:text-sm tw:text-navy-50 tw:py-8 tw:text-center"
-    >
-        No slide stations yet.
-    </div>
+        <template v-if="windowState === 'before'">
+            <p class="tw:text-lg tw:font-semibold tw:text-navy-100">This exam has not opened yet</p>
+            <p v-if="opensAt" class="tw:text-sm tw:text-navy-60">
+                Opens {{ opensAt.format('MMM D, YYYY HH:mm') }}
+            </p>
+        </template>
+
+        <template v-else-if="mySubmission?.status === 'rejected'">
+            <p class="tw:text-lg tw:font-semibold tw:text-navy-100">
+                Your exam was returned, and the window has closed
+            </p>
+            <p
+                v-if="mySubmission.rejection_reason"
+                class="tw:max-w-prose tw:text-sm tw:whitespace-pre-line tw:text-navy-90"
+            >
+                {{ mySubmission.rejection_reason }}
+            </p>
+            <p class="tw:text-sm tw:text-navy-60">
+                Resubmitting is no longer possible. Ask your instructor if you need another attempt.
+            </p>
+            <NuxtLink :to="feedbackPath" class="tw:mt-2">
+                <McButton variant="outline" size="sm">View what you submitted</McButton>
+            </NuxtLink>
+        </template>
+
+        <template v-else>
+            <p class="tw:text-lg tw:font-semibold tw:text-navy-100">This exam has closed</p>
+            <p v-if="closesAt" class="tw:text-sm tw:text-navy-60">
+                Closed {{ closesAt.format('MMM D, YYYY HH:mm') }}
+            </p>
+            <!-- Said plainly rather than left to be inferred from a locked door. -->
+            <p class="tw:text-sm tw:text-navy-60">You did not submit this exam.</p>
+        </template>
+    </McStatePanel>
+
+    <McStatePanel v-else-if="stations.length === 0">
+        <p class="tw:text-sm tw:text-navy-50">No slide stations yet.</p>
+    </McStatePanel>
 
     <!-- open: the exam form -->
     <form v-else class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="onSubmit">
