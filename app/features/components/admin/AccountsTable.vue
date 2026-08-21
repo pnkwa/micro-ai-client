@@ -74,6 +74,15 @@ const saveEdit = async (user: AdminUser) => {
     }
 }
 
+/**
+ * Labelled options rather than <option> children, matching the console's other selects and the
+ * rest of the app. Capitalised because a role is a thing an admin picks, not an enum they read.
+ */
+const roleOptions = staffRoles.map((r) => ({
+    value: r,
+    label: r.charAt(0).toUpperCase() + r.slice(1),
+}))
+
 const changeRole = async (user: AdminUser, role: string) => {
     if (role === user.role) return
     try {
@@ -182,16 +191,16 @@ const removeUser = async (user: AdminUser) => {
                             <McBadge variant="outline">{{ u.user_type }}</McBadge>
                         </McTableCell>
                         <McTableCell>
-                            <McNativeSelect
+                            <McSelect
                                 v-if="u.user_type === 'staff'"
                                 :model-value="u.role ?? ''"
-                                class="tw:w-32"
+                                :options="roleOptions"
+                                option-value="value"
+                                option-label="label"
+                                placeholder="No role"
+                                class="tw:w-36"
                                 @update:model-value="changeRole(u, String($event))"
-                            >
-                                <option v-for="r in staffRoles" :key="r" :value="r">
-                                    {{ r }}
-                                </option>
-                            </McNativeSelect>
+                            />
                             <span v-else class="tw:text-sm tw:text-navy-60">
                                 {{ u.student_id ?? '-' }}
                             </span>

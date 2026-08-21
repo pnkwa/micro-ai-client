@@ -94,11 +94,13 @@ const createForm = reactive({
     password: '',
 })
 
-// A native <select> hands back an AcceptableValue (widened, possibly undefined); these coerce it
-// back to the field's literal union. They live in the script on purpose - a TS `as` cast inside
-// an inline template handler trips Nuxt's macro parser at build time.
+/**
+ * McSelect, like the native element it replaces, hands back a widened AcceptableValue; these
+ * coerce it back to the field's literal union. They live in the script on purpose - a TS `as`
+ * cast inside an inline template handler trips Nuxt's macro parser at build time.
+ */
 const onFilterTypeChange = (v: unknown) => {
-    filterType.value = String(v) as '' | 'staff' | 'student'
+    filterType.value = String(v ?? '') as '' | 'staff' | 'student'
     loadUsers()
 }
 const onKindChange = (v: unknown) => {
@@ -110,6 +112,30 @@ const onRoleChange = (v: unknown) => {
 const onAuthProviderChange = (v: unknown) => {
     createForm.auth_provider = String(v) as 'azure' | 'local'
 }
+
+/**
+ * Options as data rather than <option> children.
+ *
+ * McSelect is the app's select everywhere else (assignment authoring, the slide-collection
+ * picker), so the console had the one control that looked like the browser's rather than like the
+ * product. It also reads its choices from a prop, which is what lets these be labelled: "Local
+ * (password)" and a capitalised role are what an admin is choosing between, not the enum values
+ * underneath them.
+ */
+const accountTypeOptions = [
+    { value: 'staff', label: 'Staff' },
+    { value: 'student', label: 'Student' },
+]
+// A blank value, not a null: it is the "no filter" state the query already sends as an empty string.
+const filterTypeOptions = [{ value: '', label: 'All types' }, ...accountTypeOptions]
+const roleOptions = staffRoles.map((r) => ({
+    value: r,
+    label: r.charAt(0).toUpperCase() + r.slice(1),
+}))
+const authProviderOptions = [
+    { value: 'local', label: 'Local (password)' },
+    { value: 'azure', label: 'Azure (SSO)' },
+]
 
 const submitCreate = async () => {
     try {
@@ -321,15 +347,15 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
                     </p>
                 </div>
                 <div class="tw:flex tw:items-center tw:gap-2">
-                    <McNativeSelect
+                    <McSelect
                         :model-value="filterType"
-                        class="tw:w-32"
+                        :options="filterTypeOptions"
+                        option-value="value"
+                        option-label="label"
+                        placeholder="All types"
+                        class="tw:w-36"
                         @update:model-value="onFilterTypeChange($event)"
-                    >
-                        <option value="">All types</option>
-                        <option value="staff">Staff</option>
-                        <option value="student">Student</option>
-                    </McNativeSelect>
+                    />
                     <div class="tw:w-56">
                         <McInput
                             v-model="filterQuery"
@@ -377,14 +403,15 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
                 <div class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:gap-4">
                     <div class="tw:flex tw:flex-col tw:gap-2">
                         <label class="tw:text-sm tw:font-medium">Account type</label>
-                        <McNativeSelect
+                        <McSelect
                             :model-value="createForm.kind"
+                            :options="accountTypeOptions"
+                            option-value="value"
+                            option-label="label"
+                            placeholder="Select an account type"
                             class="tw:w-full"
                             @update:model-value="onKindChange($event)"
-                        >
-                            <option value="staff">Staff</option>
-                            <option value="student">Student</option>
-                        </McNativeSelect>
+                        />
                     </div>
                     <div class="tw:flex tw:flex-col tw:gap-2">
                         <label class="tw:text-sm tw:font-medium">Email</label>
@@ -404,13 +431,15 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
                     </div>
                     <div v-if="createForm.kind === 'staff'" class="tw:flex tw:flex-col tw:gap-2">
                         <label class="tw:text-sm tw:font-medium">Role</label>
-                        <McNativeSelect
+                        <McSelect
                             :model-value="createForm.role"
+                            :options="roleOptions"
+                            option-value="value"
+                            option-label="label"
+                            placeholder="Select a role"
                             class="tw:w-full"
                             @update:model-value="onRoleChange($event)"
-                        >
-                            <option v-for="r in staffRoles" :key="r" :value="r">{{ r }}</option>
-                        </McNativeSelect>
+                        />
                     </div>
                     <div v-else class="tw:flex tw:flex-col tw:gap-2">
                         <label class="tw:text-sm tw:font-medium">Student ID</label>
@@ -422,14 +451,15 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
                     </div>
                     <div class="tw:flex tw:flex-col tw:gap-2">
                         <label class="tw:text-sm tw:font-medium">Auth provider</label>
-                        <McNativeSelect
+                        <McSelect
                             :model-value="createForm.auth_provider"
+                            :options="authProviderOptions"
+                            option-value="value"
+                            option-label="label"
+                            placeholder="Select a sign-in method"
                             class="tw:w-full"
                             @update:model-value="onAuthProviderChange($event)"
-                        >
-                            <option value="local">Local (password)</option>
-                            <option value="azure">Azure (SSO)</option>
-                        </McNativeSelect>
+                        />
                     </div>
                     <div
                         v-if="createForm.auth_provider === 'local'"
