@@ -125,13 +125,17 @@ const boxStyle = (box: DetectionBox) => ({
             No max-height. A cap was tried, to guarantee the results card sits above the fold on a
             short viewport, and it made the picture smaller everywhere to serve the smallest screen -
             the sheet scrolls and says so, which is the cheaper answer.
+
+            Rounded either way, and the corners are clipped by the overflow-hidden above rather
+            than set on the <img>: with boxes drawn over the picture, rounding the image alone
+            would leave the overlay's corners square against it.
         -->
         <div
             ref="container"
             class="tw:relative tw:bg-slate-950 tw:overflow-hidden"
             :class="
                 fill
-                    ? 'tw:w-full'
+                    ? 'tw:w-full tw:rounded-md'
                     : 'tw:flex tw:min-h-0 tw:flex-1 tw:items-center tw:justify-center tw:rounded-md'
             "
         >

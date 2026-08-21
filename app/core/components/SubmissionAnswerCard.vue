@@ -187,10 +187,23 @@ const clearanceClass = computed(() => {
                 :steps="steps"
                 class="tw:flex tw:flex-col tw:gap-4 tw:lg:flex-row tw:lg:items-start"
             >
+                <!--
+                    `fill`, so the frame is the picture's own shape. Without it the image is fitted
+                    into a fixed band against slate-950, which on a portrait phone photo means two
+                    black pillars either side of the only thing on the card worth looking at.
+
+                    Bounded by WIDTH, not height: with `fill` the height follows the aspect ratio,
+                    so a cap on it would crop rather than scale. max-w-md keeps a portrait frame
+                    from running past the answer beneath it while leaving a landscape field of view
+                    big enough to grade from. Core utilities, not arbitrary values - a class that
+                    only ever appears in a script constant is never emitted, which is how a height
+                    silently did nothing earlier in this work.
+                -->
                 <McAnnotatedImage
                     v-if="imageUrl"
                     :src="imageUrl"
-                    class="tw:w-full tw:lg:min-w-0 tw:lg:flex-1"
+                    fill
+                    class="tw:w-full tw:max-w-md tw:lg:min-w-0 tw:lg:flex-1"
                 />
                 <div
                     v-if="detection"
