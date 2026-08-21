@@ -46,6 +46,10 @@ const submissionBaseSchema = z.object({
             // is. The server serializes the whole assignment relation, so this was on the wire
             // already and only the schema was dropping it.
             is_exam: z.boolean().optional().default(false),
+            // The exam's closing time, so a student's own view can tell "returned, go and redo it"
+            // from "returned, and the window shut before you could". Detail read only: the list
+            // read whitelists its fields, hence optional.
+            exam_closes_at: z.string().nullable().optional(),
             class: z.object({ id: z.number(), name: z.string() }).nullable(),
         })
         .nullable(),
