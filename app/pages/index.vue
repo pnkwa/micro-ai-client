@@ -87,6 +87,8 @@ const { available: aiAvailable, reason: aiReason, message: aiMessage } = useDete
 const {
     exam: blockingExam,
     path: blockingExamPath,
+    closesAtText,
+    releaseText,
     refresh: refreshBlockingExam,
     clear: clearBlockingExam,
 } = useBlockingExam()
@@ -100,16 +102,6 @@ const aiWithheld = computed(() => isStudent.value && !aiAvailable.value)
 watchEffect(() => {
     if (aiWithheld.value && aiReason.value === 'exam_open') void refreshBlockingExam()
     else if (aiAvailable.value) clearBlockingExam()
-})
-
-/** "closes at 18:30" / "closes Aug 19 at 09:00" - the near case is the one a student is watching. */
-const closesAtText = computed(() => {
-    const closes = blockingExam.value?.exam_closes_at
-    if (!closes) return null
-    const at = $dayjs(closes)
-    return at.isSame($dayjs(), 'day')
-        ? `closes at ${at.format('HH:mm')}`
-        : `closes ${at.format('MMM D')} at ${at.format('HH:mm')}`
 })
 </script>
 
@@ -205,8 +197,7 @@ const closesAtText = computed(() => {
                                          word ended up glued to the exam's name. The full stop
                                          lives inside the span for the same reason. -->
                                     <span class="tw:ml-1">{{ closesAtText ?? 'is open' }}.</span>
-                                    The AI tool returns as soon as you submit the exam, or once it
-                                    closes.
+                                    {{ releaseText }}
                                 </template>
                                 <template v-else>{{ aiMessage }}</template>
                             </p>

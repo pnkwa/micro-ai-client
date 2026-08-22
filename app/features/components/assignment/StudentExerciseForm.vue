@@ -5,8 +5,10 @@ import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
+import { detectionService } from '~/services/detectionService'
 import { assignmentTotalPoints, type Assignment } from '~/services/assignmentService'
 import { rejectUnusableImage } from '~/core/helpers/imageUpload'
+import { normalizeSlideNumber } from '~/core/helpers/slideNumber'
 import { isAnswerFormLocked } from '~/core/helpers/studentAssignmentStatus'
 
 const props = defineProps<{
@@ -67,6 +69,16 @@ const images = reactive<
 // Which questions failed the "required" check is type-dependent business logic, not
 // something a single zod shape can express per-row, so it's tracked separately (same
 // division of labor as QuestionForm.vue's manual post-handleSubmit checks).
+/**
+ * The self-reported slide label for a slide_identification question, keyed by question id.
+ *
+ * Outside the vee-validate schema, like `images`: that schema gives each question one `selected`
+ * and one `text`, and a slide answer needs two strings (the label and the diagnosis). The
+ * diagnosis takes `text`, which is what the payload already treats as free-text, and the label
+ * lives here rather than widening the schema for one question type.
+ */
+const slideLabels = reactive<Record<number, string>>({})
+
 const invalidIds = reactive(new Set<number>())
 
 const submitting = ref(false)
@@ -77,6 +89,60 @@ const submitting = ref(false)
 // must reopen; re-submitting replaces the rejected row (one submission per student per
 // assignment). Shared with StudentExamForm, which had the rule wrong until it was pulled out.
 const submitted = ref(isAnswerFormLocked(props.mySubmission))
+
+/**
+ * Redoing a returned assignment: put back what they answered last time, and show the photos they
+ * sent. Same rule as StudentExamForm, for the same reason: re-submitting REPLACES the row
+ * (BE-ADR-019, there is no un-reject), so the attempt they were told to fix is gone the moment
+ * they hand in again, and a blank form asks them to remember what they wrote.
+ *
+ * Answers go back through `updateAnswer` rather than the form's initialValues, because the
+ * previous submission is fetched after the form is created. Photos are shown, NOT restored: a
+ * browser cannot refill a file input from a URL, and a returned answer is often returned because
+ * the image was the problem. Keyed off `image_id`, which survives the server's grade strip
+ * (BE-ADR-027).
+ */
+const previousImageUrls = reactive<Record<number, string>>({})
+/**
+ * The image_id behind each preview, so a photo the student keeps can be re-sent at full size.
+ * The preview URL is a thumb and must never be what gets submitted.
+ */
+const previousImageIds = reactive<Record<number, string>>({})
+/** True once a previous attempt actually loaded, so the notice cannot claim a prefill that failed. */
+const isRedo = ref(false)
+const loadPreviousAttempt = async () => {
+    const previous = props.mySubmission
+    if (!previous || previous.status !== 'rejected') return
+    try {
+        const detail = await submissionService.getById(previous.id)
+        const indexByQuestion = new Map(allQuestions.map((q) => [q.id, q.answerIndex]))
+        for (const answer of detail.answers) {
+            const index = indexByQuestion.get(answer.question_id)
+            if (index !== undefined) {
+                updateAnswer(index, {
+                    selected: answer.selected_options ?? [],
+                    text: answer.response_text ?? '',
+                })
+                // The raw label first: it is what they typed, and one the server could not
+                // normalize is stored in that form only.
+                slideLabels[answer.question_id] =
+                    answer.slide_number_raw ?? answer.slide_number ?? ''
+            }
+            if (answer.image_id) {
+                previousImageIds[answer.question_id] = answer.image_id
+                previousImageUrls[answer.question_id] = await detectionService.imageBlobUrl(
+                    answer.image_id,
+                    'thumb',
+                )
+            }
+        }
+        isRedo.value = true
+    } catch {
+        // Silent, and deliberately not a toast: an empty form still works, and a failed prefill
+        // must not read as a failed resubmit.
+    }
+}
+onMounted(loadPreviousAttempt)
 
 const isGraded = computed(() => props.mySubmission?.status === 'graded')
 // Same derivation the grading page and the submissions table use: summed from the
@@ -90,9 +156,41 @@ const emptyAnswer = { selected: [] as string[], text: '' }
 const answerValue = (i: number) => answerFields.value[i]?.value ?? emptyAnswer
 const currentAnswer = (i: number) => values.answers[i] ?? emptyAnswer
 
+/**
+ * A photo question is answered by a NEW file or by the one the student already sent.
+ *
+ * Re-submitting replaces the row, so a kept photo is not merely displayed: it is re-uploaded on
+ * submit (see below). Requiring a fresh file instead would mean a student whose work came back
+ * over a wrong diagnosis had to re-photograph a slide they may no longer have.
+ */
+const hasPhoto = (q: QuestionMeta): boolean =>
+    images[q.id]?.file != null || previousImageIds[q.id] != null
+
+/** The photo the student kept, as a file to upload. Null when they attached a new one or none. */
+const keptPhoto = async (questionId: number): Promise<File | null> => {
+    const imageId = previousImageIds[questionId]
+    if (!imageId) return null
+    try {
+        return await detectionService.imageFile(imageId)
+    } catch {
+        // Better to submit the rest than to fail the whole attempt over one image; the answer
+        // arrives without a photo and goes to the instructor, which is where it was headed anyway.
+        return null
+    }
+}
+
 const isAnswered = (q: QuestionMeta): boolean => {
     if (q.type === 'fill_in') return currentAnswer(q.answerIndex).text.trim() !== ''
-    if (q.type === 'image_detection') return images[q.id]?.file != null
+    if (q.type === 'image_detection') return hasPhoto(q)
+    // A slide station is a label, a diagnosis AND a photo - the same three the exam requires,
+    // because it is the same question and the same grading path.
+    if (q.type === 'slide_identification') {
+        return (
+            (slideLabels[q.id]?.trim() ?? '') !== '' &&
+            currentAnswer(q.answerIndex).text.trim() !== '' &&
+            hasPhoto(q)
+        )
+    }
     return currentAnswer(q.answerIndex).selected.length > 0
 }
 
@@ -143,6 +241,7 @@ const removeImage = (q: QuestionMeta) => {
 // Preview URLs are only cleaned up as they're replaced/removed above; this catches
 // whatever's still outstanding when the form itself goes away (e.g. leaving the page).
 onBeforeUnmount(() => {
+    for (const url of Object.values(previousImageUrls)) URL.revokeObjectURL(url)
     for (const entry of Object.values(images)) {
         if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
     }
@@ -174,17 +273,34 @@ const onSubmit = handleSubmit(async (v) => {
                 question_id: number
                 response_text?: string
                 selected_options?: string[]
+                slide_number?: string | null
+                slide_number_raw?: string | null
             } = { question_id: q.id }
             const answered = v.answers[q.answerIndex] ?? emptyAnswer
             if (q.type === 'fill_in') answer.response_text = answered.text.trim()
             else if (q.type === 'multiple_choice' || q.type === 'multiple_select')
                 answer.selected_options = [...answered.selected]
+            else if (q.type === 'slide_identification') {
+                const typed = slideLabels[q.id]?.trim() ?? ''
+                answer.response_text = answered.text.trim()
+                // Normalized so the grade-time lookup matches the stored key whatever was typed;
+                // the server normalizes again, so this is belt and braces, not trust.
+                answer.slide_number = normalizeSlideNumber(typed)
+                // The untouched entry too, so a label the pattern does not recognise reaches the
+                // instructor as text rather than as a blank (BE-ADR-017).
+                answer.slide_number_raw = typed || null
+            }
             return answer
         })
         fd.append('answers', JSON.stringify(answers))
         for (const q of allQuestions) {
-            const image = images[q.id]?.file
-            if (q.type === 'image_detection' && image) fd.append(`image_${q.id}`, image)
+            if (q.type !== 'image_detection' && q.type !== 'slide_identification') continue
+            const attached = images[q.id]?.file
+            // Keyed the way the server's AnyFilesInterceptor expects. A previous photo the student
+            // did not replace is refetched at full size and sent as their answer, because the
+            // resubmit replaces the row and an answer with no file has no photo at all.
+            const file = attached ?? (await keptPhoto(q.id))
+            if (file) fd.append(`image_${q.id}`, file)
         }
         await submissionService.create(fd)
         submitted.value = true
@@ -199,10 +315,7 @@ const onSubmit = handleSubmit(async (v) => {
 </script>
 
 <template>
-    <div
-        v-if="submitted"
-        class="tw:flex tw:flex-col tw:items-center tw:gap-2 tw:bg-white tw:border tw:border-primary/20 tw:rounded-lg tw:py-16 tw:text-center"
-    >
+    <McStatePanel v-if="submitted" tone="primary">
         <CheckCircle2 class="tw:size-10 tw:text-primary" />
 
         <template v-if="isGraded">
@@ -225,14 +338,11 @@ const onSubmit = handleSubmit(async (v) => {
                 appear here once your instructor has graded it.
             </p>
         </template>
-    </div>
+    </McStatePanel>
 
-    <div
-        v-else-if="allQuestions.length === 0"
-        class="tw:text-sm tw:text-navy-50 tw:py-8 tw:text-center"
-    >
-        No exercises yet.
-    </div>
+    <McStatePanel v-else-if="allQuestions.length === 0">
+        <p class="tw:text-sm tw:text-navy-50">No exercises yet.</p>
+    </McStatePanel>
 
     <form v-else class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="onSubmit">
         <!-- Reopened because staff returned the previous attempt. Lead with why, so the
@@ -249,6 +359,15 @@ const onSubmit = handleSubmit(async (v) => {
                 class="tw:text-sm tw:text-navy-90 tw:mt-1 tw:whitespace-pre-line"
             >
                 {{ mySubmission.rejection_reason }}
+            </p>
+            <!-- Here rather than per question: it is one fact about the whole form, and it belongs
+                 with the reason the form reopened. Rendered off isRedo, which is set only once a
+                 previous attempt actually loaded, so it never claims a prefill that failed. -->
+            <p v-if="isRedo" class="tw:mt-2 tw:text-sm tw:text-navy-70">
+                Your previous answers are filled in below, photos included.
+                <span class="tw:font-medium tw:text-navy-90">
+                    Those are resubmitted as they are unless you replace them.
+                </span>
             </p>
         </div>
 
@@ -345,6 +464,116 @@ const onSubmit = handleSubmit(async (v) => {
                         @update:model-value="invalidIds.delete(q.id)"
                     />
 
+                    <!--
+                        slide_identification: the exam's station layout, because it is the exam's
+                        question. Photo on the left at a size worth looking at, the label and the
+                        diagnosis stacked beside it. All three are required (see isAnswered), and
+                        the payload carries the normalized label plus the raw one, exactly as
+                        StudentExamForm sends it, so the same grading path receives the same shape.
+
+                        Stacks on mobile with the photo on top, which is where it is taken.
+                    -->
+                    <div
+                        v-else-if="q.type === 'slide_identification'"
+                        class="tw:mt-3 tw:flex tw:flex-col tw:gap-4 tw:sm:flex-row"
+                    >
+                        <div class="tw:relative tw:h-40 tw:w-full tw:shrink-0 tw:sm:size-44">
+                            <label
+                                class="tw:group/photo tw:block tw:size-full tw:cursor-pointer tw:overflow-hidden tw:rounded-lg"
+                            >
+                                <img
+                                    v-if="images[q.id]?.file || previousImageUrls[q.id]"
+                                    :src="
+                                        images[q.id]?.previewUrl ??
+                                        previousImageUrls[q.id] ??
+                                        undefined
+                                    "
+                                    alt=""
+                                    class="tw:size-full tw:rounded-lg tw:border tw:bg-navy-5 tw:object-contain"
+                                    :class="
+                                        images[q.id]?.file
+                                            ? 'tw:border-primary/40'
+                                            : 'tw:border-dashed tw:border-navy-20'
+                                    "
+                                />
+                                <span
+                                    v-else
+                                    class="tw:flex tw:size-full tw:flex-col tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-lg tw:border tw:border-dashed tw:border-navy-20 tw:text-center tw:text-navy-60 tw:transition-colors tw:hover:border-primary tw:hover:bg-primary/5"
+                                >
+                                    <ImageUp class="tw:size-5" />
+                                    <span class="tw:text-xs tw:font-medium">Add photo</span>
+                                </span>
+                                <!-- Hover-only, so nothing covers a photo at rest. -->
+                                <span
+                                    v-if="images[q.id]?.file || previousImageUrls[q.id]"
+                                    class="tw:pointer-events-none tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-lg tw:bg-navy-100/55 tw:text-xs tw:font-medium tw:text-white tw:opacity-0 tw:transition-opacity tw:group-hover/photo:opacity-100"
+                                >
+                                    <ImageUp class="tw:size-4" />
+                                    {{ images[q.id]?.file ? 'Change photo' : 'Add photo' }}
+                                </span>
+                                <!-- Names what is showing, so a returned photo is not taken for
+                                     one already attached. -->
+                                <span
+                                    v-if="!images[q.id]?.file && previousImageUrls[q.id]"
+                                    class="tw:pointer-events-none tw:absolute tw:bottom-1.5 tw:left-1.5 tw:rounded tw:bg-navy-100/65 tw:px-1.5 tw:py-0.5 tw:text-[0.6875rem] tw:font-medium tw:text-white tw:transition-opacity tw:group-hover/photo:opacity-0"
+                                >
+                                    Previous photo
+                                </span>
+                                <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    capture="environment"
+                                    class="tw:hidden"
+                                    @change="onImage(q, $event)"
+                                />
+                            </label>
+                            <!-- A sibling of the label, not a child: nested inside it, clicking
+                                 this would reopen the picker it just cleared. -->
+                            <button
+                                v-if="images[q.id]?.file"
+                                type="button"
+                                aria-label="Remove image"
+                                class="tw:absolute tw:top-1.5 tw:right-1.5 tw:cursor-pointer tw:rounded-full tw:bg-white/90 tw:p-1 tw:text-navy-60 tw:shadow-sm tw:transition-colors tw:hover:bg-danger tw:hover:text-white"
+                                @click="removeImage(q)"
+                            >
+                                <X class="tw:size-3.5" />
+                            </button>
+                        </div>
+
+                        <div class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col tw:gap-3">
+                            <div class="tw:flex tw:flex-col tw:gap-1.5">
+                                <label class="tw:text-xs tw:font-medium tw:text-navy-60">
+                                    Slide
+                                </label>
+                                <!-- Capped: full width makes a 2-4 character code look like a
+                                     lost sentence. -->
+                                <input
+                                    v-model="slideLabels[q.id]"
+                                    type="text"
+                                    inputmode="text"
+                                    autocapitalize="characters"
+                                    placeholder="e.g. V7"
+                                    class="tw:w-28 tw:rounded-md tw:border tw:border-navy-20 tw:px-3 tw:py-1.5 tw:text-sm tw:text-navy-90 tw:outline-none tw:focus:border-primary"
+                                    @input="invalidIds.delete(q.id)"
+                                />
+                            </div>
+
+                            <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-1.5">
+                                <label class="tw:text-xs tw:font-medium tw:text-navy-60">
+                                    Your diagnosis
+                                </label>
+                                <!-- Free text, no quick-pick: naming the possible answers hands
+                                     the question over. Grading resolves whatever is typed
+                                     (BE-ADR-018). -->
+                                <McTextarea
+                                    :name="`answers[${q.answerIndex}].text`"
+                                    placeholder="What is this slide?"
+                                    @update:model-value="invalidIds.delete(q.id)"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- image_detection: image upload -->
                     <div v-else-if="q.type === 'image_detection'" class="tw:mt-3">
                         <div
@@ -382,6 +611,42 @@ const onSubmit = handleSubmit(async (v) => {
                             >
                                 <X class="tw:size-4" />
                             </button>
+                        </div>
+
+                        <!--
+                            The same bar the attached photo uses, so a redo reads as one control
+                            changing state rather than two different widgets: same height, same
+                            thumbnail, same action on the right. Neutral border instead of the
+                            primary tint, because nothing IS attached yet - that difference is the
+                            whole message. "Previous photo" sits where the filename goes; there is
+                            no filename to show, the server stores the image under a UUID.
+                        -->
+                        <div
+                            v-else-if="previousImageUrls[q.id]"
+                            class="tw:flex tw:items-center tw:gap-3 tw:rounded-md tw:border tw:border-navy-20 tw:px-3 tw:py-2"
+                        >
+                            <img
+                                :src="previousImageUrls[q.id]"
+                                alt="The photo you sent last time"
+                                class="tw:size-10 tw:shrink-0 tw:rounded tw:border tw:border-navy-15 tw:object-cover"
+                            />
+                            <span
+                                class="tw:min-w-0 tw:flex-1 tw:truncate tw:text-sm tw:text-navy-60"
+                            >
+                                Previous photo
+                            </span>
+                            <label
+                                class="tw:shrink-0 tw:cursor-pointer tw:rounded tw:px-2 tw:py-1 tw:text-xs tw:font-medium tw:text-primary tw:hover:bg-primary/10"
+                            >
+                                Add photo
+                                <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    capture="environment"
+                                    class="tw:hidden"
+                                    @change="onImage(q, $event)"
+                                />
+                            </label>
                         </div>
 
                         <label

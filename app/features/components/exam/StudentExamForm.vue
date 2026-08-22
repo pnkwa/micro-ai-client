@@ -2,6 +2,7 @@
 import { Send, CheckCircle2, ImageUp, Camera, Images, Loader2, X, Clock, Lock } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
+import { detectionService } from '~/services/detectionService'
 import { assignmentTotalPoints } from '~/services/assignmentService'
 import type { Exam } from '~/services/examService'
 import { normalizeSlideNumber } from '~/core/helpers/slideNumber'
@@ -53,6 +54,55 @@ const submitting = ref(false)
 // returns, without waiting for the parent's refetch. isAnswerFormLocked holds the rejected
 // exception - staff handed the attempt back, so the form reopens (BE-ADR-019).
 const submitted = ref(isAnswerFormLocked(props.mySubmission))
+
+/**
+ * Redoing a returned exam: put back what they typed last time, and show the photo they sent.
+ *
+ * Without this the form they are sent to is completely blank, so a student told to fix their work
+ * cannot see what they wrote - and re-submitting REPLACES the row (BE-ADR-019, there is no
+ * un-reject), so the old attempt is gone the moment they hand in again. This is their only view
+ * of it.
+ *
+ * The photo is shown but NOT restored: a browser cannot refill a file input from a URL, and an
+ * exam is often returned precisely because the photo was unusable, so a fresh one is required.
+ * Keyed off `image_id`, which survives the server's grade strip; `detection` does not (BE-ADR-027).
+ */
+const previousImageUrls = reactive<Record<number, string>>({})
+/**
+ * The image_id behind each preview, so a photo the student keeps can be re-sent at full size.
+ * The preview URL is a thumb and must never be what gets submitted.
+ */
+const previousImageIds = reactive<Record<number, string>>({})
+/** Set once a previous attempt has actually been read back, so the notice never claims a prefill
+ * that did not happen (the load is best-effort and silent). */
+const isRedo = ref(false)
+const loadPreviousAttempt = async () => {
+    const previous = props.mySubmission
+    if (!previous || previous.status !== 'rejected') return
+    try {
+        const detail = await submissionService.getById(previous.id)
+        for (const answer of detail.answers) {
+            const station = answers[answer.question_id]
+            if (!station) continue
+            // The raw label first: it is what they actually typed, and a label the server could
+            // not normalize is stored only in that form.
+            station.slideNumber = answer.slide_number_raw ?? answer.slide_number ?? ''
+            station.diagnosis = answer.response_text ?? ''
+            if (answer.image_id) {
+                previousImageIds[answer.question_id] = answer.image_id
+                previousImageUrls[answer.question_id] = await detectionService.imageBlobUrl(
+                    answer.image_id,
+                    'thumb',
+                )
+            }
+            isRedo.value = true
+        }
+    } catch {
+        // Silent, and deliberately not a toast: an empty form still works, and a failed prefill
+        // must not read as a failed resubmit.
+    }
+}
+onMounted(loadPreviousAttempt)
 const isGraded = computed(() => props.mySubmission?.status === 'graded')
 const totalPoints = computed(() => assignmentTotalPoints(props.exam))
 
@@ -67,12 +117,18 @@ onBeforeUnmount(() => {
     for (const entry of Object.values(images)) {
         if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
     }
+    for (const url of Object.values(previousImageUrls)) URL.revokeObjectURL(url)
 })
 
 const opensAt = computed(() => (props.exam.exam_opens_at ? $dayjs(props.exam.exam_opens_at) : null))
 const closesAt = computed(() =>
     props.exam.exam_closes_at ? $dayjs(props.exam.exam_closes_at) : null,
 )
+/** Their own submission, on the shared feedback page. Exams route through /assignments/. */
+const feedbackPath = computed(
+    () => `/classes/${props.exam.class_id}/assignments/${props.exam.id}/my-feedback`,
+)
+
 const windowState = computed<'before' | 'open' | 'closed'>(() => {
     if (opensAt.value && now.value.isBefore(opensAt.value)) return 'before'
     if (closesAt.value && now.value.isAfter(closesAt.value)) return 'closed'
@@ -96,10 +152,30 @@ const countdown = computed(() => {
 // storing null and routing the answer to instructor review rather than failing the upload
 // (BE-ADR-017). A stricter rule on this side turns a guess about the format into a student
 // locked out of submitting mid-exam, which is the one place that cost is unrecoverable.
+/** The photo the student kept, as a file to upload. Null when they attached a new one or none. */
+const keptPhoto = async (stationId: number): Promise<File | null> => {
+    const imageId = previousImageIds[stationId]
+    if (!imageId) return null
+    try {
+        return await detectionService.imageFile(imageId)
+    } catch {
+        // Better to submit the rest than to fail the attempt over one image, and mid-exam that
+        // difference is unrecoverable.
+        return null
+    }
+}
+
+/**
+ * A station is answered by a NEW photo or by the one already sent on a returned attempt.
+ *
+ * Re-submitting replaces the row, so a kept photo is not merely displayed: it is re-uploaded on
+ * submit. Demanding a fresh one would mean a student whose exam came back over a wrong diagnosis
+ * had to re-photograph a slide they may no longer be sitting at.
+ */
 const isAnswered = (id: number): boolean =>
     answers[id]!.slideNumber.trim() !== '' &&
     answers[id]!.diagnosis.trim() !== '' &&
-    images[id]?.file != null
+    (images[id]?.file != null || previousImageIds[id] != null)
 
 // Progress and urgency, both of which the student otherwise has to work out by scrolling. The
 // count is what tells them whether they are done; a station they skipped is easy to lose in a
@@ -360,8 +436,10 @@ const onSubmit = async () => {
         })
         fd.append('answers', JSON.stringify(payload))
         for (const s of stations) {
-            const image = images[s.id]?.file
-            if (image) fd.append(`image_${s.id}`, image)
+            // A previous photo the student did not replace is refetched at full size and sent as
+            // their answer: the resubmit replaces the row, so an answer with no file has no photo.
+            const file = images[s.id]?.file ?? (await keptPhoto(s.id))
+            if (file) fd.append(`image_${s.id}`, file)
         }
         await submissionService.create(fd)
         submitted.value = true
@@ -385,10 +463,7 @@ const onSubmit = async () => {
 
 <template>
     <!-- already submitted -->
-    <div
-        v-if="submitted"
-        class="tw:flex tw:flex-col tw:items-center tw:gap-2 tw:bg-white tw:border tw:border-primary/20 tw:rounded-lg tw:py-16 tw:text-center"
-    >
+    <McStatePanel v-if="submitted" tone="primary">
         <CheckCircle2 class="tw:size-10 tw:text-primary" />
         <template v-if="isGraded">
             <p class="tw:text-lg tw:font-semibold tw:text-navy-100">Your exam has been graded</p>
@@ -402,31 +477,58 @@ const onSubmit = async () => {
                 It's final and can't be changed. Your score appears here once it's graded.
             </p>
         </template>
-    </div>
+    </McStatePanel>
 
-    <!-- before open / after close -->
-    <div
-        v-else-if="windowState !== 'open'"
-        class="tw:flex tw:flex-col tw:items-center tw:gap-2 tw:bg-white tw:border tw:border-navy-15 tw:rounded-lg tw:py-16 tw:text-center"
-    >
+    <!--
+        Before open, or after close.
+
+        A student who submitted never reaches here: the confirmation above claims them, closed or
+        not. What lands here is someone with nothing in, or someone whose attempt was handed BACK
+        and who ran out of window to redo it - and that second case used to get a bare padlock,
+        with no reason, no answers and no way to reach either. Being locked out is not the useful
+        half of that sentence; where their work went is.
+    -->
+    <McStatePanel v-else-if="windowState !== 'open'">
         <Lock class="tw:size-8 tw:text-navy-40" />
-        <p class="tw:text-lg tw:font-semibold tw:text-navy-100">
-            {{ windowState === 'before' ? 'This exam has not opened yet' : 'This exam has closed' }}
-        </p>
-        <p v-if="windowState === 'before' && opensAt" class="tw:text-sm tw:text-navy-60">
-            Opens {{ opensAt.format('MMM D, YYYY HH:mm') }}
-        </p>
-        <p v-else-if="windowState === 'closed' && closesAt" class="tw:text-sm tw:text-navy-60">
-            Closed {{ closesAt.format('MMM D, YYYY HH:mm') }}
-        </p>
-    </div>
 
-    <div
-        v-else-if="stations.length === 0"
-        class="tw:text-sm tw:text-navy-50 tw:py-8 tw:text-center"
-    >
-        No slide stations yet.
-    </div>
+        <template v-if="windowState === 'before'">
+            <p class="tw:text-lg tw:font-semibold tw:text-navy-100">This exam has not opened yet</p>
+            <p v-if="opensAt" class="tw:text-sm tw:text-navy-60">
+                Opens {{ opensAt.format('MMM D, YYYY HH:mm') }}
+            </p>
+        </template>
+
+        <template v-else-if="mySubmission?.status === 'rejected'">
+            <p class="tw:text-lg tw:font-semibold tw:text-navy-100">
+                Your exam was returned, and the window has closed
+            </p>
+            <p
+                v-if="mySubmission.rejection_reason"
+                class="tw:max-w-prose tw:text-sm tw:whitespace-pre-line tw:text-navy-90"
+            >
+                {{ mySubmission.rejection_reason }}
+            </p>
+            <p class="tw:text-sm tw:text-navy-60">
+                Resubmitting is no longer possible. Ask your instructor if you need another attempt.
+            </p>
+            <NuxtLink :to="feedbackPath" class="tw:mt-2">
+                <McButton variant="outline" size="sm">View what you submitted</McButton>
+            </NuxtLink>
+        </template>
+
+        <template v-else>
+            <p class="tw:text-lg tw:font-semibold tw:text-navy-100">This exam has closed</p>
+            <p v-if="closesAt" class="tw:text-sm tw:text-navy-60">
+                Closed {{ closesAt.format('MMM D, YYYY HH:mm') }}
+            </p>
+            <!-- Said plainly rather than left to be inferred from a locked door. -->
+            <p class="tw:text-sm tw:text-navy-60">You did not submit this exam.</p>
+        </template>
+    </McStatePanel>
+
+    <McStatePanel v-else-if="stations.length === 0">
+        <p class="tw:text-sm tw:text-navy-50">No slide stations yet.</p>
+    </McStatePanel>
 
     <!-- open: the exam form -->
     <form v-else class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="onSubmit">
@@ -455,6 +557,18 @@ const onSubmit = async () => {
             top-12 to clear SidebarMain's own sticky header (min-h-12, z-30), since the page
             scrolls at body level and top-0 would park it underneath.
         -->
+        <!-- Once, not per station: the same sentence on every card is noise, and what a student
+             needs to know on arrival is that the form is not blank by accident. -->
+        <p
+            v-if="isRedo"
+            class="tw:rounded-lg tw:bg-navy-5 tw:px-4 tw:py-3 tw:text-sm tw:leading-relaxed tw:text-navy-70"
+        >
+            Your previous answers are filled in below, and each station shows the photo you sent.
+            <span class="tw:font-medium tw:text-navy-90">
+                Those photos are resubmitted as they are unless you replace them.
+            </span>
+        </p>
+
         <div class="tw:flex tw:flex-wrap tw:items-center tw:justify-between tw:gap-2 tw:px-1">
             <span class="tw:text-sm tw:text-navy-70">
                 <span class="tw:font-semibold tw:text-navy-100">{{ answeredCount }}</span>
@@ -601,6 +715,53 @@ const onSubmit = async () => {
                                     class="tw:pointer-events-none tw:absolute tw:bottom-1.5 tw:left-1.5 tw:rounded tw:bg-navy-100/65 tw:px-1.5 tw:py-0.5 tw:text-[0.6875rem] tw:font-medium tw:text-white tw:sm:hidden"
                                 >
                                     Tap to change
+                                </span>
+                            </template>
+                            <!--
+                                Redoing a returned exam: the photo they sent last time sits IN the
+                                tile it is about to be replaced in, rather than in a note somewhere
+                                below. Shown at full strength, because the point is for the student
+                                to LOOK at it - it is how they tell one station from another and how
+                                they judge what was wrong with it, and a dimmed thumbnail behind a
+                                prompt is not something anyone can read a field of view off.
+
+                                No prompt over the top for the same reason: nothing covers the
+                                picture. The dashed border and the "Previous photo" tag carry the
+                                fact that nothing is attached yet, the notice above the stations
+                                asks for a new photo once rather than five times, and submitting
+                                without one still fails validation. A file input cannot be refilled
+                                from a URL in any case.
+                            -->
+                            <template v-else-if="previousImageUrls[s.id]">
+                                <img
+                                    :src="previousImageUrls[s.id]"
+                                    alt="The photo you sent last time"
+                                    class="tw:size-full tw:rounded-lg tw:border tw:border-dashed tw:bg-navy-5 tw:object-contain tw:transition-colors"
+                                    :class="
+                                        dragOverId === s.id
+                                            ? 'tw:border-primary'
+                                            : 'tw:border-navy-20'
+                                    "
+                                />
+                                <!--
+                                Same hover affordance the filled tile uses, so a previous photo
+                                does not read as a dead picture: nothing else on this state says
+                                the tile is still the way to attach one. Hover-only, so it costs
+                                the photo nothing until the pointer is actually over it.
+                            -->
+                                <span
+                                    class="tw:pointer-events-none tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-lg tw:bg-navy-100/55 tw:text-xs tw:font-medium tw:text-white tw:opacity-0 tw:transition-opacity tw:group-hover/photo:opacity-100"
+                                >
+                                    <ImageUp class="tw:size-4" />
+                                    Add photo
+                                </span>
+                                <!-- Fades out under the overlay above rather than stacking on top
+                                 of it: on hover the tile is asking for a photo, not labelling the
+                                 one already there. -->
+                                <span
+                                    class="tw:pointer-events-none tw:absolute tw:bottom-1.5 tw:left-1.5 tw:rounded tw:bg-navy-100/65 tw:px-1.5 tw:py-0.5 tw:text-[0.6875rem] tw:font-medium tw:text-white tw:transition-opacity tw:group-hover/photo:opacity-0"
+                                >
+                                    Previous photo
                                 </span>
                             </template>
                             <span

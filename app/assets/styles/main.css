@@ -80,7 +80,13 @@
     --color-navy-50: #9298a3;
     --color-navy-40: #a8acb5;
     --color-navy-20: #d3d6da;
+    /* Between navy-20 and navy-10, and lighter than navy-10 respectively. Both were in use across
+       the app long before they were defined, so `tw:border-navy-15` emitted nothing and the
+       element fell back to the default border colour, and `tw:bg-navy-5` emitted no background at
+       all. Values interpolated along the existing scale. */
+    --color-navy-15: #dee0e3;
     --color-navy-10: #e9eaec;
+    --color-navy-5: #f4f5f6;
 
     --color-basic-black-100: #202020;
 
@@ -197,7 +203,13 @@
     --color-navy-50: #9298a3;
     --color-navy-40: #a8acb5;
     --color-navy-20: #d3d6da;
+    /* Between navy-20 and navy-10, and lighter than navy-10 respectively. Both were in use across
+       the app long before they were defined, so `tw:border-navy-15` emitted nothing and the
+       element fell back to the default border colour, and `tw:bg-navy-5` emitted no background at
+       all. Values interpolated along the existing scale. */
+    --color-navy-15: #dee0e3;
     --color-navy-10: #e9eaec;
+    --color-navy-5: #f4f5f6;
 
     --color-basic-black-100: #202020;
 

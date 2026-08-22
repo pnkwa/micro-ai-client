@@ -2,6 +2,7 @@
 import { ArrowLeft } from '@lucide/vue'
 import { submissionService } from '~/services/submissionService'
 import { submissionBadges } from '~/core/helpers/studentAssignmentStatus'
+import { isExamOpen } from '~/core/helpers/examWindow'
 import { useSubmissionDetail } from '~/core/composables/useSubmissionDetail'
 
 // The student's own result. No submission id in the URL: they shouldn't have to know it,
@@ -68,6 +69,22 @@ const resubmitPath = computed(() =>
         ? `/classes/${classId.value}/exams/${assignmentId.value}`
         : `/classes/${classId.value}/assignments/${assignmentId.value}`,
 )
+/**
+ * A returned exam whose window has already closed.
+ *
+ * Rejection reopens the FORM, never the window: the server refuses any exam submission outside it
+ * (BE-ADR-011/017), so telling this student to resubmit sends them to a page that will not take
+ * one. Reuses the same window rule the AI lock uses rather than a second copy of it.
+ */
+const cannotResubmit = computed(() => {
+    const assignment = submission.value?.assignment
+    if (!assignment?.is_exam) return false
+    return !isExamOpen(
+        { exam_opens_at: null, exam_closes_at: assignment.exam_closes_at ?? null },
+        new Date(),
+    )
+})
+
 const statusBadges = computed(() =>
     submission.value
         ? submissionBadges(submission.value, submission.value.assignment?.due_date)
@@ -129,7 +146,13 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                 v-if="isRejected"
                 class="tw:bg-danger/5 tw:border tw:border-danger/30 tw:rounded-xl tw:px-6 tw:py-5"
             >
-                <p class="tw:font-semibold tw:text-danger">Returned - please resubmit</p>
+                <p class="tw:font-semibold tw:text-danger">
+                    {{
+                        cannotResubmit
+                            ? 'Returned, and the exam has closed'
+                            : 'Returned - please resubmit'
+                    }}
+                </p>
                 <p class="tw:text-sm tw:text-navy-70 tw:mt-1">
                     Your instructor returned this submission without grading it.
                 </p>
@@ -147,7 +170,14 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                 >
                     {{ submission.rejection_reason }}
                 </p>
-                <McButton class="tw:mt-4" @click="router.push(resubmitPath)">
+                <!-- Gone once the window has shut: the button led to a form that cannot accept a
+                     submission, which is a worse dead end than no button. What the student needs
+                     then is their instructor, so say that instead. -->
+                <p v-if="cannotResubmit" class="tw:mt-3 tw:text-sm tw:text-navy-70">
+                    The exam closed before this could be redone, so resubmitting is no longer
+                    possible. Ask your instructor if you need another attempt.
+                </p>
+                <McButton v-else class="tw:mt-4" @click="router.push(resubmitPath)">
                     {{
                         submission.assignment?.is_exam
                             ? 'Go to exam to resubmit'
@@ -156,20 +186,26 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                 </McButton>
             </div>
 
-            <!-- Reachable before grading if the student keeps the URL, so say so plainly
-                 rather than showing a page of blank marks. -->
+            <!-- Waiting to be marked. A notice, not a wall: the answers below are the student's
+                 own work and they can read them at any point. Only the MARKS are unpublished, and
+                 the server has already nulled every one of them for a non-graded read. -->
             <div
                 v-else-if="!isGraded"
-                class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-xl tw:py-12 tw:text-center"
+                class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-xl tw:py-6 tw:text-center"
             >
                 <p class="tw:font-semibold tw:text-navy-100">Not graded yet</p>
                 <p class="tw:text-sm tw:text-navy-60 tw:mt-1">
-                    Your score and your instructor's feedback appear here once your work has been
-                    graded.
+                    What you submitted is below. Your score and your instructor's feedback appear
+                    here once your work has been graded.
                 </p>
             </div>
 
-            <template v-else>
+            <!-- Every state that has a submission, not just `graded`. A student told to redo
+                 returned work cannot fix answers they are not allowed to see, and one waiting on a
+                 mark should still be able to read what they handed in. The cards are the student's
+                 view by construction (no slots, no marking controls, no answer key), and
+                 `is_correct` is null until grading, so they render neutral on their own. -->
+            <template v-if="submission">
                 <template v-for="group in answerGroups" :key="group.exerciseId">
                     <div class="tw:flex tw:items-center tw:gap-2.5">
                         <span

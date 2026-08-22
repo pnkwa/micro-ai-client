@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { TriangleAlert } from '@lucide/vue'
 import type { GradingAnswer } from '~/services/submissionService'
 
 /**
@@ -23,6 +24,13 @@ const props = defineProps<{
     highlight?: boolean
     /** Reveals `accepted_answers`. Never set this on a student-facing page. */
     showAnswerKey?: boolean
+    /**
+     * Flags an answer the system could not decide (`needs_review`), so the grader can see WHICH
+     * card is holding up Finalize rather than only being told that one is. Opt-in and
+     * grader-only, like `showAnswerKey`: to a student "needs review" is an unexplained warning
+     * on work they have already handed in and cannot act on.
+     */
+    showReviewFlag?: boolean
 }>()
 
 const slots = defineSlots<{
@@ -60,12 +68,23 @@ const slideUnresolved = computed(
 const detection = computed(() => props.answer.detection ?? null)
 const steps = computed(() => detection.value?.steps ?? [])
 
+/**
+ * A slide answer puts the mark buttons ON the slide row instead of in the corner.
+ *
+ * That row is one short tag ("Slide V7") with the whole width to its right, so pinning the
+ * buttons above it bought nothing and cost a band of empty box: the clearance below reserves
+ * 3.5rem of top padding for them, which on a slide card is a gap between the buttons and the
+ * only line of text they belong to. Inline, they read as the verdict on that answer and the row
+ * carries itself.
+ */
+const marksInline = computed(() => isSlide.value && !!slots.marks)
+
 // The mark buttons are absolutely positioned in the box's corner, so the content has to
 // keep clear of them: a one-line text answer reserves a gutter beside them, an image
 // answer is far too wide for that and starts below instead. Keyed off the slot actually
 // being filled rather than a separate prop, so the two can never disagree.
 const clearanceClass = computed(() => {
-    if (!slots.marks) return ''
+    if (!slots.marks || marksInline.value) return ''
     return isImage.value ? 'tw:pt-14' : 'tw:pr-20'
 })
 </script>
@@ -76,7 +95,13 @@ const clearanceClass = computed(() => {
         :class="highlight ? 'tw:border-warning/40' : 'tw:border-navy-10'"
     >
         <div class="tw:flex tw:items-start tw:justify-between tw:gap-4">
-            <div class="tw:min-w-0 tw:flex tw:items-start tw:gap-2.5">
+            <!--
+                items-baseline, not items-start: the label is text-sm and the prompt text-base, so
+                aligning their boxes leaves the number floating above the sentence it numbers. The
+                baseline is the line a reader actually sees them sitting on. With a prompt that
+                wraps it is the FIRST line's baseline, which is the one the number belongs to.
+            -->
+            <div class="tw:min-w-0 tw:flex tw:items-baseline tw:gap-2.5">
                 <span
                     class="tw:shrink-0 tw:text-sm tw:font-semibold tw:text-navy-60 tw:tabular-nums"
                 >
@@ -85,6 +110,20 @@ const clearanceClass = computed(() => {
                 <p class="tw:text-base tw:font-medium tw:text-navy-100">
                     {{ answer.question.prompt }}
                 </p>
+                <!--
+                    A sibling of the prompt, not a span inside it: inline, a prompt long enough to
+                    fill the line pushed this onto a line of its own, which is where a station
+                    prompt ends up every time. As a flex child it stays on the row and the prompt
+                    wraps around it instead. shrink-0 so it is the text that gives way, never the
+                    warning. The row aligns on the baseline, so it needs no vertical nudge.
+                -->
+                <span
+                    v-if="showReviewFlag && answer.needs_review"
+                    class="tw:inline-flex tw:shrink-0 tw:items-center tw:gap-1 tw:rounded tw:bg-warning/10 tw:px-1.5 tw:py-0.5 tw:text-xs tw:font-medium tw:text-warning"
+                >
+                    <TriangleAlert class="tw:size-3.5" />
+                    Needs your review
+                </span>
             </div>
             <slot name="points">
                 <span
@@ -102,7 +141,7 @@ const clearanceClass = computed(() => {
             :class="[tintClass, clearanceClass]"
         >
             <div
-                v-if="slots.marks"
+                v-if="slots.marks && !marksInline"
                 class="tw:absolute tw:top-3 tw:right-3 tw:flex tw:items-center tw:gap-1.5"
             >
                 <slot name="marks" />
@@ -128,6 +167,14 @@ const clearanceClass = computed(() => {
                     <span v-if="slideUnresolved" class="tw:text-xs tw:text-navy-50">
                         no slide matched this label
                     </span>
+                    <!-- ml-auto, so they sit at the far end of the row however short the label
+                         is, which is where the corner-pinned pair used to be. -->
+                    <div
+                        v-if="marksInline"
+                        class="tw:ml-auto tw:flex tw:shrink-0 tw:items-center tw:gap-1.5"
+                    >
+                        <slot name="marks" />
+                    </div>
                 </div>
                 <p class="tw:text-sm tw:text-navy-90">
                     <span class="tw:text-navy-40">Diagnosis:</span>
@@ -140,10 +187,23 @@ const clearanceClass = computed(() => {
                 :steps="steps"
                 class="tw:flex tw:flex-col tw:gap-4 tw:lg:flex-row tw:lg:items-start"
             >
+                <!--
+                    `fill`, so the frame is the picture's own shape. Without it the image is fitted
+                    into a fixed band against slate-950, which on a portrait phone photo means two
+                    black pillars either side of the only thing on the card worth looking at.
+
+                    Bounded by WIDTH, not height: with `fill` the height follows the aspect ratio,
+                    so a cap on it would crop rather than scale. max-w-md keeps a portrait frame
+                    from running past the answer beneath it while leaving a landscape field of view
+                    big enough to grade from. Core utilities, not arbitrary values - a class that
+                    only ever appears in a script constant is never emitted, which is how a height
+                    silently did nothing earlier in this work.
+                -->
                 <McAnnotatedImage
                     v-if="imageUrl"
                     :src="imageUrl"
-                    class="tw:w-full tw:lg:min-w-0 tw:lg:flex-1"
+                    fill
+                    class="tw:w-full tw:max-w-md tw:lg:min-w-0 tw:lg:flex-1"
                 />
                 <div
                     v-if="detection"

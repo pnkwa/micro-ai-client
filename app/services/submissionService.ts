@@ -22,6 +22,11 @@ const submissionBaseSchema = z.object({
     // hence optional. A student redoing work needs the date as much as the reason: their own
     // "Submitted <date>" is right above it, and without this the two cannot be told apart.
     rejected_at: z.string().nullable().optional(),
+    // Who graded it: a staff userID, or null when the SYSTEM did (an exam whose answers all
+    // decided themselves at submit finalizes with graded_by null). That null is what makes a
+    // graded submission still returnable - see `canReject` on the grading page. Detail read only,
+    // for the same reason as `rejected_at`: the list read whitelists its fields.
+    graded_by: z.number().nullable().optional(),
     student: z
         .object({
             student_id: z.string(),
@@ -41,6 +46,10 @@ const submissionBaseSchema = z.object({
             // is. The server serializes the whole assignment relation, so this was on the wire
             // already and only the schema was dropping it.
             is_exam: z.boolean().optional().default(false),
+            // The exam's closing time, so a student's own view can tell "returned, go and redo it"
+            // from "returned, and the window shut before you could". Detail read only: the list
+            // read whitelists its fields, hence optional.
+            exam_closes_at: z.string().nullable().optional(),
             class: z.object({ id: z.number(), name: z.string() }).nullable(),
         })
         .nullable(),
@@ -85,6 +94,11 @@ const gradingAnswerSchema = z.object({
     slide_number_raw: z.string().nullable().optional(),
     // image_detection / slide_identification: the ML run on the attached image; null otherwise.
     detection: detectionSchema.nullable(),
+    // The photo's own name, lifted off the detection BEFORE the server's grade strip, so it
+    // survives when `detection` does not. That is what lets a student see the slide they
+    // photographed while their grade is unpublished, or when their exam has been handed back
+    // (BE-ADR-027, BE-ADR-012 amended). Never address the image by the detection id.
+    image_id: z.string().nullable().optional(),
     // Autograder / detection suggestion: advisory, instructor confirms via is_correct/points_awarded.
     auto_is_correct: z.boolean().nullable(),
     auto_points: z.number().nullable(),

@@ -21,6 +21,19 @@ const { open, isMobile } = useSidebar()
 
 const isInstructor = computed(() => authStore.user?.user_type === 'staff')
 
+/**
+ * The narrower staff role that /admin is gated on.
+ *
+ * Read from the JWT first, exactly as auth.global.ts does, and falling back to the stored profile
+ * the same way: the token is the copy the API will actually be judged against, so offering the
+ * item on any weaker signal would put a route in the sidebar that the guard then bounces.
+ */
+const isAdmin = computed(() => {
+    const userType = authStore.jwtUserInfo?.user_type ?? authStore.user?.user_type
+    const role = authStore.jwtUserInfo?.role ?? authStore.user?.role
+    return userType === 'staff' && role === 'admin'
+})
+
 // Name over email, falling back to the email only when the profile has no name to show.
 const displayName = computed(() => {
     const user = authStore.user
@@ -87,8 +100,15 @@ useIntervalFn(() => {
 }, AVAILABILITY_POLL_MS)
 
 const filteredMenuItems = computed(() => {
+    // `admin` is additive on top of staff, not a third audience: an admin is an instructor who can
+    // also reach the console, so they keep every instructor item and gain one.
     const forRole = isInstructor.value
-        ? menuItems.filter((item) => item.role === 'instructor' || item.role === 'all')
+        ? menuItems.filter(
+              (item) =>
+                  item.role === 'instructor' ||
+                  item.role === 'all' ||
+                  (item.role === 'admin' && isAdmin.value),
+          )
         : menuItems.filter((item) => item.role === 'student' || item.role === 'all')
 
     return forRole.map((item) => ({

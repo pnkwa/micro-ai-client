@@ -67,12 +67,19 @@ export function useDetectionAvailability() {
         }
     }
 
-    /** What to tell the student. Null when nothing is being withheld. */
+    /**
+     * What to tell the student. Null when nothing is being withheld.
+     *
+     * Says nothing about WHEN the tool comes back: that depends on the exam (BE-ADR-022's
+     * amendment of 2026-08-19), and this string is also the sidebar tooltip, which has no exam to
+     * hand. `useBlockingExam().releaseText` carries the release condition on the surfaces that do.
+     * This sentence used to promise "it returns once you submit", which stopped being true.
+     */
     const message = computed(() =>
         available.value
             ? null
             : reason.value === 'exam_open'
-              ? 'The AI tool is unavailable while you have an exam open. It returns once you submit, or once the exam closes.'
+              ? 'The AI tool is unavailable while an exam you are enrolled in is open.'
               : reason.value === 'auth_required'
                 ? 'Sign in to use the AI detection tool.'
                 : 'The AI tool is currently unavailable.',

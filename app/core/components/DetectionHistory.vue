@@ -64,11 +64,14 @@ const revokeThumbnails = () => {
 // announces itself again - and without this that is a second request for the same image.
 const pending = new Set<number>()
 
-const loadThumbnail = async (id: number) => {
-    if (thumbnails.value[id] || pending.has(id)) return
+// Cached under the detection id (the row's identity) but FETCHED by the image's own name: the
+// detection id does not address a stable file, the image name does (BE-ADR-027).
+const loadThumbnail = async (record: HistoryRecord) => {
+    const id = record.id
+    if (thumbnails.value[id] || pending.has(id) || !record.image_id) return
     pending.add(id)
     try {
-        thumbnails.value[id] = await detectionService.imageBlobUrl(id, 'thumb')
+        thumbnails.value[id] = await detectionService.imageBlobUrl(record.image_id, 'thumb')
     } catch {
         // A missing image is not worth failing the row over - the metadata still reads fine.
     } finally {
@@ -322,7 +325,7 @@ onUnmounted(revokeThumbnails)
                 :root="listEl"
                 :thumbnail="thumbnails[record.id]"
                 :active="record.id === props.activeId"
-                @visible="loadThumbnail(record.id)"
+                @visible="loadThumbnail(record)"
                 @select="emit('select', record)"
             />
         </ul>

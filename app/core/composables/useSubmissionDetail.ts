@@ -56,15 +56,18 @@ export function useSubmissionDetail(submissionId: Ref<number>, assignmentId: Ref
                 .catch(() => {})
 
             for (const answer of detail.answers) {
-                // Both image_detection and exam slide_identification attach a photo, served
-                // via the detection row; the FOV photo must show even when the analysis is
-                // empty, so this keys off the detection existing, not on any steps.
+                // Both image_detection and exam slide_identification attach a photo. Keyed off
+                // `image_id`, NOT off the detection: the server nulls `detection` for any read
+                // that is not `graded`, and lifts the photo's name clear of that strip precisely
+                // so an ungraded or returned answer still shows the slide the student
+                // photographed (BE-ADR-027). Keying off `detection` here is what made a returned
+                // exam show no photo at all.
                 const hasPhoto =
                     answer.question.type === 'image_detection' ||
                     answer.question.type === 'slide_identification'
-                if (hasPhoto && answer.detection) {
+                if (hasPhoto && answer.image_id) {
                     imageUrls[answer.question_id] = await detectionService.imageBlobUrl(
-                        answer.detection.id,
+                        answer.image_id,
                     )
                 }
             }

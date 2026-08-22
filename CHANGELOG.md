@@ -32,6 +32,91 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **The exam lock told the student to do something that no longer works.** Three places promised the
+  AI detection tool "returns once you submit", which stopped being true when BE-ADR-022 was amended
+  on 2026-08-19: a windowed exam holds the lock until it closes, submitted or not. The sidebar
+  tooltip, the home banner and the wall on `/image-detection` now say when it actually comes back,
+  and the sentence lives in one tested helper (`detectionReleaseText`) instead of three templates.
+- **After submitting, the lock could not name the exam it came from.** `pickBlockingExam` still
+  dropped every submitted exam, mirroring the pre-amendment server rule, so the moment a student
+  handed in their exam the banner lost the exam name and the "Go to exam" button degraded to "Go to
+  my classes" - at exactly the point they most needed the closing time. It now mirrors the shipped
+  predicate: a submission only releases an exam that has no closing bound.
+- **"Reject & return" never appeared on an exam that graded itself.** `canReject` required status
+  `submitted`, but an exam with no review-bound answer finalizes at submit and never reaches it.
+  It now also offers the button for a `graded` submission with `graded_by` null, matching the
+  server's amended rule.
+- **Redoing returned work started from a completely blank form**, on both an assignment and an
+  exam. The student was sent back with nothing filled in, and re-submitting replaces the row
+  (BE-ADR-019, there is no un-reject), so the attempt they were told to fix was unreadable and then
+  gone. Both forms now put back what the student answered, and show the photo they sent for each
+  image answer. **That photo counts as the answer**: it is refetched at full size and re-uploaded
+  on submit unless the student replaces it. Requiring a fresh file instead blocked the form
+  outright, since the "answered" check only ever looked for a newly attached file, and it would
+  have meant a student whose work came back over a wrong diagnosis had to re-photograph a slide
+  they may no longer have.
+- **The grading page never said which answer was blocking Finalize.** `needs_review` was on the
+  wire but shown nowhere; the only signal was one line of text at the bottom of the page saying
+  that something was unmarked. Each such answer now carries a "Needs your review" warning on its
+  card. Grader-only, opt-in like the answer key: to a student it would be an unexplained warning
+  on work they have handed in and cannot act on.
+
+- **`navy-5` and `navy-15` were used but never defined.** `tw:bg-navy-5` appears in six components
+  and `tw:border-navy-15` in seven, including the grading page's response box, but neither token
+  existed in `main.css`, so those elements rendered with no background and a default border rather
+  than the intended greys. Both are now defined, interpolated along the existing navy scale.
+
+- **A `slide_identification` question on a normal assignment rendered nothing at all.**
+  `StudentExerciseForm` had branches for the other four types and no fallback, so the question
+  showed its prompt and no input, and its "answered" check could never pass, which blocked the
+  whole assignment from being submitted. The type now renders the exam's station layout: the photo
+  beside the slide label and the diagnosis, all three required, sending the same payload
+  `StudentExamForm` sends (normalized `slide_number` plus `slide_number_raw`).
+
+- **A normal assignment can now name a slide collection**, which is what makes the slide question
+  above auto-gradable: the grader resolves the slide from the assignment's collection, so without
+  one every slide answer routed to the instructor. The picker appears on the assignment detail tab
+  once the assignment has a slide question (or already has a collection), and the read view shows
+  which collection is in use, with a warning when none is. Staff only: which collection keys the
+  answers is the answer key by another name.
+
+- **Whole-page states rendered as a short card at the top of an empty page**: submitted, outside
+  the exam window, nothing to answer. All five now fill the viewport, via a shared `McStatePanel`.
+  A component rather than a class string on purpose: Tailwind only extracts class names from
+  templates, so a height that lives in a script constant is never emitted at all.
+- **A closed exam told the student to resubmit.** Rejection reopens the form, never the window, so
+  the button led to a page the server would refuse. The feedback page and the exam page now say
+  what happened and point at the instructor instead, and a returned exam past its closing time
+  shows its reason and a link to the work rather than a bare padlock.
+- **A submitted photo was fitted into a black band.** A portrait phone photo arrived as two black
+  pillars either side of it, tall enough to push the answer and the next question off screen. It
+  now renders at its own shape, bounded by width, with the rounding the other mode always had.
+
+### Added
+- **An Admin item in the sidebar**, for a staff account whose role is `admin`. `/admin` was
+  reachable only by typing it. Gated on the same rule as the route guard, read the same way.
+
+### Changed
+- **The admin console uses `McSelect`**, the app's select everywhere else, for all five of its
+  selects. Choices are data with labels now, so `local` and `azure` read as "Local (password)" and
+  "Azure (SSO)" rather than as the enum values underneath them.
+- **A student can now see the answers they submitted before their work is graded.** The feedback
+  page showed the answer cards only once `graded`, so a student told to redo returned work could
+  not see what they were fixing, and one waiting on a mark saw nothing at all. Both states now
+  render the answers, photo included. Marks, comments and AI output stay hidden: the server nulls
+  every one of them for a non-graded read.
+- **Detection images are addressed by `image_id`, not by detection id** (BE-ADR-027). A detection
+  id does not name a stable file: `DATABASE_INIT_STRATEGY=recreate` restarts ids at 1 while the
+  image volume persists, so the old URL could mean a different picture, and the server now sends
+  it `no-cache` for that reason. `detectionService.imageBlobUrl` takes an image name and calls
+  `GET /detections/images/:imageId`, which is `immutable` and means it. This is also what makes a
+  photo visible before grading: `image_id` survives the server's grade strip and `detection` does
+  not. `img_path` is no longer read, and is now optional in the schema so the server can stop
+  sending it without breaking every parse.
+
 ## [0.8.0-rc.1] - 2026-08-19
 
 Two unrelated bodies of work. The phone half of `/image-detection`, worked through against a real

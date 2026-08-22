@@ -30,7 +30,16 @@ const detectionStepSchema = z.object({
 export const detectionSchema = z.object({
     id: z.number(),
     source: z.enum(['upload', 'camera', 'submission']),
-    img_path: z.string(),
+    // Optional because nothing reads it any more and the server team is waiting to stop sending
+    // it. An absolute path on THEIR filesystem, which should never have been on the wire; it was
+    // kept only because this schema demanded it. Required here, the day they drop it every
+    // detection response fails to parse.
+    img_path: z.string().optional(),
+    // The stored file's own UUID name, e.g. `9f2a...4a5b.jpg`. Derived server-side off img_path so
+    // it cannot drift. This, not the detection id, is what addresses the image (BE-ADR-027).
+    // Treat it like a credential: the route it feeds checks that you are signed in, not that the
+    // image is yours, so it must not be logged or shown anywhere the detection itself would not be.
+    image_id: z.string().nullable().optional(),
     model: z.string(),
     created_by: z.number().nullable().optional(),
     steps: z.array(detectionStepSchema),
@@ -171,13 +180,28 @@ export const detectionService = {
      * param and returns the original, and a current one returns the original when the image is
      * already smaller than the cap or cannot be decoded.
      */
-    async imageBlobUrl(detectionId: number, size?: 'thumb'): Promise<string> {
+    async imageBlobUrl(imageId: string, size?: 'thumb'): Promise<string> {
         const { $api } = useNuxtApp()
-        const blob = await $api<Blob>(detectionRoutes.image(detectionId), {
+        const blob = await $api<Blob>(detectionRoutes.imageByName(imageId), {
             responseType: 'blob',
             ...(size && { query: { size } }),
         })
         return URL.createObjectURL(blob)
+    },
+
+    /**
+     * The stored image as a File, for re-submitting a photo the student already sent.
+     *
+     * Full size, NOT the thumb the redo preview renders: the preview only has to be looked at,
+     * whereas this becomes the answer, and handing the detector a 256px downscale of a microscopy
+     * field would quietly cost the student the analysis their mark depends on.
+     */
+    async imageFile(imageId: string): Promise<File> {
+        const { $api } = useNuxtApp()
+        const blob = await $api<Blob>(detectionRoutes.imageByName(imageId), {
+            responseType: 'blob',
+        })
+        return new File([blob], imageId, { type: blob.type || 'image/jpeg' })
     },
 
     /**
