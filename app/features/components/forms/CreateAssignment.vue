@@ -35,10 +35,10 @@ const {
     fields: attachmentFields,
     push: addAttachment,
     remove: removeAttachment,
-} = useFieldArray<{ path: string }>('attachments')
+} = useFieldArray<{ path: string; filename?: string }>('attachments')
 
-const attachmentError = (index: number) =>
-    (errors.value as Record<string, string>)[`attachments[${index}].path`]
+const attachmentError = (index: number, field: 'path' | 'filename' = 'path') =>
+    (errors.value as Record<string, string>)[`attachments[${index}].${field}`]
 
 const handleSave = handleSubmit((values) => {
     emit('save', values)
@@ -95,15 +95,35 @@ const handleCancel = () => {
                     :key="field.key"
                     class="tw:flex tw:items-start tw:gap-2"
                 >
-                    <div class="tw:flex tw:flex-1 tw:flex-col tw:gap-1">
-                        <McInput
-                            :name="`attachments[${index}].path`"
-                            icon-prepend="Link"
-                            placeholder="https://example.com/lab-guide.pdf"
-                        />
-                        <span v-if="attachmentError(index)" class="tw:text-xs tw:text-red-500">
-                            {{ attachmentError(index) }}
-                        </span>
+                    <div class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col tw:gap-2">
+                        <div class="tw:flex tw:flex-col tw:gap-1">
+                            <McInput
+                                :name="`attachments[${index}].path`"
+                                icon-prepend="Link"
+                                placeholder="https://example.com/lab-guide.pdf"
+                            />
+                            <span v-if="attachmentError(index)" class="tw:text-xs tw:text-red-500">
+                                {{ attachmentError(index) }}
+                            </span>
+                        </div>
+                        <!--
+                            Under the URL, not beside it: this is what students see in the
+                            Attachments list, and the URL is what it points at. Optional, and the
+                            placeholder says what happens if it is left alone, so an instructor
+                            pasting a link and moving on still gets a sensible name.
+                        -->
+                        <div class="tw:flex tw:flex-col tw:gap-1">
+                            <McInput
+                                :name="`attachments[${index}].filename`"
+                                placeholder="Link name (optional, taken from the URL if blank)"
+                            />
+                            <span
+                                v-if="attachmentError(index, 'filename')"
+                                class="tw:text-xs tw:text-red-500"
+                            >
+                                {{ attachmentError(index, 'filename') }}
+                            </span>
+                        </div>
                     </div>
                     <button
                         type="button"
@@ -115,7 +135,11 @@ const handleCancel = () => {
                     </button>
                 </div>
             </div>
-            <McButton type="button" variant="outline" @click="addAttachment({ path: '' })">
+            <McButton
+                type="button"
+                variant="outline"
+                @click="addAttachment({ path: '', filename: '' })"
+            >
                 <Link class="tw:w-4 tw:h-4 tw:mr-1" />
                 Add link
             </McButton>

@@ -71,6 +71,14 @@ export default defineNuxtConfig({
                 { charset: 'utf-8' },
                 { name: 'format-detection', content: 'telephone=no' },
             ],
+            // The microscope, not Nuxt's default triangle: the tab was the last place still
+            // naming the framework rather than the product. Same lucide glyph the sidebar uses as
+            // the app's mark, so the two cannot drift.
+            //
+            // SVG only. There is no .ico fallback because every browser this app supports takes an
+            // SVG favicon, and the .ico that shipped before was Nuxt's default artwork - keeping it
+            // would have meant serving the framework's logo to whoever fell back to it.
+            link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
         },
     },
 })

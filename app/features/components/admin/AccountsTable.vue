@@ -191,16 +191,20 @@ const removeUser = async (user: AdminUser) => {
                             <McBadge variant="outline">{{ u.user_type }}</McBadge>
                         </McTableCell>
                         <McTableCell>
-                            <McSelect
+                            <!-- Native, matching the rest of this console. See the note in
+                                 pages/admin/index.vue: Arc leaves a body pointer-events lock behind
+                                 around these overlays, Safari does not. One per account row made it
+                                 the easiest place to hit. -->
+                            <McNativeSelect
                                 v-if="u.user_type === 'staff'"
                                 :model-value="u.role ?? ''"
-                                :options="roleOptions"
-                                option-value="value"
-                                option-label="label"
-                                placeholder="No role"
-                                class="tw:w-36"
+                                class="tw:w-32"
                                 @update:model-value="changeRole(u, String($event))"
-                            />
+                            >
+                                <option v-for="r in roleOptions" :key="r.value" :value="r.value">
+                                    {{ r.label }}
+                                </option>
+                            </McNativeSelect>
                             <span v-else class="tw:text-sm tw:text-navy-60">
                                 {{ u.student_id ?? '-' }}
                             </span>
