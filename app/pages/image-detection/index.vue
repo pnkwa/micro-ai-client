@@ -392,22 +392,32 @@ const FULL_BLEED_CLASS = 'mc-full-bleed'
 // state left for JS to track. See `.mc-full-bleed` in main.css.
 onMounted(() => document.documentElement.classList.add(FULL_BLEED_CLASS))
 
-// An effect, not derived state: this writes to the document, which no computed should do.
-watchEffect(() => {
-    document.documentElement.classList.toggle(SCROLL_LOCK_CLASS, scrollLocked.value)
+/**
+ * An effect, not derived state: this writes to the document, which no computed should do.
+ *
+ * The effect OWNS the classes it sets, and lifts them in its own cleanup. It used to rely on a
+ * separate onBeforeUnmount, which is a different queue: the effect flushes on the pre-queue, so a
+ * dependency changing in the same tick as a teardown can re-apply a class after the hook has
+ * removed it. `mc-scroll-lock` is `overflow: hidden` plus a black background on <html>, so losing
+ * that race hands the next page a document that cannot scroll and is painted black - which is
+ * indistinguishable from the app freezing, and survives until a reload.
+ *
+ * onCleanup runs before every re-run AND when the scope is disposed, so there is no ordering left
+ * to get wrong.
+ */
+watchEffect((onCleanup) => {
+    const root = document.documentElement
+    root.classList.toggle(SCROLL_LOCK_CLASS, scrollLocked.value)
     // While this page's own actions are in the app bar, the sidebar toggle is not: shell navigation
     // sitting between Retake and Start detection reads as one row of unrelated controls.
-    document.documentElement.classList.toggle(HIDE_TRIGGER_CLASS, pageOwnsBar.value)
+    root.classList.toggle(HIDE_TRIGGER_CLASS, pageOwnsBar.value)
+    onCleanup(() => root.classList.remove(SCROLL_LOCK_CLASS, HIDE_TRIGGER_CLASS))
 })
 
-// Navigating away must lift all three, or another page inherits an unscrollable document, no way to
-// open the sidebar, and a container that has lost its gutters.
+// Full-bleed is added on mount and lifted here, which is safe as a pair: nothing re-applies it, so
+// there is no race to lose. Without this the next page inherits a container with no gutters.
 onBeforeUnmount(() => {
-    document.documentElement.classList.remove(
-        SCROLL_LOCK_CLASS,
-        HIDE_TRIGGER_CLASS,
-        FULL_BLEED_CLASS,
-    )
+    document.documentElement.classList.remove(FULL_BLEED_CLASS)
 })
 
 /**
