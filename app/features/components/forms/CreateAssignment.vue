@@ -86,49 +86,47 @@ const handleCancel = () => {
         </div>
         <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">Attachments</label>
+            <!-- The naming rule lives here, once, rather than inside a placeholder on every row.
+                 A placeholder that carries the only explanation disappears the moment someone
+                 types, which is exactly when they were still reading it. -->
             <p class="tw:text-xs tw:text-navy-60">
-                Paste links to reference material (PDF, slides, video…).
+                Paste links to reference material (PDF, slides, video…). Name each one to say what
+                it is; leave the name blank and it is taken from the link.
             </p>
             <div v-if="attachmentFields.length > 0" class="tw:flex tw:flex-col tw:gap-2">
                 <div
                     v-for="(field, index) in attachmentFields"
                     :key="field.key"
-                    class="tw:flex tw:items-start tw:gap-2"
+                    class="tw:flex tw:flex-col tw:gap-2 tw:sm:flex-row tw:sm:items-start"
                 >
-                    <div class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col tw:gap-2">
-                        <div class="tw:flex tw:flex-col tw:gap-1">
-                            <McInput
-                                :name="`attachments[${index}].path`"
-                                icon-prepend="Link"
-                                placeholder="https://example.com/lab-guide.pdf"
-                            />
-                            <span v-if="attachmentError(index)" class="tw:text-xs tw:text-red-500">
-                                {{ attachmentError(index) }}
-                            </span>
-                        </div>
-                        <!--
-                            Under the URL, not beside it: this is what students see in the
-                            Attachments list, and the URL is what it points at. Optional, and the
-                            placeholder says what happens if it is left alone, so an instructor
-                            pasting a link and moving on still gets a sensible name.
-                        -->
-                        <div class="tw:flex tw:flex-col tw:gap-1">
-                            <McInput
-                                :name="`attachments[${index}].filename`"
-                                placeholder="Link name (optional, taken from the URL if blank)"
-                            />
-                            <span
-                                v-if="attachmentError(index, 'filename')"
-                                class="tw:text-xs tw:text-red-500"
-                            >
-                                {{ attachmentError(index, 'filename') }}
-                            </span>
-                        </div>
+                    <div class="tw:flex tw:flex-col tw:gap-1 tw:sm:w-52">
+                        <McInput
+                            :name="`attachments[${index}].filename`"
+                            placeholder="Name (optional)"
+                        />
+                        <span
+                            v-if="attachmentError(index, 'filename')"
+                            class="tw:text-xs tw:text-red-500"
+                        >
+                            {{ attachmentError(index, 'filename') }}
+                        </span>
                     </div>
+
+                    <div class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col tw:gap-1">
+                        <McInput
+                            :name="`attachments[${index}].path`"
+                            icon-prepend="Link"
+                            placeholder="https://example.com/lab-guide.pdf"
+                        />
+                        <span v-if="attachmentError(index)" class="tw:text-xs tw:text-red-500">
+                            {{ attachmentError(index) }}
+                        </span>
+                    </div>
+
                     <button
                         type="button"
                         aria-label="Remove attachment"
-                        class="tw:flex tw:size-9 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:border tw:border-input tw:text-navy-60 tw:transition-colors tw:cursor-pointer tw:hover:border-danger tw:hover:text-danger"
+                        class="tw:flex tw:size-9 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:border tw:border-input tw:text-navy-60 tw:transition-colors tw:cursor-pointer tw:hover:border-danger tw:hover:text-danger tw:self-end tw:sm:self-start"
                         @click="removeAttachment(index)"
                     >
                         <X class="tw:size-4" />
