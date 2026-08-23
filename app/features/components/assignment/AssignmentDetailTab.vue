@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { Calendar, Trophy, ClipboardList, Paperclip, FileText, Pencil, Layers } from '@lucide/vue'
+import {
+    Calendar,
+    Trophy,
+    ClipboardList,
+    Paperclip,
+    FileText,
+    Pencil,
+    Layers,
+    Link,
+    X,
+    Check,
+} from '@lucide/vue'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import type { z } from 'zod'
@@ -27,6 +38,70 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm')
 
 const editSchema = createAssignmentFormSchema.omit({ classId: true, attachments: true })
 type EditValues = z.infer<typeof editSchema>
+
+/**
+ * Attachment editing, kept out of the assignment form on purpose.
+ *
+ * Each link is its own row against its own endpoint, so renaming one is a single PATCH rather than
+ * a re-save of the whole assignment. `filename` is the field that matters: it is all a student
+ * sees of the link, and it used to be frozen at creation and derived from the URL when the
+ * instructor left it blank, which for anything with an opaque path is a link called "edit".
+ */
+const editingAttachmentId = ref<number | null>(null)
+const attachmentDraft = ref('')
+const isSavingAttachment = ref(false)
+const newLink = reactive({ path: '', filename: '' })
+const isAddingLink = ref(false)
+
+const startRename = (id: number, current: string) => {
+    editingAttachmentId.value = id
+    attachmentDraft.value = current
+}
+
+const saveRename = async (attachmentId: number) => {
+    const filename = attachmentDraft.value.trim()
+    if (!filename) return toast.error('Give the link a name')
+    isSavingAttachment.value = true
+    try {
+        await assignmentService.updateAttachment(props.assignment.id, attachmentId, { filename })
+        editingAttachmentId.value = null
+        emit('reload')
+        toast.success('Link renamed')
+    } catch (err) {
+        toast.error(apiErrorMessage(err, 'Failed to rename the link'))
+    } finally {
+        isSavingAttachment.value = false
+    }
+}
+
+const addLink = async () => {
+    if (!newLink.path.trim()) return toast.error('Paste a link first')
+    isAddingLink.value = true
+    try {
+        await assignmentService.addAttachment(props.assignment.id, {
+            path: newLink.path.trim(),
+            filename: newLink.filename,
+        })
+        newLink.path = ''
+        newLink.filename = ''
+        emit('reload')
+        toast.success('Link added')
+    } catch (err) {
+        toast.error(apiErrorMessage(err, 'Failed to add the link'))
+    } finally {
+        isAddingLink.value = false
+    }
+}
+
+const removeLink = async (attachmentId: number) => {
+    try {
+        await assignmentService.removeAttachment(props.assignment.id, attachmentId)
+        emit('reload')
+        toast.success('Link removed')
+    } catch (err) {
+        toast.error(apiErrorMessage(err, 'Failed to remove the link'))
+    }
+}
 
 const statusOptions = [
     { value: 'active', label: 'Active' },
@@ -298,8 +373,9 @@ const onSave = handleSubmit(async (values) => {
             </div>
         </div>
 
+        <!-- Shown to staff even when empty, because that is where a link gets added. -->
         <div
-            v-if="assignment.attachments.length > 0"
+            v-if="assignment.attachments.length > 0 || !isStudent"
             class="tw:bg-white/50 tw:rounded-md tw:border tw:border-gray-200 tw:p-6"
         >
             <h2
@@ -309,17 +385,97 @@ const onSave = handleSubmit(async (values) => {
                 Attachments
             </h2>
             <div class="tw:flex tw:flex-col tw:gap-2">
-                <a
-                    v-for="att in assignment.attachments"
-                    :key="att.id"
-                    :href="att.path"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="tw:flex tw:items-center tw:gap-2 tw:p-2 tw:bg-gray-50 tw:rounded-md tw:hover:bg-gray-100"
-                >
-                    <FileText class="tw:w-4 tw:h-4 tw:text-primary" />
-                    <span class="tw:text-sm">{{ att.filename }}</span>
-                </a>
+                <template v-for="att in assignment.attachments" :key="att.id">
+                    <!-- Renaming in place: the row becomes its own field rather than opening a
+                         dialog, since one short string is the whole edit. -->
+                    <div
+                        v-if="editingAttachmentId === att.id"
+                        class="tw:flex tw:items-center tw:gap-2"
+                    >
+                        <McInput
+                            v-model="attachmentDraft"
+                            class="tw:flex-1"
+                            placeholder="Link name"
+                            @keyup.enter="saveRename(att.id)"
+                            @keyup.esc="editingAttachmentId = null"
+                        />
+                        <McButton
+                            size="sm"
+                            :loading="isSavingAttachment"
+                            @click="saveRename(att.id)"
+                        >
+                            <Check class="tw:size-4" />
+                        </McButton>
+                        <McButton size="sm" variant="outline" @click="editingAttachmentId = null">
+                            <X class="tw:size-4" />
+                        </McButton>
+                    </div>
+
+                    <div
+                        v-else
+                        class="tw:flex tw:items-center tw:gap-2 tw:rounded-md tw:bg-gray-50 tw:p-2 tw:hover:bg-gray-100"
+                    >
+                        <a
+                            :href="att.path"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="tw:flex tw:min-w-0 tw:flex-1 tw:items-center tw:gap-2"
+                        >
+                            <FileText class="tw:w-4 tw:h-4 tw:shrink-0 tw:text-primary" />
+                            <span class="tw:truncate tw:text-sm">{{ att.filename }}</span>
+                            <!-- The URL beside the name, dimmed: with the name authorable, the
+                                 name alone no longer says where the link goes. -->
+                            <span
+                                class="tw:hidden tw:truncate tw:text-xs tw:text-navy-50 tw:sm:block"
+                            >
+                                {{ att.path }}
+                            </span>
+                        </a>
+                        <template v-if="!isStudent">
+                            <button
+                                type="button"
+                                aria-label="Rename link"
+                                class="tw:shrink-0 tw:cursor-pointer tw:rounded tw:p-1 tw:text-navy-50 tw:transition-colors tw:hover:bg-primary/10 tw:hover:text-primary"
+                                @click="startRename(att.id, att.filename)"
+                            >
+                                <Pencil class="tw:size-3.5" />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="Remove link"
+                                class="tw:shrink-0 tw:cursor-pointer tw:rounded tw:p-1 tw:text-navy-50 tw:transition-colors tw:hover:bg-danger/10 tw:hover:text-danger"
+                                @click="removeLink(att.id)"
+                            >
+                                <X class="tw:size-4" />
+                            </button>
+                        </template>
+                    </div>
+                </template>
+
+                <p v-if="assignment.attachments.length === 0" class="tw:text-sm tw:text-navy-50">
+                    No links yet.
+                </p>
+
+                <!-- Adding is staff-only and lives here rather than in the edit form: the form
+                     saves the assignment's scalars, while each link is its own endpoint. -->
+                <div v-if="!isStudent" class="tw:mt-2 tw:flex tw:flex-col tw:gap-2 tw:sm:flex-row">
+                    <McInput
+                        v-model="newLink.path"
+                        class="tw:flex-1"
+                        icon-prepend="Link"
+                        placeholder="https://example.com/lab-guide.pdf"
+                    />
+                    <McInput
+                        v-model="newLink.filename"
+                        class="tw:flex-1"
+                        placeholder="Link name (optional)"
+                        @keyup.enter="addLink"
+                    />
+                    <McButton variant="outline" :loading="isAddingLink" @click="addLink">
+                        <Link class="tw:mr-1 tw:size-4" />
+                        Add link
+                    </McButton>
+                </div>
             </div>
         </div>
     </template>

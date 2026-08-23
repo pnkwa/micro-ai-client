@@ -49,6 +49,7 @@ const exerciseSchema = z.object({
 // Exam authoring reuses the exercise/question tree wholesale, so these are exported for
 // examService to extend rather than re-declare.
 export { exerciseSchema, attachmentSchema }
+export type Attachment = z.infer<typeof attachmentSchema>
 
 // Returned by GET /assignments (list): scalars only, no tree. `is_exam` is present because
 // the endpoint returns raw rows and does NOT filter exams out - the client separates them.
@@ -87,6 +88,7 @@ export type Assignment = z.infer<typeof assignmentSchema>
 export const assignmentTotalPoints = (assignment: Assignment): number =>
     assignment.exercises.flatMap((ex) => ex.questions).reduce((sum, q) => sum + (q.points ?? 0), 0)
 
+/** Fallback name for a link the instructor did not name: the last path segment, else the host. */
 const deriveFilename = (url: string): string => {
     try {
         const { pathname, hostname } = new URL(url)
@@ -130,7 +132,9 @@ export const assignmentService = {
                 description: payload.description,
                 instructions: payload.instructions,
                 attachments: payload.attachments?.map((a) => ({
-                    filename: deriveFilename(a.path),
+                    // What the instructor typed, else the old derived-from-URL name. The server
+                    // requires a filename, so this is never blank.
+                    filename: a.filename?.trim() || deriveFilename(a.path),
                     path: a.path,
                 })),
             },
@@ -157,6 +161,51 @@ export const assignmentService = {
             body.slide_collection_id = payload.slideCollectionId
         const response = await $api(assignmentRoutes.byId(id), { method: 'PATCH', body })
         return assignmentSchema.parse(response)
+    },
+
+    // ---- attachments -------------------------------------------------------------------
+    //
+    // Links, not uploads (BE-ADR-007). `filename` is what a student sees in the Attachments list,
+    // so it is the field worth fixing after the fact: it used to be frozen at creation, derived
+    // from the URL when the instructor left it blank, and a Google Doc derives to "edit".
+
+    async addAttachment(
+        assignmentId: number,
+        input: { path: string; filename?: string },
+    ): Promise<Attachment> {
+        const { $api } = useNuxtApp()
+        const response = await $api(assignmentRoutes.attachments(assignmentId), {
+            method: 'POST',
+            body: {
+                filename: input.filename?.trim() || deriveFilename(input.path),
+                path: input.path,
+            },
+        })
+        return attachmentSchema.parse(response)
+    },
+
+    /** Rename a link, or repoint it. Whichever field is sent is the one that changes. */
+    async updateAttachment(
+        assignmentId: number,
+        attachmentId: number,
+        input: { filename?: string; path?: string },
+    ): Promise<Attachment> {
+        const { $api } = useNuxtApp()
+        const body: Record<string, unknown> = {}
+        if (input.filename !== undefined) body.filename = input.filename.trim()
+        if (input.path !== undefined) body.path = input.path
+        const response = await $api(assignmentRoutes.attachmentById(assignmentId, attachmentId), {
+            method: 'PATCH',
+            body,
+        })
+        return attachmentSchema.parse(response)
+    },
+
+    async removeAttachment(assignmentId: number, attachmentId: number): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(assignmentRoutes.attachmentById(assignmentId, attachmentId), {
+            method: 'DELETE',
+        })
     },
 
     /**

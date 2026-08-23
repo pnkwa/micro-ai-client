@@ -2,6 +2,13 @@ import z from 'zod'
 
 export const attachmentSchema = z.object({
     path: z.string().url('Must be a valid URL'),
+    /**
+     * What the link is called where it is listed. Optional: left blank, the service falls back to
+     * deriving one from the URL, which is what it always did. That fallback is fine for
+     * `.../lab-guide.pdf` and useless for anything with an opaque path - a Google Doc derives to
+     * "edit" - which is the whole reason this is authorable.
+     */
+    filename: z.string().max(100, 'Link name is too long').optional(),
 })
 
 const baseAssignmentSchema = z.object({
