@@ -58,7 +58,7 @@ export function isLateSubmission(
  * redone, and re-submitting replaces the row (BE-ADR-019: there is no un-reject, the resubmit
  * IS the recovery path). `submitted` and `graded` both stay locked.
  *
- * Shared by StudentExerciseForm and StudentExamForm because the rule was written inline in both
+ * Shared by StudentAssignmentForm and StudentExamForm because the rule was written inline in both
  * and they drifted: the assignment form reopened on a rejection and the exam form did not, so a
  * returned exam was a dead end for the student who had to redo it.
  */

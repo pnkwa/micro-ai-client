@@ -4,11 +4,11 @@ import { toast } from 'vue-sonner'
 import { assignmentService, type Assignment } from '~/services/assignmentService'
 
 /**
- * The whole release story for an assignment, in one strip above the exercise list.
+ * The whole release story for an assignment, in one strip above the section list.
  *
- * Release is stored per exercise on the server, but an instructor authors "is this assignment
+ * Release is stored per section on the server, but an instructor authors "is this assignment
  * out or not", so this is the only place either direction is offered and it always acts on
- * every exercise at once. Nothing else in the UI can produce a half-released assignment.
+ * every section at once. Nothing else in the UI can produce a half-released assignment.
  */
 const props = defineProps<{
     assignment: Assignment
@@ -22,7 +22,7 @@ const emit = defineEmits<{ reload: [] }>()
 const pending = ref<'release' | 'unlock' | null>(null)
 const isSaving = ref(false)
 
-const hasExercises = computed(() => props.assignment.exercises.length > 0)
+const hasSections = computed(() => props.assignment.sections.length > 0)
 
 // Un-locking a released assignment hides it from students again. That is recoverable while
 // nobody has answered; once a submission exists it would pull the paper out from under work
@@ -32,7 +32,7 @@ const canUnlock = computed(() => props.released && props.submissionCount === 0)
 const handleRelease = async () => {
     isSaving.value = true
     try {
-        await assignmentService.releaseAllExercises(props.assignment.id)
+        await assignmentService.releaseAllSections(props.assignment.id)
         emit('reload')
         pending.value = null
         toast.success('Assignment released')
@@ -47,11 +47,11 @@ const handleUnlock = async () => {
     isSaving.value = true
     // No bulk un-release endpoint exists, so fan out. allSettled rather than all: a partial
     // result still changed the server, so reload regardless and let the reloaded state (not an
-    // optimistic guess) say which exercises actually came back to draft.
+    // optimistic guess) say which sections actually came back to draft.
     const results = await Promise.allSettled(
-        props.assignment.exercises
+        props.assignment.sections
             .filter((ex) => ex.released)
-            .map((ex) => assignmentService.setExerciseReleased(ex.id, false)),
+            .map((ex) => assignmentService.setSectionReleased(ex.id, false)),
     )
     emit('reload')
     isSaving.value = false
@@ -63,7 +63,7 @@ const handleUnlock = async () => {
     } else if (failed.length === results.length) {
         toast.error('Failed to unlock the assignment')
     } else {
-        toast.error(`Unlocked all but ${failed.length} exercise(s). Try again.`)
+        toast.error(`Unlocked all but ${failed.length} section(s). Try again.`)
     }
 }
 </script>
@@ -87,14 +87,14 @@ const handleUnlock = async () => {
                 </p>
                 <p class="tw:text-xs tw:text-navy-60 tw:mt-0.5">
                     <template v-if="released">
-                        Students can see and answer this assignment. Its exercises and questions are
+                        Students can see and answer this assignment. Its sections and questions are
                         locked.
                     </template>
-                    <template v-else-if="!hasExercises">
-                        Add at least one exercise before releasing this assignment.
+                    <template v-else-if="!hasSections">
+                        Add at least one section before releasing this assignment.
                     </template>
                     <template v-else>
-                        Students can't see this assignment yet. Releasing it locks the exercises and
+                        Students can't see this assignment yet. Releasing it locks the sections and
                         questions for good.
                     </template>
                 </p>
@@ -102,7 +102,7 @@ const handleUnlock = async () => {
         </div>
 
         <div class="tw:shrink-0">
-            <McButton v-if="!released" :disabled="!hasExercises" @click="pending = 'release'">
+            <McButton v-if="!released" :disabled="!hasSections" @click="pending = 'release'">
                 <Send class="tw:size-3.5 tw:mr-1" />
                 Release assignment
             </McButton>
@@ -115,7 +115,7 @@ const handleUnlock = async () => {
         <McConfirmDialog
             :open="pending === 'release'"
             title="Release this assignment?"
-            description="Students will be able to see and answer it. Its exercises and questions can't be edited afterwards."
+            description="Students will be able to see and answer it. Its sections and questions can't be edited afterwards."
             confirm-label="Release"
             confirm-variant="default"
             :loading="isSaving"

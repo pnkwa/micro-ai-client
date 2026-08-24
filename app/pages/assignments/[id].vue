@@ -80,7 +80,7 @@ const goBack = () => {
 }
 
 // The answer form lives on the class-scoped route: submitting means one image part per
-// image_detection question across the whole exercise tree, which is StudentExerciseForm's
+// image_detection question across the whole exercise tree, which is StudentAssignmentForm's
 // job. This page is the summary, so it hands off rather than reimplementing that.
 const openAnswerForm = () => {
     if (!classId.value) return
