@@ -4,6 +4,12 @@ import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { toast } from 'vue-sonner'
+import { detectionService } from '~/services/detectionService'
+import {
+    slideCollectionService,
+    type SlideCollectionListItem,
+} from '~/services/slideCollectionService'
+import type { ImageQuestionInput } from '~/services/assignmentService'
 
 const props = withDefaults(
     defineProps<{
@@ -13,6 +19,11 @@ const props = withDefaults(
             points?: number | null
             options: string[]
             accepted_answers?: string[]
+            image_question?: {
+                slide_collection_id?: number | null
+                model?: string | null
+                detection_confidence_threshold?: number | null
+            } | null
         }
         lockType?: boolean
         submitLabel?: string
@@ -20,12 +31,23 @@ const props = withDefaults(
         // Forces the question type (exams: 'slide_identification') and hides the type picker.
         // Such a question is prompt + points only - no options, no key (it lives on the slide).
         fixedType?: string
+        /**
+         * Pre-selected slide collection for a NEW slide question.
+         *
+         * An exam picks one collection at creation and the server fans it out onto every question,
+         * but a station added later goes through the ordinary question endpoint, which has no
+         * fan-out. Without this an instructor would re-pick the same collection for every station
+         * they add after the fact, and picking a different one by accident is a silently wrong
+         * answer key.
+         */
+        defaultSlideCollectionId?: number | null
     }>(),
     {
         lockType: false,
         submitLabel: 'Add question',
         heading: '',
         fixedType: undefined,
+        defaultSlideCollectionId: null,
     },
 )
 
@@ -37,6 +59,12 @@ const emit = defineEmits<{
             options?: string[]
             accepted_answers: string[]
             points?: number
+            /**
+             * The subtype row (BE-ADR-034). Explicitly `null` rather than absent when the type
+             * carries no image: on a PATCH, absent leaves a stale row alone while null deletes it,
+             * so changing a question away from an image type has to say so.
+             */
+            image_question: ImageQuestionInput | null
         },
     ]
     cancel: []
@@ -104,8 +132,79 @@ const {
 } = useFieldArray<{ text: string; correct: boolean }>('options')
 
 const isChoice = computed(() => choiceTypes.has(values.type))
-// slide_identification carries neither options nor a key - just prompt + points.
+// slide_identification carries neither options nor a key - just prompt + points, and the slide
+// collection below, which is where its ground truth comes from.
 const isSlideId = computed(() => values.type === 'slide_identification')
+const isImageDetection = computed(() => values.type === 'image_detection')
+
+/**
+ * The image-bearing half of a question (BE-ADR-034), held outside vee-validate like the other
+ * non-text controls in this codebase.
+ *
+ * These five fields used to live at two different grains: `model` on the question, and the slide
+ * collection and confidence threshold on the ASSIGNMENT, which meant every station in an exam had
+ * to share one threshold. They are per question now.
+ *
+ * What each type may set is enforced server-side with a 400 naming the field, so this form offers
+ * only what the type accepts rather than letting an instructor discover it on save.
+ */
+const slideCollectionId = ref(0)
+const model = ref('')
+const useThreshold = ref(false)
+const threshold = ref(0.6)
+
+const collections = ref<SlideCollectionListItem[]>([])
+const collectionOptions = computed(() =>
+    collections.value.map((c) => ({ value: c.id, label: c.name })),
+)
+const modelOptions = ref<{ value: string; label: string }[]>([])
+
+onMounted(async () => {
+    // Both lists are staff-only and small. Failing either is a toast, not a throw: the form still
+    // saves, the instructor just has nothing to pick from, which is visible on its own.
+    try {
+        collections.value = await slideCollectionService.list()
+    } catch {
+        toast.error('Failed to load slide collections')
+    }
+    try {
+        const models = await detectionService.listModels()
+        // Segment models are a second step over a detector's output, never the question's own
+        // model, so they are not offered here.
+        modelOptions.value = models
+            .filter((m) => m.task !== 'segment')
+            .map((m) => ({ value: m.name, label: m.displayName || m.name }))
+    } catch {
+        toast.error('Failed to load models')
+    }
+})
+
+// A new slide question inherits the collection its exam already uses; editing an existing one
+// takes whatever that question actually has, below.
+slideCollectionId.value = props.defaultSlideCollectionId ?? 0
+
+// Editing an existing question: seed from whatever subtype row it already has.
+if (props.initial?.image_question) {
+    slideCollectionId.value = props.initial.image_question.slide_collection_id ?? 0
+    model.value = props.initial.image_question.model ?? ''
+    const t = props.initial.image_question.detection_confidence_threshold
+    useThreshold.value = t != null
+    threshold.value = t ?? 0.6
+}
+
+/** Per the server's matrix: a slide question REQUIRES a collection and rejects everything else. */
+const buildImageQuestion = (type: string): ImageQuestionInput | null => {
+    if (type === 'slide_identification') {
+        return { slide_collection_id: slideCollectionId.value || null }
+    }
+    if (type === 'image_detection') {
+        return {
+            model: model.value || null,
+            detection_confidence_threshold: useThreshold.value ? threshold.value : null,
+        }
+    }
+    return null
+}
 
 const addOption = () => pushOption({ text: '', correct: false })
 const removeOption = (index: number) => {
@@ -161,6 +260,10 @@ const onSubmit = handleSubmit((v) => {
         return toast.error('Add at least one accepted answer')
     if (v.type === 'image_detection' && acceptedAnswers.length < 1)
         return toast.error('Add at least one expected class')
+    // Required by the server for this type, and the reason a slide answer can be graded at all:
+    // without a collection there is no ground truth to resolve the slide against.
+    if (v.type === 'slide_identification' && !slideCollectionId.value)
+        return toast.error('Pick the slide collection this question grades against')
 
     emit('submit', {
         type: v.type,
@@ -168,6 +271,7 @@ const onSubmit = handleSubmit((v) => {
         options,
         accepted_answers: acceptedAnswers,
         points: v.points && v.points >= 1 ? v.points : undefined,
+        image_question: buildImageQuestion(v.type),
     })
 })
 </script>
@@ -306,6 +410,62 @@ const onSubmit = handleSubmit((v) => {
                     values.type === 'image_detection' ? 'One class per line' : 'One answer per line'
                 "
                 auto-list
+            />
+        </div>
+
+        <!--
+            The image-bearing half of the question (BE-ADR-034). What each type may set is enforced
+            server-side with a 400 naming the field, so only what this type accepts is offered:
+            a slide question needs a collection and takes nothing else, an image_detection question
+            takes a model and a threshold and rejects a collection.
+        -->
+        <div v-if="isSlideId" class="tw:flex tw:flex-col tw:gap-1">
+            <label class="tw:text-xs tw:font-medium tw:text-navy-60">
+                Slide collection
+                <span class="tw:text-red-500">*</span>
+            </label>
+            <McSelect
+                v-model="slideCollectionId"
+                placeholder="Pick the collection this question grades against"
+                :options="collectionOptions"
+                option-value="value"
+                option-label="label"
+                class="tw:bg-white"
+            />
+            <p class="tw:text-[11px] tw:leading-relaxed tw:text-navy-50">
+                The slide the student reports is looked up here to find its answer key. Set per
+                question since v0.7; it used to be one setting for the whole assignment.
+            </p>
+        </div>
+
+        <div v-if="isImageDetection" class="tw:flex tw:flex-col tw:gap-2">
+            <div class="tw:flex tw:flex-col tw:gap-1">
+                <label class="tw:text-xs tw:font-medium tw:text-navy-60">Model</label>
+                <McSelect
+                    v-model="model"
+                    placeholder="Deployment default"
+                    :options="modelOptions"
+                    option-value="value"
+                    option-label="label"
+                    class="tw:bg-white"
+                />
+                <p class="tw:text-[11px] tw:leading-relaxed tw:text-navy-50">
+                    Leave unset to use whatever the deployment defaults to, which is the safer
+                    choice unless this question needs a particular detector.
+                </p>
+            </div>
+
+            <label
+                class="tw:flex tw:items-center tw:gap-2 tw:text-xs tw:font-medium tw:text-navy-60"
+            >
+                <input v-model="useThreshold" type="checkbox" class="tw:accent-primary" />
+                Set an auto-pass confidence
+            </label>
+            <McConfidenceThreshold
+                v-if="useThreshold"
+                v-model="threshold"
+                label="Auto-pass confidence"
+                hint="Below this, a correct answer is flagged for instructor review."
             />
         </div>
 

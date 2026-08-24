@@ -112,34 +112,40 @@ const isEditing = ref(false)
 const isSaving = ref(false)
 
 /**
- * The slide collection a `slide_identification` question grades against (BE-ADR-011).
+ * The slide collection is NO LONGER an assignment-level field.
  *
- * Outside the vee-validate schema, like the exam tab's own picker: that schema is the shared
- * create-assignment shape and this field is not part of it. Only offered once the assignment
- * actually has a slide question, or already has a collection, so an assignment of multiple-choice
- * questions is not asked about something it has no use for.
+ * It moved onto each question's `image_question` in v0.7 (BE-ADR-034), where the model and the
+ * confidence threshold that go with it already live, so it is set per question in the question
+ * editor now. This tab only reports which collection the questions actually reference, which is
+ * usually one but is not guaranteed to be.
  *
- * Without one the grader cannot resolve the slide, so every slide answer routes to instructor
- * review - the submission still works, it just cannot be marked automatically.
+ * Without a collection the grader cannot resolve the slide, so every slide answer on that question
+ * routes to instructor review. The submission still works, it just cannot be marked automatically.
  */
 const collections = ref<SlideCollectionListItem[]>([])
-const slideCollectionId = ref(0)
 
-const hasSlideQuestions = computed(() =>
-    props.assignment.exercises.some((ex) =>
-        ex.questions.some((q) => q.type === 'slide_identification'),
+const slideQuestions = computed(() =>
+    props.assignment.sections
+        .flatMap((section) => section.questions)
+        .filter((q) => q.type === 'slide_identification'),
+)
+const showCollection = computed(() => slideQuestions.value.length > 0)
+const referencedCollectionIds = computed(() => [
+    ...new Set(
+        slideQuestions.value
+            .map((q) => q.image_question?.slide_collection_id)
+            .filter((id): id is number => id != null),
     ),
-)
-const showCollection = computed(
-    () => hasSlideQuestions.value || props.assignment.slide_collection_id != null,
-)
-const collectionName = computed(
-    () => collections.value.find((c) => c.id === props.assignment.slide_collection_id)?.name ?? '-',
-)
-const collectionOptions = computed(() => [
-    { value: 0, label: 'None (grade slide answers by hand)' },
-    ...collections.value.map((c) => ({ value: c.id, label: c.name })),
 ])
+const collectionSummary = computed(() => {
+    const ids = referencedCollectionIds.value
+    if (ids.length === 0) return 'None set'
+    const names = ids.map((id) => collections.value.find((c) => c.id === id)?.name ?? `#${id}`)
+    return names.join(', ')
+})
+const unsetSlideQuestions = computed(
+    () => slideQuestions.value.filter((q) => q.image_question?.slide_collection_id == null).length,
+)
 
 // The list endpoint is staff-only, so a student never calls it.
 onMounted(async () => {
@@ -147,7 +153,7 @@ onMounted(async () => {
     try {
         collections.value = await slideCollectionService.list()
     } catch {
-        /* the name just falls back to the placeholder dash */
+        /* the names just fall back to the id */
     }
 })
 
@@ -166,9 +172,23 @@ const { handleSubmit, resetForm, errors } = useForm<EditValues>({
     initialValues: currentValues(),
 })
 
+/**
+ * The submission window, outside the vee-validate schema because that schema is the shared
+ * create-assignment shape and these are not part of it.
+ *
+ * No longer exam-only (BE-ADR-033). Separating `closes_at` from `due_date` is what makes late
+ * submission expressible: work handed in between the two lands and counts late, and a blank
+ * `closes_at` means no hard cut-off at all.
+ */
+const opensAt = ref('')
+const closesAt = ref('')
+const toLocalDateTime = (iso: string | null | undefined) =>
+    iso ? $dayjs(iso).format('YYYY-MM-DDTHH:mm') : ''
+
 const enableEdit = () => {
     resetForm({ values: currentValues() })
-    slideCollectionId.value = props.assignment.slide_collection_id ?? 0
+    opensAt.value = toLocalDateTime(props.assignment.opens_at)
+    closesAt.value = toLocalDateTime(props.assignment.closes_at)
     isEditing.value = true
 }
 
@@ -181,9 +201,10 @@ const onSave = handleSubmit(async (values) => {
             status: values.status,
             description: values.description || undefined,
             instructions: values.instructions || undefined,
-            // Only when the field is on screen, so editing an ordinary assignment never sends it.
-            // 0 is the "None" option and clears the collection.
-            ...(showCollection.value ? { slideCollectionId: slideCollectionId.value || null } : {}),
+            // Empty clears the bound rather than leaving it alone, which is what lets an
+            // instructor remove a window they set by mistake.
+            opensAt: opensAt.value || null,
+            closesAt: closesAt.value || null,
         })
         emit('reload')
         isEditing.value = false
@@ -250,21 +271,37 @@ const onSave = handleSubmit(async (values) => {
             <span v-if="errors.status" class="tw:text-xs tw:text-red-500">{{ errors.status }}</span>
         </div>
 
-        <div v-if="showCollection" class="tw:flex tw:flex-col tw:gap-2">
-            <label class="tw:text-sm tw:font-medium">Slide collection</label>
-            <McSelect
-                v-model="slideCollectionId"
-                placeholder="Select a slide collection"
-                :options="collectionOptions"
-                option-value="value"
-                option-label="label"
-                class="tw:bg-white/50 tw:rounded-md"
-            />
-            <span class="tw:text-xs tw:text-navy-50">
-                Slide identification answers are graded against this collection. Without one they go
-                to you for manual marking.
-            </span>
+        <!-- The window, which regular assignments gained in v0.7. Due date stays separate: it is
+             when the work is expected, while Closes is when the door shuts. A gap between them is
+             a grace period in which a submission still lands and counts late. -->
+        <div class="tw:flex tw:flex-col tw:gap-2 tw:sm:flex-row tw:sm:gap-4">
+            <div class="tw:flex tw:flex-1 tw:flex-col tw:gap-2">
+                <label class="tw:text-sm tw:font-medium">Opens</label>
+                <McDatePicker
+                    name=""
+                    with-time
+                    :model-value="opensAt"
+                    placeholder="No start restriction"
+                    class="tw:bg-white/50 tw:rounded-md"
+                    @update:model-value="opensAt = String($event ?? '')"
+                />
+            </div>
+            <div class="tw:flex tw:flex-1 tw:flex-col tw:gap-2">
+                <label class="tw:text-sm tw:font-medium">Closes</label>
+                <McDatePicker
+                    name=""
+                    with-time
+                    :model-value="closesAt"
+                    placeholder="No cut-off"
+                    class="tw:bg-white/50 tw:rounded-md"
+                    @update:model-value="closesAt = String($event ?? '')"
+                />
+            </div>
         </div>
+        <p class="tw:text-xs tw:text-navy-50">
+            Leave Closes blank for no cut-off. Work handed in after the due date but before Closes
+            still lands, and is marked late.
+        </p>
 
         <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">Description</label>
@@ -331,12 +368,13 @@ const onSave = handleSubmit(async (values) => {
                 <Layers class="tw:w-5 tw:h-5 tw:text-navy-60" />
                 <div>
                     <p class="tw:text-sm tw:text-navy-60">Slide collection</p>
-                    <p class="tw:text-base tw:font-medium">{{ collectionName }}</p>
-                    <p
-                        v-if="assignment.slide_collection_id == null"
-                        class="tw:text-xs tw:text-warning"
-                    >
-                        Slide answers will come to you for manual marking.
+                    <p class="tw:text-base tw:font-medium">{{ collectionSummary }}</p>
+                    <!-- Set per question now, so this reports rather than edits, and counts the
+                         questions still missing one instead of showing a single yes or no. -->
+                    <p v-if="unsetSlideQuestions > 0" class="tw:text-xs tw:text-warning">
+                        {{ unsetSlideQuestions }} slide
+                        {{ unsetSlideQuestions === 1 ? 'question has' : 'questions have' }} no
+                        collection, so those answers come to you for manual marking.
                     </p>
                 </div>
             </div>
