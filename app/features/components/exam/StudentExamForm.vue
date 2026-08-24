@@ -29,12 +29,12 @@ const { $dayjs } = useNuxtApp()
 
 // Flatten the slide_identification questions; each is one slide "station".
 let flatIndex = 0
-const stations = props.exam.exercises.flatMap((ex, exIndex) =>
-    ex.questions.map((q) => ({
+const stations = props.exam.sections.flatMap((section, sectionIndex) =>
+    section.questions.map((q) => ({
         id: q.id,
         prompt: q.prompt,
         points: q.points,
-        exIndex,
+        sectionIndex,
         index: flatIndex++,
     })),
 )
@@ -72,7 +72,7 @@ const previousImageUrls = reactive<Record<number, string>>({})
  * The image_id behind each preview, so a photo the student keeps can be re-sent at full size.
  * The preview URL is a thumb and must never be what gets submitted.
  */
-const previousImageIds = reactive<Record<number, string>>({})
+const previousImageIds = reactive<Record<number, number>>({})
 /** Set once a previous attempt has actually been read back, so the notice never claims a prefill
  * that did not happen (the load is best-effort and silent). */
 const isRedo = ref(false)
@@ -90,10 +90,18 @@ const loadPreviousAttempt = async () => {
             station.diagnosis = answer.response_text ?? ''
             if (answer.image_id) {
                 previousImageIds[answer.question_id] = answer.image_id
-                previousImageUrls[answer.question_id] = await detectionService.imageBlobUrl(
-                    answer.image_id,
-                    'thumb',
-                )
+                // Per photo, so one that will not load does not abandon the prefill for every
+                // answer after it. The id is recorded either way: a photo the student cannot
+                // PREVIEW may still be re-sent on submit, and dropping the id would silently lose
+                // their picture instead of merely not showing it.
+                try {
+                    previousImageUrls[answer.question_id] = await detectionService.imageBlobUrl(
+                        answer.image_id,
+                        'thumb',
+                    )
+                } catch {
+                    /* the tile falls back to the empty dropzone */
+                }
             }
             isRedo.value = true
         }
@@ -120,10 +128,8 @@ onBeforeUnmount(() => {
     for (const url of Object.values(previousImageUrls)) URL.revokeObjectURL(url)
 })
 
-const opensAt = computed(() => (props.exam.exam_opens_at ? $dayjs(props.exam.exam_opens_at) : null))
-const closesAt = computed(() =>
-    props.exam.exam_closes_at ? $dayjs(props.exam.exam_closes_at) : null,
-)
+const opensAt = computed(() => (props.exam.opens_at ? $dayjs(props.exam.opens_at) : null))
+const closesAt = computed(() => (props.exam.closes_at ? $dayjs(props.exam.closes_at) : null))
 /** Their own submission, on the shared feedback page. Exams route through /assignments/. */
 const feedbackPath = computed(
     () => `/classes/${props.exam.class_id}/assignments/${props.exam.id}/my-feedback`,

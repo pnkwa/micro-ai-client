@@ -2,7 +2,7 @@
 import { ArrowLeft } from '@lucide/vue'
 import { submissionService } from '~/services/submissionService'
 import { submissionBadges } from '~/core/helpers/studentAssignmentStatus'
-import { isExamOpen } from '~/core/helpers/examWindow'
+import { isWindowOpen } from '~/core/helpers/submissionWindow'
 import { useSubmissionDetail } from '~/core/composables/useSubmissionDetail'
 
 // The student's own result. No submission id in the URL: they shouldn't have to know it,
@@ -23,8 +23,9 @@ const {
     isLoading,
     loadFailed,
     answerGroups,
-    exerciseTitles,
+    sectionTitles,
     imageUrls,
+    imageErrors,
     totalPoints,
     load,
 } = useSubmissionDetail(submissionId, assignmentId)
@@ -32,7 +33,7 @@ const {
 const notSubmitted = ref(false)
 
 // The student list endpoint ignores the assignment_id filter, so match on assignment_id
-// here rather than trusting a non-empty list (same caveat as StudentExerciseForm).
+// here rather than trusting a non-empty list (same caveat as StudentAssignmentForm).
 const mine = await submissionService
     .listByAssignment(assignmentId.value)
     .then((all) => all.find((s) => s.assignment_id === assignmentId.value) ?? null)
@@ -70,19 +71,19 @@ const resubmitPath = computed(() =>
         : `/classes/${classId.value}/assignments/${assignmentId.value}`,
 )
 /**
- * A returned exam whose window has already closed.
+ * Returned work whose submission window has already closed.
  *
- * Rejection reopens the FORM, never the window: the server refuses any exam submission outside it
- * (BE-ADR-011/017), so telling this student to resubmit sends them to a page that will not take
- * one. Reuses the same window rule the AI lock uses rather than a second copy of it.
+ * Rejection reopens the FORM, never the window: the server refuses a submission outside it, so
+ * telling this student to resubmit sends them to a page that will not take one. Reuses the same
+ * window rule the AI lock uses rather than a second copy of it.
+ *
+ * No `is_exam` guard since v0.7 (BE-ADR-033). The window applies to every assignment now, so a
+ * returned regular assignment past its close is in exactly the same position an exam was.
  */
 const cannotResubmit = computed(() => {
     const assignment = submission.value?.assignment
-    if (!assignment?.is_exam) return false
-    return !isExamOpen(
-        { exam_opens_at: null, exam_closes_at: assignment.exam_closes_at ?? null },
-        new Date(),
-    )
+    if (!assignment) return false
+    return !isWindowOpen({ opens_at: null, closes_at: assignment.closes_at ?? null }, new Date())
 })
 
 const statusBadges = computed(() =>
@@ -149,7 +150,7 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                 <p class="tw:font-semibold tw:text-danger">
                     {{
                         cannotResubmit
-                            ? 'Returned, and the exam has closed'
+                            ? 'Returned, and the window has closed'
                             : 'Returned - please resubmit'
                     }}
                 </p>
@@ -174,8 +175,8 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                      submission, which is a worse dead end than no button. What the student needs
                      then is their instructor, so say that instead. -->
                 <p v-if="cannotResubmit" class="tw:mt-3 tw:text-sm tw:text-navy-70">
-                    The exam closed before this could be redone, so resubmitting is no longer
-                    possible. Ask your instructor if you need another attempt.
+                    The submission window closed before this could be redone, so resubmitting is no
+                    longer possible. Ask your instructor if you need another attempt.
                 </p>
                 <McButton v-else class="tw:mt-4" @click="router.push(resubmitPath)">
                     {{
@@ -206,16 +207,17 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                  view by construction (no slots, no marking controls, no answer key), and
                  `is_correct` is null until grading, so they render neutral on their own. -->
             <template v-if="submission">
-                <template v-for="group in answerGroups" :key="group.exerciseId">
+                <template v-for="group in answerGroups" :key="group.sectionId">
                     <div class="tw:flex tw:items-center tw:gap-2.5">
                         <span
                             class="tw:flex tw:size-6 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-full tw:bg-primary/10 tw:text-xs tw:font-semibold tw:text-primary"
                         >
-                            {{ group.exIndex + 1 }}
+                            {{ group.sectionIndex + 1 }}
                         </span>
                         <span class="tw:text-sm tw:font-semibold tw:text-navy-90">
                             {{
-                                exerciseTitles[group.exerciseId] ?? `Exercise ${group.exIndex + 1}`
+                                sectionTitles[group.sectionId] ??
+                                `Section ${group.sectionIndex + 1}`
                             }}
                         </span>
                         <div class="tw:h-px tw:flex-1 tw:bg-navy-10"></div>
@@ -227,8 +229,9 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                         v-for="{ answer, qIndex } in group.items"
                         :key="answer.question_id"
                         :answer="answer"
-                        :label="`${group.exIndex + 1}.${qIndex + 1}`"
+                        :label="`${group.sectionIndex + 1}.${qIndex + 1}`"
                         :image-url="imageUrls[answer.question_id]"
+                        :image-error="imageErrors[answer.question_id]"
                         :tint-class="
                             answer.is_correct === true
                                 ? 'tw:border-success/40 tw:bg-success/5'

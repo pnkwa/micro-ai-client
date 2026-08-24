@@ -34,10 +34,6 @@ const collectionOptions = computed(() =>
 
 const { $dayjs } = useNuxtApp()
 
-// The threshold stays outside vee-validate (a checkbox + 0..1 slider, not a text field).
-const useThreshold = ref(false)
-const threshold = ref(0.6)
-
 // The window uses the date+time picker; fields hold 'YYYY-MM-DDTHH:mm' (local), converted to
 // ISO instants on submit.
 const schema = z.object({
@@ -45,8 +41,8 @@ const schema = z.object({
     description: z.string().optional(),
     instructions: z.string().optional(),
     slideCollectionId: z.coerce.number().int().positive('Pick a slide collection'),
-    examOpensAt: z.string().optional(),
-    examClosesAt: z.string().min(1, 'Set when the exam closes'),
+    opensAt: z.string().optional(),
+    closesAt: z.string().min(1, 'Set when the exam closes'),
 })
 type FormValues = z.infer<typeof schema>
 
@@ -57,15 +53,15 @@ const { handleSubmit, errors } = useForm<FormValues>({
         description: '',
         instructions: '',
         slideCollectionId: undefined as unknown as number,
-        examOpensAt: '',
-        examClosesAt: '',
+        opensAt: '',
+        closesAt: '',
     },
 })
 
 const handleSave = handleSubmit((values) => {
     // due_date follows the close time (an assignment always needs one).
-    const opens = values.examOpensAt ? $dayjs(values.examOpensAt) : null
-    const closes = $dayjs(values.examClosesAt)
+    const opens = values.opensAt ? $dayjs(values.opensAt) : null
+    const closes = $dayjs(values.closesAt)
     if (opens && !opens.isBefore(closes)) {
         return toast.error('The exam must open before it closes')
     }
@@ -77,9 +73,8 @@ const handleSave = handleSubmit((values) => {
         description: values.description?.trim() || undefined,
         instructions: values.instructions?.trim() || undefined,
         slideCollectionId: values.slideCollectionId,
-        examOpensAt: opens?.toISOString(),
-        examClosesAt: closes.toISOString(),
-        examConfidenceThreshold: useThreshold.value ? threshold.value : undefined,
+        opensAt: opens?.toISOString(),
+        closesAt: closes.toISOString(),
     })
 })
 </script>
@@ -141,14 +136,14 @@ const handleSave = handleSubmit((values) => {
         <div class="tw:grid tw:grid-cols-2 tw:gap-4 tw:items-start">
             <div class="tw:flex tw:flex-col tw:gap-2">
                 <label class="tw:text-sm tw:font-medium">Opens</label>
-                <McDatePicker name="examOpensAt" with-time placeholder="Open time" />
+                <McDatePicker name="opensAt" with-time placeholder="Open time" />
             </div>
             <div class="tw:flex tw:flex-col tw:gap-2">
                 <label class="tw:text-sm tw:font-medium">
                     Closes
                     <span class="tw:text-red-500">*</span>
                 </label>
-                <McDatePicker name="examClosesAt" with-time placeholder="Close time" />
+                <McDatePicker name="closesAt" with-time placeholder="Close time" />
             </div>
         </div>
         <p class="tw:text-xs tw:text-navy-50 tw:-mt-2">
@@ -156,22 +151,9 @@ const handleSave = handleSubmit((values) => {
             blank for no start restriction.
         </p>
 
-        <div class="tw:flex tw:flex-col tw:gap-2">
-            <label class="tw:flex tw:items-center tw:gap-2 tw:text-sm tw:font-medium">
-                <input v-model="useThreshold" type="checkbox" class="tw:accent-primary" />
-                Set an AI confidence threshold
-            </label>
-            <p class="tw:text-xs tw:text-navy-50">
-                A student's diagnosis auto-passes only when the AI agrees above this confidence;
-                otherwise it goes to review. Off = every correct diagnosis is reviewed.
-            </p>
-            <McConfidenceThreshold
-                v-if="useThreshold"
-                v-model="threshold"
-                label="Auto-pass confidence"
-                hint="Below this, a correct diagnosis is flagged for instructor review."
-            />
-        </div>
+        <!-- The AI confidence threshold used to be set here, for the whole exam. It moved onto
+             each question in v0.7 (BE-ADR-034), where the model that produces the confidence
+             already lives, so it is set per station in the question editor now. -->
     </form>
     <McDialogFooter>
         <McButton variant="outline" @click="emit('cancel')">Cancel</McButton>

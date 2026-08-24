@@ -4,7 +4,7 @@ import {
     detectionReleaseText,
     pickBlockingExam,
     type BlockingExamLike,
-} from '~/core/helpers/examWindow'
+} from '~/core/helpers/submissionWindow'
 
 /**
  * The exam that is withholding the AI detection tool from this student, if one is.
@@ -17,7 +17,7 @@ import {
  * student submits, and only an exam with no closing time is released by handing it in.
  *
  * Derived from two lists the student can already read (`GET /exams`, `GET /submissions`) and the same
- * window rule the server uses - see `~/core/helpers/examWindow`. NOT a gate: the server decides, and
+ * window rule the server uses - see `~/core/helpers/submissionWindow`. NOT a gate: the server decides, and
  * a null here means "we cannot name it", never "you are not blocked". Every failure is silent for
  * that reason; an explanation that cannot be produced is not worth a toast.
  *
@@ -73,7 +73,7 @@ export function useBlockingExam() {
 
     /** "closes at 18:30" / "closes Aug 19 at 09:00" - the near case is the one a student watches. */
     const closesAtText = computed(() => {
-        const closes = exam.value?.exam_closes_at
+        const closes = exam.value?.closes_at
         if (!closes) return null
         const at = $dayjs(closes)
         return at.isSame($dayjs(), 'day')
