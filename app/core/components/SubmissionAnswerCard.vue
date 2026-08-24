@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { TriangleAlert } from '@lucide/vue'
+import { TriangleAlert, ImageOff } from '@lucide/vue'
 import type { GradingAnswer } from '~/services/submissionService'
 
 /**
@@ -18,6 +18,13 @@ const props = defineProps<{
     label: string
     /** Object URL for an image_detection answer's submitted photo. */
     imageUrl?: string
+    /**
+     * Why the photo is missing, when it is. An answer that HAS an image_id but no URL is a load
+     * that failed, which is different from an answer that never carried a picture, and since v0.7
+     * a refusal is as likely as a missing file (BE-ADR-031). Without this the card renders a gap
+     * and a grader cannot tell "no photo submitted" from "I am not allowed to see it".
+     */
+    imageError?: string
     /** Tint for the response box (correct/incorrect/neutral). */
     tintClass?: string
     /** Emphasises the card border, e.g. an answer the grader still has to mark. */
@@ -199,8 +206,15 @@ const clearanceClass = computed(() => {
                     only ever appears in a script constant is never emitted, which is how a height
                     silently did nothing earlier in this work.
                 -->
+                <div
+                    v-if="!imageUrl && imageError"
+                    class="tw:flex tw:w-full tw:max-w-md tw:items-center tw:gap-2 tw:rounded-lg tw:border tw:border-dashed tw:border-navy-20 tw:bg-navy-5 tw:p-4 tw:lg:min-w-0 tw:lg:flex-1"
+                >
+                    <ImageOff class="tw:size-4 tw:shrink-0 tw:text-navy-50" />
+                    <span class="tw:text-sm tw:text-navy-60">{{ imageError }}</span>
+                </div>
                 <McAnnotatedImage
-                    v-if="imageUrl"
+                    v-else-if="imageUrl"
                     :src="imageUrl"
                     fill
                     class="tw:w-full tw:max-w-md tw:lg:min-w-0 tw:lg:flex-1"
