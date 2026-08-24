@@ -2,21 +2,23 @@ import { z } from 'zod'
 import { examRoutes } from './routes/examRoutes'
 import { assignmentSchema, assignmentListItemSchema } from './assignmentService'
 
-// An exam is an assignment (is_exam = true) with a slide collection, an open/close window and a
-// confidence threshold. The tree (exercises + slide_identification questions) is authored via
-// the ordinary /exercises + /questions endpoints, so examService only owns the exam scalars.
+// An exam is an assignment with `is_exam` set. The tree (sections + slide_identification questions)
+// is authored via the ordinary /sections + /questions endpoints, so examService only owns the flag.
+//
+// Everything else that used to live here moved in v0.7. The window became `opens_at`/`closes_at` on
+// every assignment (BE-ADR-033), so it is inherited from the assignment schemas rather than
+// redeclared. `slide_collection_id` and `exam_confidence_threshold` moved onto the question's
+// `image_question` (BE-ADR-034) and are no longer on an exam read at all - `POST /exams` still
+// ACCEPTS a top-level `slide_collection_id` and fans it out onto every question, which is why
+// authoring below still sends one.
 const examExtraFields = {
     is_exam: z.boolean(),
-    slide_collection_id: z.number().nullable(),
-    exam_opens_at: z.string().nullable(),
-    exam_closes_at: z.string().nullable(),
-    exam_confidence_threshold: z.number().nullable(),
 }
 
 // GET /exams/:id - the full tree plus exam scalars.
 const examSchema = assignmentSchema.extend(examExtraFields)
 
-// GET /exams - full rows, scalars only (no tree); still carries the exam window.
+// GET /exams - full rows, scalars only (no tree); the window rides on the assignment fields.
 const examListItemSchema = assignmentListItemSchema.extend(examExtraFields)
 
 export type Exam = z.infer<typeof examSchema>
@@ -29,10 +31,15 @@ export interface CreateExamInput {
     status: 'active' | 'closed'
     description?: string
     instructions?: string
+    /**
+     * Sent at the top level on create and update, where the server fans it out onto every
+     * question's `image_question` (BE-ADR-034). It is NOT on an exam read any more: to display
+     * which collection is in use, read it off a question.
+     */
     slideCollectionId: number
-    examOpensAt?: string
-    examClosesAt?: string
-    examConfidenceThreshold?: number
+    /** The window, renamed off `exam_*` in v0.7 and now shared with regular assignments. */
+    opensAt?: string
+    closesAt?: string
 }
 
 export type UpdateExamInput = Partial<Omit<CreateExamInput, 'classId'>>
@@ -73,9 +80,8 @@ export const examService = {
                 description: payload.description,
                 instructions: payload.instructions,
                 slide_collection_id: payload.slideCollectionId,
-                exam_opens_at: payload.examOpensAt,
-                exam_closes_at: payload.examClosesAt,
-                exam_confidence_threshold: payload.examConfidenceThreshold,
+                opens_at: payload.opensAt,
+                closes_at: payload.closesAt,
             },
         })
         return examSchema.parse(response)
@@ -91,10 +97,8 @@ export const examService = {
         if (payload.instructions !== undefined) body.instructions = payload.instructions
         if (payload.slideCollectionId !== undefined)
             body.slide_collection_id = payload.slideCollectionId
-        if (payload.examOpensAt !== undefined) body.exam_opens_at = payload.examOpensAt
-        if (payload.examClosesAt !== undefined) body.exam_closes_at = payload.examClosesAt
-        if (payload.examConfidenceThreshold !== undefined)
-            body.exam_confidence_threshold = payload.examConfidenceThreshold
+        if (payload.opensAt !== undefined) body.opens_at = payload.opensAt
+        if (payload.closesAt !== undefined) body.closes_at = payload.closesAt
         const response = await $api(examRoutes.byId(id), { method: 'PATCH', body })
         return examSchema.parse(response)
     },

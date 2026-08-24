@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { detectionRoutes } from './routes/detectionRoutes'
+import { imageRoutes } from './routes/imageRoutes'
 
 // One detected/segmented element. Coords are normalized [0,1] against the original image;
 // `polygon` is the segmentation outline (a detector leaves it null; see DetectionBox entity).
@@ -30,16 +31,20 @@ const detectionStepSchema = z.object({
 export const detectionSchema = z.object({
     id: z.number(),
     source: z.enum(['upload', 'camera', 'submission']),
-    // Optional because nothing reads it any more and the server team is waiting to stop sending
-    // it. An absolute path on THEIR filesystem, which should never have been on the wire; it was
-    // kept only because this schema demanded it. Required here, the day they drop it every
-    // detection response fails to parse.
-    img_path: z.string().optional(),
-    // The stored file's own UUID name, e.g. `9f2a...4a5b.jpg`. Derived server-side off img_path so
-    // it cannot drift. This, not the detection id, is what addresses the image (BE-ADR-027).
-    // Treat it like a credential: the route it feeds checks that you are signed in, not that the
-    // image is yours, so it must not be logged or shown anywhere the detection itself would not be.
-    image_id: z.string().nullable().optional(),
+    // `img_path` and `content_hash` are gone from the wire entirely in v0.7: an image is a row of
+    // its own now, and the detection relation is deliberately not joined into detection reads so
+    // that the absolute server path cannot travel back out.
+    /**
+     * The `images` row this run was over (BE-ADR-031). An INTEGER since v0.7, where it used to be
+     * the stored file's UUID basename.
+     *
+     * That change is not cosmetic. The old name was unguessable, so possessing it was the whole
+     * authorization; an integer is enumerable, so that argument is gone and the route it feeds
+     * (`GET /images/:id/file`) currently checks authentication only, with the real permission union
+     * a recorded deferral. Expect a 403 where only a 404 was possible before, and do not treat an
+     * image URL as shareable.
+     */
+    image_id: z.number().nullable().optional(),
     model: z.string(),
     created_by: z.number().nullable().optional(),
     steps: z.array(detectionStepSchema),
@@ -180,9 +185,9 @@ export const detectionService = {
      * param and returns the original, and a current one returns the original when the image is
      * already smaller than the cap or cannot be decoded.
      */
-    async imageBlobUrl(imageId: string, size?: 'thumb'): Promise<string> {
+    async imageBlobUrl(imageId: number, size?: 'thumb'): Promise<string> {
         const { $api } = useNuxtApp()
-        const blob = await $api<Blob>(detectionRoutes.imageByName(imageId), {
+        const blob = await $api<Blob>(imageRoutes.file(imageId), {
             responseType: 'blob',
             ...(size && { query: { size } }),
         })
@@ -196,12 +201,13 @@ export const detectionService = {
      * whereas this becomes the answer, and handing the detector a 256px downscale of a microscopy
      * field would quietly cost the student the analysis their mark depends on.
      */
-    async imageFile(imageId: string): Promise<File> {
+    async imageFile(imageId: number): Promise<File> {
         const { $api } = useNuxtApp()
-        const blob = await $api<Blob>(detectionRoutes.imageByName(imageId), {
+        const blob = await $api<Blob>(imageRoutes.file(imageId), {
             responseType: 'blob',
         })
-        return new File([blob], imageId, { type: blob.type || 'image/jpeg' })
+        // Named after the row, since the stored filename is no longer on the wire.
+        return new File([blob], `image-${imageId}.jpg`, { type: blob.type || 'image/jpeg' })
     },
 
     /**
