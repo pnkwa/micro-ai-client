@@ -25,8 +25,9 @@ const {
     isLoading,
     loadFailed,
     answerGroups,
-    exerciseTitles,
+    sectionTitles,
     imageUrls,
+    imageErrors,
     totalPoints,
     load,
 } = useSubmissionDetail(submissionId, assignmentId)
@@ -257,15 +258,15 @@ const rejectSubmission = async () => {
                 </div>
             </div>
 
-            <template v-for="group in answerGroups" :key="group.exerciseId">
+            <template v-for="group in answerGroups" :key="group.sectionId">
                 <div class="tw:flex tw:items-center tw:gap-2.5">
                     <span
                         class="tw:flex tw:size-6 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-full tw:bg-primary/10 tw:text-xs tw:font-semibold tw:text-primary"
                     >
-                        {{ group.exIndex + 1 }}
+                        {{ group.sectionIndex + 1 }}
                     </span>
                     <span class="tw:text-sm tw:font-semibold tw:text-navy-90">
-                        {{ exerciseTitles[group.exerciseId] ?? `Exercise ${group.exIndex + 1}` }}
+                        {{ sectionTitles[group.sectionId] ?? `Section ${group.sectionIndex + 1}` }}
                     </span>
                     <div class="tw:h-px tw:flex-1 tw:bg-navy-10"></div>
                 </div>
@@ -274,8 +275,9 @@ const rejectSubmission = async () => {
                     v-for="{ answer, qIndex } in group.items"
                     :key="answer.question_id"
                     :answer="answer"
-                    :label="`${group.exIndex + 1}.${qIndex + 1}`"
+                    :label="`${group.sectionIndex + 1}.${qIndex + 1}`"
                     :image-url="imageUrls[answer.question_id]"
+                    :image-error="imageErrors[answer.question_id]"
                     :tint-class="responseBoxClass(answer.question_id)"
                     :highlight="drafts[answer.question_id]?.is_correct === null"
                     show-answer-key

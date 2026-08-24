@@ -630,9 +630,9 @@ const loadFromHistory = async (record: HistoryRecord) => {
     // left running behind the picture keeps the camera light on with nothing to show for it.
     cameraOpen.value = false
     try {
-        // By image name, not detection id: this URL is the cacheable one, and the id-addressed
-        // route can mean a different picture after a database recreate (BE-ADR-027).
-        if (!record.image_id) throw new Error('history record carries no image name')
+        // By image id, not detection id: that one addresses the run rather than the picture and
+        // is not stable across a database recreate (BE-ADR-027/031).
+        if (!record.image_id) throw new Error('history record carries no image')
         const blobUrl = await detectionService.imageBlobUrl(record.image_id)
         if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
         imageUrl.value = blobUrl
@@ -641,8 +641,15 @@ const loadFromHistory = async (record: HistoryRecord) => {
         // something to send. Read back from the object URL rather than re-fetched - that is a read
         // from memory, and the alternative is asking the server for an image we are already holding.
         currentFile.value = await fetch(blobUrl).then((r) => r.blob())
-    } catch {
-        toast.error('Could not load that image.')
+    } catch (err) {
+        // Refused and missing are different answers now. The image route checks authentication
+        // only, with the real permission union deferred (BE-ADR-031), so a 403 is a live outcome
+        // where the UUID-addressed route could realistically only 404.
+        toast.error(
+            isForbidden(err)
+                ? 'You do not have access to that image.'
+                : 'Could not load that image.',
+        )
         return
     }
     detectionSteps.value = record.steps

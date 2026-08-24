@@ -6,10 +6,11 @@ import {
 } from '~/services/submissionService'
 import { assignmentService, assignmentTotalPoints } from '~/services/assignmentService'
 import { detectionService } from '~/services/detectionService'
+import { isForbidden } from '~/core/helpers/error'
 
 export interface AnswerGroup {
-    exerciseId: number
-    exIndex: number
+    sectionId: number
+    sectionIndex: number
     items: { answer: GradingAnswer; qIndex: number }[]
 }
 
@@ -26,13 +27,16 @@ export function useSubmissionDetail(submissionId: Ref<number>, assignmentId: Ref
     const submission = ref<SubmissionDetail | null>(null)
     const isLoading = ref(false)
     const loadFailed = ref(false)
-    const exerciseTitles = ref<Record<number, string>>({})
+    const sectionTitles = ref<Record<number, string>>({})
     const totalPoints = ref(0)
     const imageUrls = reactive<Record<number, string>>({})
+    /** Why a photo is missing, keyed by question, so the card can say so instead of showing a gap. */
+    const imageErrors = reactive<Record<number, string>>({})
 
     const revokeImageUrls = () => {
         for (const url of Object.values(imageUrls)) URL.revokeObjectURL(url)
         for (const key of Object.keys(imageUrls)) delete imageUrls[Number(key)]
+        for (const key of Object.keys(imageErrors)) delete imageErrors[Number(key)]
     }
 
     const load = async (onLoaded?: (detail: SubmissionDetail) => void) => {
@@ -48,8 +52,8 @@ export function useSubmissionDetail(submissionId: Ref<number>, assignmentId: Ref
             assignmentService
                 .getById(assignmentId.value)
                 .then((assignment) => {
-                    exerciseTitles.value = Object.fromEntries(
-                        assignment.exercises.map((ex) => [ex.id, ex.title]),
+                    sectionTitles.value = Object.fromEntries(
+                        assignment.sections.map((section) => [section.id, section.title]),
                     )
                     totalPoints.value = assignmentTotalPoints(assignment)
                 })
@@ -66,9 +70,22 @@ export function useSubmissionDetail(submissionId: Ref<number>, assignmentId: Ref
                     answer.question.type === 'image_detection' ||
                     answer.question.type === 'slide_identification'
                 if (hasPhoto && answer.image_id) {
-                    imageUrls[answer.question_id] = await detectionService.imageBlobUrl(
-                        answer.image_id,
-                    )
+                    // Each photo fails on its OWN. This loop used to sit bare inside the outer
+                    // try, so a single image that would not load set loadFailed and blanked the
+                    // whole page - one answer's picture taking the grade, the comments and every
+                    // other answer with it. That was survivable while a missing file was the only
+                    // realistic failure; since v0.7 an image is addressed by an integer id and the
+                    // route checks authentication only, so a 403 is live (BE-ADR-031) and this
+                    // stopped being a rare case.
+                    try {
+                        imageUrls[answer.question_id] = await detectionService.imageBlobUrl(
+                            answer.image_id,
+                        )
+                    } catch (err) {
+                        imageErrors[answer.question_id] = isForbidden(err)
+                            ? 'You do not have access to this image'
+                            : 'This image could not be loaded'
+                    }
                 }
             }
             onLoaded?.(detail)
@@ -83,24 +100,24 @@ export function useSubmissionDetail(submissionId: Ref<number>, assignmentId: Ref
 
     /**
      * Answers grouped by exercise in first-appearance order, numbered "exercise.question"
-     * (1.1, 1.2, …) to match the authoring view (AssignmentExercises.vue).
+     * (1.1, 1.2, …) to match the authoring view (AssignmentSections.vue).
      */
     const answerGroups = computed<AnswerGroup[]>(() => {
         if (!submission.value) return []
         const order: number[] = []
-        const byExercise = new Map<number, GradingAnswer[]>()
+        const bySection = new Map<number, GradingAnswer[]>()
         for (const answer of submission.value.answers) {
-            const exerciseId = answer.question.exercise_id
-            if (!byExercise.has(exerciseId)) {
-                byExercise.set(exerciseId, [])
-                order.push(exerciseId)
+            const sectionId = answer.question.assignment_section_id
+            if (!bySection.has(sectionId)) {
+                bySection.set(sectionId, [])
+                order.push(sectionId)
             }
-            byExercise.get(exerciseId)!.push(answer)
+            bySection.get(sectionId)!.push(answer)
         }
-        return order.map((exerciseId, exIndex) => ({
-            exerciseId,
-            exIndex,
-            items: [...byExercise.get(exerciseId)!]
+        return order.map((sectionId, sectionIndex) => ({
+            sectionId,
+            sectionIndex,
+            items: [...bySection.get(sectionId)!]
                 .sort((a, b) => a.question.position - b.question.position)
                 .map((answer, qIndex) => ({ answer, qIndex })),
         }))
@@ -111,8 +128,9 @@ export function useSubmissionDetail(submissionId: Ref<number>, assignmentId: Ref
         isLoading,
         loadFailed,
         answerGroups,
-        exerciseTitles,
+        sectionTitles,
         imageUrls,
+        imageErrors,
         totalPoints,
         load,
     }
