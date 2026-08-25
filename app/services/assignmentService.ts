@@ -95,7 +95,7 @@ export const assignmentListItemSchema = z.object({
     name: z.string(),
     description: z.string().nullable(),
     instructions: z.string().nullable(),
-    due_date: z.string(),
+    due_date: z.string().nullable(),
     points: z.number().nullable(),
     status: z.enum(['active', 'closed']),
     is_exam: z.boolean().optional().default(false),
@@ -166,10 +166,20 @@ export const assignmentService = {
                 name: payload.name,
                 // The form's due date carries a time ('YYYY-MM-DDTHH:mm' local); send an
                 // unambiguous ISO instant.
-                due_date: new Date(payload.dueDate).toISOString(),
+                due_date: payload.dueDate ? new Date(payload.dueDate).toISOString() : undefined,
                 status: payload.status,
                 description: payload.description,
                 instructions: payload.instructions,
+                // The window, from the create form's Advanced section. Blank means no bound rather
+                // than an empty string, which the server would reject as a bad date.
+                opens_at: payload.opensAt ? new Date(payload.opensAt).toISOString() : undefined,
+                closes_at: payload.closesAt ? new Date(payload.closesAt).toISOString() : undefined,
+                // One section, created with the assignment. The server accepts the tree inline, so
+                // the alternative was a second request that could half-fail: an assignment with no
+                // section, which is a state the authoring UI would then have to explain.
+                sections: payload.firstSectionTitle?.trim()
+                    ? [{ title: payload.firstSectionTitle.trim() }]
+                    : undefined,
                 attachments: payload.attachments?.map((a) => ({
                     // What the instructor typed, else the old derived-from-URL name. The server
                     // requires a filename, so this is never blank.
@@ -183,11 +193,14 @@ export const assignmentService = {
 
     async update(
         id: number,
-        payload: Partial<Omit<CreateAssignmentFormData, 'classId'>> & {
-            /**
-             * The submission window, in local 'YYYY-MM-DDTHH:mm' as the pickers produce it. Null
-             * clears a bound; undefined leaves it untouched. No longer exam-only (BE-ADR-033).
-             */
+        // The window is omitted from the form shape and redeclared, because the two disagree about
+        // blank on purpose: the create form has no way to express "clear this", so it types them as
+        // string, while an edit must be able to remove a bound it set by mistake. Null clears here;
+        // undefined leaves it untouched.
+        payload: Partial<
+            Omit<CreateAssignmentFormData, 'classId' | 'opensAt' | 'closesAt' | 'dueDate'>
+        > & {
+            dueDate?: string | null
             opensAt?: string | null
             closesAt?: string | null
         },
@@ -195,7 +208,9 @@ export const assignmentService = {
         const { $api } = useNuxtApp()
         const body: Record<string, unknown> = {}
         if (payload.name !== undefined) body.name = payload.name
-        if (payload.dueDate !== undefined) body.due_date = new Date(payload.dueDate).toISOString()
+        // Empty clears the deadline rather than leaving it alone, matching the window bounds.
+        if (payload.dueDate !== undefined)
+            body.due_date = payload.dueDate ? new Date(payload.dueDate).toISOString() : null
         if (payload.status !== undefined) body.status = payload.status
         if (payload.description !== undefined) body.description = payload.description
         if (payload.instructions !== undefined) body.instructions = payload.instructions
