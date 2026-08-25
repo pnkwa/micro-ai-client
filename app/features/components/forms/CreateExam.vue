@@ -8,6 +8,7 @@ import {
     type SlideCollectionListItem,
 } from '~/services/slideCollectionService'
 import type { CreateExamInput } from '~/services/examService'
+import NoSlideCollections from '~/features/components/slide/NoSlideCollections.vue'
 
 const props = defineProps<{ classId: number }>()
 
@@ -15,13 +16,17 @@ const emit = defineEmits<{ save: [values: CreateExamInput]; cancel: [] }>()
 
 const collections = ref<SlideCollectionListItem[]>([])
 const isLoadingCollections = ref(false)
+// Kept apart from "you have none yet": the empty state says something different for each, and
+// telling an instructor to create a collection they already have would be its own bug.
+const collectionsFailed = ref(false)
 
 const loadCollections = async () => {
     isLoadingCollections.value = true
     try {
         collections.value = await slideCollectionService.list()
+        collectionsFailed.value = false
     } catch {
-        toast.error('Failed to load slide collections')
+        collectionsFailed.value = true
     } finally {
         isLoadingCollections.value = false
     }
@@ -111,12 +116,16 @@ const handleSave = handleSubmit((values) => {
             <span v-if="errors.slideCollectionId" class="tw:text-xs tw:text-red-500">
                 {{ errors.slideCollectionId }}
             </span>
-            <p
+            <!--
+                Same dead end as the question editor's picker, so the same component: an exam
+                cannot be created without a collection, and the instructor is mid-form.
+            -->
+            <NoSlideCollections
                 v-if="!isLoadingCollections && collections.length === 0"
-                class="tw:text-xs tw:text-warning"
-            >
-                No collections yet. Create one in the Slide Library first.
-            </p>
+                :failed="collectionsFailed"
+                noun="exam"
+                @retry="loadCollections"
+            />
         </div>
 
         <div class="tw:flex tw:flex-col tw:gap-2">
