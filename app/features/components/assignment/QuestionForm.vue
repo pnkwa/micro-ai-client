@@ -4,12 +4,15 @@ import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { toast } from 'vue-sonner'
-import { detectionService } from '~/services/detectionService'
+import { detectionService, type ModelSpec } from '~/services/detectionService'
 import {
     slideCollectionService,
     type SlideCollectionListItem,
 } from '~/services/slideCollectionService'
 import type { ImageQuestionInput } from '~/services/assignmentService'
+import { pickDefaultModel } from '~/core/composables/detectionModels'
+import { modelLabel } from '~/core/helpers/modelLabel'
+import NoSlideCollections from '~/features/components/slide/NoSlideCollections.vue'
 
 const props = withDefaults(
     defineProps<{
@@ -136,12 +139,14 @@ const isChoice = computed(() => choiceTypes.has(values.type))
 // collection below, which is where its ground truth comes from.
 const isSlideId = computed(() => values.type === 'slide_identification')
 const isImageDetection = computed(() => values.type === 'image_detection')
+/** Both types run a detection on the student's photo, so both choose the model that runs. */
+const runsDetection = computed(() => isSlideId.value || isImageDetection.value)
 
 /**
  * The image-bearing half of a question (BE-ADR-034), held outside vee-validate like the other
  * non-text controls in this codebase.
  *
- * These five fields used to live at two different grains: `model` on the question, and the slide
+ * These fields used to live at two different grains: `model` on the question, and the slide
  * collection and confidence threshold on the ASSIGNMENT, which meant every station in an exam had
  * to share one threshold. They are per question now.
  *
@@ -157,26 +162,62 @@ const collections = ref<SlideCollectionListItem[]>([])
 const collectionOptions = computed(() =>
     collections.value.map((c) => ({ value: c.id, label: c.name })),
 )
-const modelOptions = ref<{ value: string; label: string }[]>([])
+/**
+ * Kept as the manifest rows rather than as ready-made options, because the placeholder needs the
+ * DEFAULT model's spec, not just its name: the select's placeholder names the model that will
+ * actually run, so an author reading the closed control knows what "unset" means without being
+ * told "the deployment default" and left to go and find out which one that is.
+ */
+const models = ref<ModelSpec[]>([])
+// Segment models are a second step over a detector's output, never the question's own model.
+const primaryModels = computed(() => models.value.filter((m) => m.task !== 'segment'))
+const modelOptions = computed(() =>
+    primaryModels.value.map((m) => ({ value: m.name, label: modelLabel(m.displayName) })),
+)
+const defaultModelLabel = computed(() => {
+    const spec = pickDefaultModel(primaryModels.value)
+    // Before the manifest lands, and if it fails to: no name is honest, a guessed one is not.
+    return spec ? modelLabel(spec.displayName) : 'Deployment default'
+})
 
-onMounted(async () => {
-    // Both lists are staff-only and small. Failing either is a toast, not a throw: the form still
-    // saves, the instructor just has nothing to pick from, which is visible on its own.
+// Told apart because they need different words: "you have not made one yet" is a task, while
+// "we could not fetch them" is a fault. Collapsing both into an empty select would send an
+// instructor off to create a collection they already have.
+const loadingCollections = ref(true)
+const collectionsFailed = ref(false)
+const hasCollections = computed(() => collections.value.length > 0)
+
+const loadCollections = async () => {
     try {
         collections.value = await slideCollectionService.list()
+        collectionsFailed.value = false
     } catch {
-        toast.error('Failed to load slide collections')
+        collectionsFailed.value = true
+    } finally {
+        loadingCollections.value = false
     }
+}
+
+onMounted(async () => {
+    // Both lists are staff-only and small. Failing either is reported in place rather than
+    // thrown: the form still saves, and the type that actually needs the list says so itself.
+    await loadCollections()
     try {
-        const models = await detectionService.listModels()
-        // Segment models are a second step over a detector's output, never the question's own
-        // model, so they are not offered here.
-        modelOptions.value = models
-            .filter((m) => m.task !== 'segment')
-            .map((m) => ({ value: m.name, label: m.displayName || m.name }))
+        models.value = await detectionService.listModels()
     } catch {
         toast.error('Failed to load models')
     }
+})
+
+/**
+ * Pick the list back up when the tab regains focus, but only while it is empty.
+ *
+ * The empty state sends the instructor to the Slide Library in a NEW tab so this half-written
+ * question survives; coming back to a select that still says "none" would make that look like it
+ * failed. Guarded on empty so an ordinary tab switch mid-edit costs nothing.
+ */
+useEventListener(window, 'focus', () => {
+    if (!hasCollections.value) void loadCollections()
 })
 
 // A new slide question inherits the collection its exam already uses; editing an existing one
@@ -192,16 +233,32 @@ if (props.initial?.image_question) {
     threshold.value = t ?? 0.6
 }
 
-/** Per the server's matrix: a slide question REQUIRES a collection and rejects everything else. */
+/**
+ * Per the server's matrix, and per what each field actually DOES once graded.
+ *
+ * A slide question takes all three: the collection is its answer key, the model runs on the
+ * student's photo, and the threshold is the bar that photo has to clear for a correct answer to
+ * auto-pass instead of going to review. It is the only question type where the threshold reaches
+ * a grade at all (`SubmissionGradingListener.gradeSlideAnswer`).
+ *
+ * An image_detection question takes only the model. The server accepts a threshold here and then
+ * never reads it: `gradeDetection` takes no threshold, and the answer stays `needs_review`
+ * whatever the model says, because that suggestion is advisory and an instructor confirms it. A
+ * control for it would promise an auto-pass that cannot happen.
+ *
+ * The subtype row is replaced wholesale on PATCH, so a field omitted here is cleared, which is
+ * what should happen to a threshold left behind by an earlier version of this form.
+ */
 const buildImageQuestion = (type: string): ImageQuestionInput | null => {
     if (type === 'slide_identification') {
-        return { slide_collection_id: slideCollectionId.value || null }
-    }
-    if (type === 'image_detection') {
         return {
+            slide_collection_id: slideCollectionId.value || null,
             model: model.value || null,
             detection_confidence_threshold: useThreshold.value ? threshold.value : null,
         }
+    }
+    if (type === 'image_detection') {
+        return { model: model.value || null }
     }
     return null
 }
@@ -415,16 +472,19 @@ const onSubmit = handleSubmit((v) => {
 
         <!--
             The image-bearing half of the question (BE-ADR-034). What each type may set is enforced
-            server-side with a 400 naming the field, so only what this type accepts is offered:
-            a slide question needs a collection and takes nothing else, an image_detection question
-            takes a model and a threshold and rejects a collection.
+            server-side with a 400 naming the field, so only what this type accepts is offered: a
+            slide question needs a collection, a model and a threshold; an image_detection question
+            takes a model and rejects a collection. See buildImageQuestion for why the threshold
+            belongs to the slide type and not to this one.
         -->
         <div v-if="isSlideId" class="tw:flex tw:flex-col tw:gap-1">
             <label class="tw:text-xs tw:font-medium tw:text-navy-60">
                 Slide collection
                 <span class="tw:text-red-500">*</span>
             </label>
+
             <McSelect
+                v-if="hasCollections"
                 v-model="slideCollectionId"
                 placeholder="Pick the collection this question grades against"
                 :options="collectionOptions"
@@ -432,41 +492,54 @@ const onSubmit = handleSubmit((v) => {
                 option-label="label"
                 class="tw:bg-white"
             />
-            <p class="tw:text-[11px] tw:leading-relaxed tw:text-navy-50">
+            <p v-else-if="loadingCollections" class="tw:text-xs tw:text-navy-50">
+                Loading slide collections...
+            </p>
+
+            <!--
+                Nothing to pick from. An empty select would read as a broken control, and this
+                question cannot be saved without a collection, so say which of the two situations
+                it is and offer the way out of each.
+            -->
+            <NoSlideCollections v-else :failed="collectionsFailed" @retry="loadCollections" />
+
+            <p v-if="hasCollections" class="tw:text-[11px] tw:leading-relaxed tw:text-navy-50">
                 The slide the student reports is looked up here to find its answer key. Set per
                 question since v0.7; it used to be one setting for the whole assignment.
             </p>
         </div>
 
-        <div v-if="isImageDetection" class="tw:flex tw:flex-col tw:gap-2">
+        <div v-if="runsDetection" class="tw:flex tw:flex-col tw:gap-2">
             <div class="tw:flex tw:flex-col tw:gap-1">
                 <label class="tw:text-xs tw:font-medium tw:text-navy-60">Model</label>
                 <McSelect
                     v-model="model"
-                    placeholder="Deployment default"
+                    :placeholder="defaultModelLabel"
                     :options="modelOptions"
                     option-value="value"
                     option-label="label"
                     class="tw:bg-white"
                 />
                 <p class="tw:text-[11px] tw:leading-relaxed tw:text-navy-50">
-                    Leave unset to use whatever the deployment defaults to, which is the safer
-                    choice unless this question needs a particular detector.
+                    Leave unset to run {{ defaultModelLabel }}, which is the safer choice unless
+                    this question needs a particular detector.
                 </p>
             </div>
 
-            <label
-                class="tw:flex tw:items-center tw:gap-2 tw:text-xs tw:font-medium tw:text-navy-60"
-            >
-                <input v-model="useThreshold" type="checkbox" class="tw:accent-primary" />
-                Set an auto-pass confidence
-            </label>
-            <McConfidenceThreshold
-                v-if="useThreshold"
-                v-model="threshold"
-                label="Auto-pass confidence"
-                hint="Below this, a correct answer is flagged for instructor review."
-            />
+            <template v-if="isSlideId">
+                <label
+                    class="tw:flex tw:items-center tw:gap-2 tw:text-xs tw:font-medium tw:text-navy-60"
+                >
+                    <input v-model="useThreshold" type="checkbox" class="tw:accent-primary" />
+                    Set an auto-pass confidence
+                </label>
+                <McConfidenceThreshold
+                    v-if="useThreshold"
+                    v-model="threshold"
+                    label="Auto-pass confidence"
+                    hint="A correct answer auto-passes only if the model agrees this confidently. Below the bar it goes to you for review. Unset uses the 0.6 default."
+                />
+            </template>
         </div>
 
         <div class="tw:flex tw:items-center tw:gap-3 tw:border-t tw:border-navy-10 tw:pt-3">

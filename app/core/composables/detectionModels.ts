@@ -17,6 +17,32 @@ import { modelLabel } from '~/core/helpers/modelLabel'
 /** Multipart has no null, so "skip segmentation" travels as a sentinel and is mapped at the edge. */
 export const NONE_SEGMENT = '__none__'
 
+/**
+ * The model the server runs for a question that names none of its own.
+ *
+ * A guess, and deliberately a single one. The server resolves this from `IMAGE_PROCESSING_MODEL`
+ * and does NOT publish it on `GET /models`, so the client cannot read the real answer; this mirrors
+ * what every shipped deployment sets (compose.yaml, compose.local.yaml, the server's .env.example).
+ * A deployment that overrides that env makes this name wrong, which is why it is named once here
+ * rather than typed into each picker, and why the real fix is for the manifest to mark its own
+ * default.
+ */
+export const DEPLOYMENT_DEFAULT_MODEL = 'best__rtdetr_v2'
+
+/**
+ * Which model to treat as the default, given the manifest actually served.
+ *
+ * Falls back to the first PRIMARY model rather than the first model outright: a manifest whose
+ * first entry is a segmenter would otherwise pre-select something that cannot run alone as a
+ * question's model.
+ */
+export function pickDefaultModel(models: ModelSpec[]): ModelSpec | undefined {
+    return (
+        models.find((m) => m.name === DEPLOYMENT_DEFAULT_MODEL) ??
+        models.find((m) => m.task === 'classify' || m.task === 'detect')
+    )
+}
+
 export function useDetectionModels() {
     const models = ref<ModelSpec[]>([])
     const selectedModel = ref('')
@@ -64,10 +90,7 @@ export function useDetectionModels() {
     const load = async () => {
         try {
             models.value = await detectionService.listModels()
-            selectedModel.value =
-                models.value.find((m) => m.name === 'best__rtdetr_v2')?.name ??
-                models.value[0]?.name ??
-                ''
+            selectedModel.value = pickDefaultModel(models.value)?.name ?? ''
             selectedSegmentModel.value =
                 models.value.find((m) => m.task === 'segment')?.name ?? NONE_SEGMENT
         } catch {
