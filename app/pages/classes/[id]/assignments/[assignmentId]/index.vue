@@ -18,7 +18,6 @@ import DeleteAssignmentDialog from '~/features/components/assignment/DeleteAssig
 
 const route = useRoute()
 const router = useRouter()
-const { $dayjs } = useNuxtApp()
 const authStore = useAuth()
 
 const classId = computed(() => Number(route.params.id))
@@ -173,8 +172,6 @@ const onDeleted = async () => {
     // The page's own record is gone, so leave before anything re-reads it.
     await router.push(`/classes/${classId.value}`)
 }
-
-const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 </script>
 
 <template>
@@ -203,7 +200,11 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                                 {{ assignment.name }}
                             </h1>
                             <p class="tw:text-xs tw:text-navy-60">
-                                Due {{ formatDate(assignment.due_date) }}
+                                {{
+                                    assignment.due_date
+                                        ? `Due ${dueDateText(assignment.due_date, 'MMM D, YYYY')}`
+                                        : 'Never due'
+                                }}
                             </p>
                         </div>
                     </div>

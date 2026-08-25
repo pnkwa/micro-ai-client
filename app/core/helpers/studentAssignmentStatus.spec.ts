@@ -1,9 +1,30 @@
 import { describe, it, expect } from 'vitest'
-import { isAnswerFormLocked, isLateSubmission, submissionBadges } from './studentAssignmentStatus'
+import {
+    dueDateText,
+    isAnswerFormLocked,
+    isLateSubmission,
+    submissionBadges,
+} from './studentAssignmentStatus'
 
 const at = (status: 'submitted' | 'graded' | 'rejected') => ({
     status,
     submitted_at: '2026-08-01T09:00:00.000Z',
+})
+
+describe('dueDateText', () => {
+    it('formats a due date', () => {
+        expect(dueDateText('2026-08-24T09:00:00.000Z', 'YYYY-MM-DD')).toBe('2026-08-24')
+    })
+
+    /**
+     * A blank here is a decision, not missing data: an assignment with no deadline is one nothing
+     * can be late for. A dash would read as a value that failed to load.
+     */
+    it('says "Never due" rather than a dash when there is no deadline', () => {
+        expect(dueDateText(null)).toBe('Never due')
+        expect(dueDateText(undefined)).toBe('Never due')
+        expect(dueDateText('')).toBe('Never due')
+    })
 })
 
 describe('isLateSubmission', () => {

@@ -351,8 +351,6 @@ const handleImportCsv = async (students: EnrollStudentInput[]) => {
     }
 }
 
-const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
-
 const studentSearch = ref('')
 
 // Page and search live server-side: the table shows one page, so filtering what arrived would
@@ -514,7 +512,11 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     {{ assignment.name }}
                                 </h3>
                                 <p class="tw:text-xs tw:text-navy-50">
-                                    Due {{ formatDate(assignment.due_date) }}
+                                    {{
+                                        assignment.due_date
+                                            ? `Due ${dueDateText(assignment.due_date, 'MMM D, YYYY')}`
+                                            : 'Never due'
+                                    }}
                                 </p>
                             </div>
                         </div>

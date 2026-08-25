@@ -10,7 +10,6 @@ import { studentStatus, studentGradeText } from '~/core/helpers/studentAssignmen
 
 const route = useRoute()
 const router = useRouter()
-const { $dayjs } = useNuxtApp()
 
 const authStore = useAuth()
 
@@ -86,8 +85,6 @@ const openAnswerForm = () => {
     if (!classId.value) return
     router.push(`/classes/${classId.value}/assignments/${assignmentId.value}`)
 }
-
-const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY HH:mm')
 </script>
 
 <template>
@@ -136,7 +133,7 @@ const formatDate = (date: string) => $dayjs(date).format('MMMM D, YYYY HH:mm')
                     <div>
                         <p class="tw:text-sm tw:text-navy-60">Due Date</p>
                         <p class="tw:text-base tw:font-medium">
-                            {{ formatDate(assignment.due_date) }}
+                            {{ dueDateText(assignment.due_date, 'MMMM D, YYYY HH:mm') }}
                         </p>
                     </div>
                 </div>

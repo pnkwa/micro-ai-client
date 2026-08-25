@@ -34,7 +34,6 @@ const props = defineProps<{
 const emit = defineEmits<{ reload: [] }>()
 
 const { $dayjs } = useNuxtApp()
-const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm')
 
 const editSchema = createAssignmentFormSchema.omit({ classId: true, attachments: true })
 type EditValues = z.infer<typeof editSchema>
@@ -161,7 +160,11 @@ const totalPoints = computed(() => assignmentTotalPoints(props.assignment))
 
 const currentValues = (): EditValues => ({
     name: props.assignment.name,
-    dueDate: $dayjs(props.assignment.due_date).format('YYYY-MM-DDTHH:mm'),
+    // Blank stays blank: an assignment may have no deadline, and seeding "Invalid Date" into the
+    // picker would write a bogus one back on the next save.
+    dueDate: props.assignment.due_date
+        ? $dayjs(props.assignment.due_date).format('YYYY-MM-DDTHH:mm')
+        : '',
     status: props.assignment.status,
     description: props.assignment.description ?? '',
     instructions: props.assignment.instructions ?? '',
@@ -197,7 +200,8 @@ const onSave = handleSubmit(async (values) => {
     try {
         await assignmentService.update(props.assignment.id, {
             name: values.name,
-            dueDate: values.dueDate,
+            // Empty clears the deadline, matching the window bounds below.
+            dueDate: values.dueDate || null,
             status: values.status,
             description: values.description || undefined,
             instructions: values.instructions || undefined,
@@ -243,10 +247,7 @@ const onSave = handleSubmit(async (values) => {
         </div>
 
         <div class="tw:flex tw:flex-col tw:gap-2">
-            <label class="tw:text-sm tw:font-medium">
-                Due Date
-                <span class="tw:text-red-500">*</span>
-            </label>
+            <label class="tw:text-sm tw:font-medium">Due Date</label>
             <McDatePicker
                 name="dueDate"
                 with-time
@@ -344,7 +345,9 @@ const onSave = handleSubmit(async (values) => {
                 <Calendar class="tw:w-5 tw:h-5 tw:text-navy-60" />
                 <div>
                     <p class="tw:text-sm tw:text-navy-60">Due Date</p>
-                    <p class="tw:text-base tw:font-medium">{{ formatDate(assignment.due_date) }}</p>
+                    <p class="tw:text-base tw:font-medium">
+                        {{ dueDateText(assignment.due_date) }}
+                    </p>
                 </div>
             </div>
             <div
