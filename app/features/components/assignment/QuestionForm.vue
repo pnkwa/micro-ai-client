@@ -74,13 +74,35 @@ const emit = defineEmits<{
 }>()
 
 const choiceTypes = new Set(['multiple_choice', 'multiple_select'])
-const typeOptions = [
+const allTypeOptions = [
     { value: 'multiple_choice', label: 'Multiple choice' },
     { value: 'multiple_select', label: 'Multiple select' },
     { value: 'fill_in', label: 'Fill in' },
     { value: 'image_detection', label: 'Image detection' },
     { value: 'slide_identification', label: 'Slide identification' },
 ]
+
+/**
+ * Withheld from the picker while under evaluation (2026-08-26), NOT removed.
+ *
+ * image_detection overlaps slide_identification, which since v0.7 works on ordinary assignments and
+ * is the stronger of the two: its answer key lives on the slide, so it can finalize itself, while
+ * an image_detection answer can only ever be a suggestion for an instructor to confirm. Full
+ * reasoning and worked examples of both: `.claude/note/question-types.md`.
+ *
+ * Authoring only. Existing questions of this type still render, submit and grade, and the server,
+ * both e2e suites and the database are untouched. Restoring it is deleting this set.
+ */
+const underEvaluation = new Set(['image_detection'])
+
+/**
+ * An excluded type stays offered while EDITING a question that already has it, or the disabled
+ * select would show a blank where the type should be and the author could not tell what they were
+ * looking at.
+ */
+const typeOptions = computed(() =>
+    allTypeOptions.filter((o) => !underEvaluation.has(o.value) || props.initial?.type === o.value),
+)
 
 const schema = z.object({
     type: z.string(),
