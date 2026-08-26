@@ -1,17 +1,21 @@
 <script setup lang="ts">
 import { Plus, Circle, CircleDot, Square, CheckSquare } from '@lucide/vue'
 import { toast } from 'vue-sonner'
-import { assignmentService, type Assignment } from '~/services/assignmentService'
-import ExerciseForm from '~/features/components/assignment/ExerciseForm.vue'
+import {
+    assignmentService,
+    type Assignment,
+    type ImageQuestionInput,
+} from '~/services/assignmentService'
+import SectionForm from '~/features/components/assignment/SectionForm.vue'
 import QuestionForm from '~/features/components/assignment/QuestionForm.vue'
 
 // Instructor authoring view only. Students never render this component: their side of the
-// assignment is StudentExerciseForm, which the page mounts directly.
+// assignment is StudentAssignmentForm, which the page mounts directly.
 const props = defineProps<{
     assignment: Assignment
     /**
-     * Assignment-level, derived by the parent from every exercise's own flag. Release is
-     * authored per exercise on the server but is only ever offered for the assignment as a
+     * Assignment-level, derived by the parent from every section's own flag. Release is
+     * authored per section on the server but is only ever offered for the assignment as a
      * whole, so a half-released assignment reads as not released and every editing control
      * below keys off this one value rather than `ex.released`.
      */
@@ -22,16 +26,18 @@ const props = defineProps<{
      * assignment picker with every type available.
      */
     fixedQuestionType?: string
+    /** Seeds a NEW slide question's collection; see QuestionForm. Exams pass the one they use. */
+    defaultSlideCollectionId?: number | null
 }>()
 
 const emit = defineEmits<{ reload: [] }>()
 
-const showAddExercise = ref(false)
-const editingExerciseId = ref<number | null>(null)
-const addingQuestionExerciseId = ref<number | null>(null)
+const showAddSection = ref(false)
+const editingSectionId = ref<number | null>(null)
+const addingQuestionSectionId = ref<number | null>(null)
 const editingQuestionId = ref<number | null>(null)
 
-const pendingDelete = ref<{ kind: 'exercise' | 'question'; id: number; label: string } | null>(null)
+const pendingDelete = ref<{ kind: 'section' | 'question'; id: number; label: string } | null>(null)
 const isDeleting = ref(false)
 
 const confirmDelete = async () => {
@@ -39,7 +45,7 @@ const confirmDelete = async () => {
     isDeleting.value = true
     const { kind, id } = pendingDelete.value
     try {
-        if (kind === 'exercise') await assignmentService.removeExercise(id)
+        if (kind === 'section') await assignmentService.removeSection(id)
         else await assignmentService.removeQuestion(id)
         emit('reload')
         pendingDelete.value = null
@@ -60,26 +66,26 @@ const questionTypeLabel: Record<string, string> = {
 const isCorrect = (q: { accepted_answers?: string[] }, option: string) =>
     q.accepted_answers?.includes(option) ?? false
 
-const handleAddExercise = async (values: { title: string; instructions?: string }) => {
+const handleAddSection = async (values: { title: string; instructions?: string }) => {
     try {
-        await assignmentService.addExercise(props.assignment.id, values)
+        await assignmentService.addSection(props.assignment.id, values)
         emit('reload')
-        showAddExercise.value = false
+        showAddSection.value = false
     } catch (err) {
-        toast.error(apiErrorMessage(err, 'Failed to add exercise'))
+        toast.error(apiErrorMessage(err, 'Failed to add section'))
     }
 }
 
-const handleUpdateExercise = async (
-    exerciseId: number,
+const handleUpdateSection = async (
+    sectionId: number,
     values: { title: string; instructions?: string },
 ) => {
     try {
-        await assignmentService.updateExercise(exerciseId, values)
+        await assignmentService.updateSection(sectionId, values)
         emit('reload')
-        editingExerciseId.value = null
+        editingSectionId.value = null
     } catch (err) {
-        toast.error(apiErrorMessage(err, 'Failed to update exercise'))
+        toast.error(apiErrorMessage(err, 'Failed to update section'))
     }
 }
 
@@ -89,13 +95,14 @@ type QuestionPayload = {
     options?: string[]
     accepted_answers: string[]
     points?: number
+    image_question: ImageQuestionInput | null
 }
 
-const handleAddQuestion = async (exerciseId: number, payload: QuestionPayload) => {
+const handleAddQuestion = async (sectionId: number, payload: QuestionPayload) => {
     try {
-        await assignmentService.addQuestion(exerciseId, payload)
+        await assignmentService.addQuestion(sectionId, payload)
         emit('reload')
-        addingQuestionExerciseId.value = null
+        addingQuestionSectionId.value = null
     } catch (err) {
         toast.error(apiErrorMessage(err, 'Failed to add question'))
     }
@@ -108,6 +115,10 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
             options: payload.options,
             accepted_answers: payload.accepted_answers,
             points: payload.points,
+            // Always sent, including as null: on a PATCH, absent leaves a stale subtype row in
+            // place while null deletes it, so a question that no longer bears an image has to say
+            // so rather than stay silent.
+            image_question: payload.image_question,
         })
         emit('reload')
         editingQuestionId.value = null
@@ -120,16 +131,16 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
 <template>
     <div class="tw:flex tw:flex-col tw:gap-4">
         <div
-            v-for="(ex, exIndex) in assignment.exercises"
+            v-for="(ex, exIndex) in assignment.sections"
             :key="ex.id"
             class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-lg tw:p-5 tw:transition-shadow tw:hover:shadow-sm"
         >
-            <ExerciseForm
-                v-if="editingExerciseId === ex.id"
+            <SectionForm
+                v-if="editingSectionId === ex.id"
                 :initial="{ title: ex.title, instructions: ex.instructions ?? '' }"
                 submit-label="Save"
-                @submit="handleUpdateExercise(ex.id, $event)"
-                @cancel="editingExerciseId = null"
+                @submit="handleUpdateSection(ex.id, $event)"
+                @cancel="editingSectionId = null"
             />
             <div v-else class="tw:flex tw:items-start tw:justify-between tw:gap-3 tw:mb-3">
                 <div class="tw:flex tw:items-start tw:gap-3">
@@ -154,13 +165,13 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                 <div v-if="!released" class="tw:flex tw:items-center tw:gap-3 tw:shrink-0">
                     <button
                         class="tw:rounded tw:px-2 tw:py-1 tw:text-xs tw:text-navy-60 tw:transition-colors tw:cursor-pointer tw:hover:bg-navy-10 tw:hover:text-primary"
-                        @click="editingExerciseId = ex.id"
+                        @click="editingSectionId = ex.id"
                     >
                         Edit
                     </button>
                     <button
                         class="tw:rounded tw:px-2 tw:py-1 tw:text-xs tw:text-navy-60 tw:transition-colors tw:cursor-pointer tw:hover:bg-danger/10 tw:hover:text-danger"
-                        @click="pendingDelete = { kind: 'exercise', id: ex.id, label: ex.title }"
+                        @click="pendingDelete = { kind: 'section', id: ex.id, label: ex.title }"
                     >
                         Delete
                     </button>
@@ -184,6 +195,7 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                             points: q.points,
                             options: q.options,
                             accepted_answers: q.accepted_answers,
+                            image_question: q.image_question,
                         }"
                         lock-type
                         :heading="`Edit question ${exIndex + 1}.${qIndex + 1}`"
@@ -292,16 +304,17 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                 </div>
 
                 <QuestionForm
-                    v-if="addingQuestionExerciseId === ex.id"
+                    v-if="addingQuestionSectionId === ex.id"
                     heading="New question"
                     :fixed-type="fixedQuestionType"
+                    :default-slide-collection-id="defaultSlideCollectionId"
                     @submit="handleAddQuestion(ex.id, $event)"
-                    @cancel="addingQuestionExerciseId = null"
+                    @cancel="addingQuestionSectionId = null"
                 />
                 <button
                     v-else-if="!released"
                     class="tw:w-full tw:my-2 tw:flex tw:items-center tw:gap-1 tw:self-start tw:rounded tw:p-4 tw:text-xs tw:font-medium tw:text-primary tw:transition-colors tw:cursor-pointer tw:hover:bg-primary/10"
-                    @click="addingQuestionExerciseId = ex.id"
+                    @click="addingQuestionSectionId = ex.id"
                 >
                     <Plus class="tw:size-3.5" />
                     Add question
@@ -310,41 +323,41 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
         </div>
 
         <!-- Adding is off once released, and not only because the existing content is frozen:
-             a new exercise is created as a draft, which would put the assignment back into the
+             a new section is created as a draft, which would put the assignment back into the
              half-released state this UI exists to eliminate. -->
         <template v-if="!released">
             <div
-                v-if="showAddExercise"
+                v-if="showAddSection"
                 class="tw:bg-white tw:border tw:border-gray-200 tw:rounded-md tw:p-4"
             >
-                <ExerciseForm
-                    submit-label="Add exercise"
-                    @submit="handleAddExercise"
-                    @cancel="showAddExercise = false"
+                <SectionForm
+                    submit-label="Add section"
+                    @submit="handleAddSection"
+                    @cancel="showAddSection = false"
                 />
             </div>
             <button
                 v-else
                 class="tw:flex tw:w-full tw:items-center tw:justify-center tw:gap-1.5 tw:rounded-lg tw:border tw:border-dashed tw:border-navy-20 tw:py-3 tw:text-sm tw:font-medium tw:text-navy-60 tw:transition-colors tw:cursor-pointer tw:hover:border-primary tw:hover:bg-primary/5 tw:hover:text-primary"
-                @click="showAddExercise = true"
+                @click="showAddSection = true"
             >
                 <Plus class="tw:size-4" />
-                Add exercise
+                Add section
             </button>
         </template>
 
         <p
-            v-if="assignment.exercises.length === 0 && released"
+            v-if="assignment.sections.length === 0 && released"
             class="tw:text-sm tw:text-navy-50 tw:py-8 tw:text-center"
         >
-            No exercises yet.
+            No sections yet.
         </p>
 
         <McConfirmDialog
             :open="!!pendingDelete"
             :title="`Delete this ${pendingDelete?.kind ?? 'item'}?`"
             :description="
-                pendingDelete?.kind === 'exercise'
+                pendingDelete?.kind === 'section'
                     ? `“${pendingDelete?.label}” and all its questions will be permanently removed.`
                     : `This ${pendingDelete?.label ?? 'question'} will be permanently removed.`
             "

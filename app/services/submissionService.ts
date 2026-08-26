@@ -46,10 +46,11 @@ const submissionBaseSchema = z.object({
             // is. The server serializes the whole assignment relation, so this was on the wire
             // already and only the schema was dropping it.
             is_exam: z.boolean().optional().default(false),
-            // The exam's closing time, so a student's own view can tell "returned, go and redo it"
-            // from "returned, and the window shut before you could". Detail read only: the list
-            // read whitelists its fields, hence optional.
-            exam_closes_at: z.string().nullable().optional(),
+            // The submission window's closing time, so a student's own view can tell "returned, go
+            // and redo it" from "returned, and the window shut before you could". `exam_closes_at`
+            // until v0.7, and no longer exam-only. Detail read only: the list read whitelists its
+            // fields, hence optional.
+            closes_at: z.string().nullable().optional(),
             class: z.object({ id: z.number(), name: z.string() }).nullable(),
         })
         .nullable(),
@@ -63,7 +64,7 @@ export type SubmissionView = z.infer<typeof submissionViewSchema>
 
 const gradingQuestionSchema = z.object({
     id: z.number(),
-    exercise_id: z.number(),
+    assignment_section_id: z.number(),
     position: z.number(),
     type: z.enum([
         'multiple_choice',
@@ -98,7 +99,9 @@ const gradingAnswerSchema = z.object({
     // survives when `detection` does not. That is what lets a student see the slide they
     // photographed while their grade is unpublished, or when their exam has been handed back
     // (BE-ADR-027, BE-ADR-012 amended). Never address the image by the detection id.
-    image_id: z.string().nullable().optional(),
+    // An images row id since v0.7 (BE-ADR-031), NOT the UUID basename it used to be. Feeds
+    // `GET /images/:id/file`; the old `/detections/images/:imageId` is removed, not deprecated.
+    image_id: z.number().nullable().optional(),
     // Autograder / detection suggestion: advisory, instructor confirms via is_correct/points_awarded.
     auto_is_correct: z.boolean().nullable(),
     auto_points: z.number().nullable(),

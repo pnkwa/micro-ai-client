@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DateValue } from 'reka-ui'
 import { CalendarIcon } from '@lucide/vue'
-import { getLocalTimeZone, parseDate } from '@internationalized/date'
+import { getLocalTimeZone, parseDate, today } from '@internationalized/date'
 import { cn } from '@/core/lib/utils'
 import { inputVariants } from '@/core/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/core/components/ui/popover'
@@ -17,16 +17,30 @@ const props = withDefaults(
         // Adds a time-of-day input. The stored value then carries the time too, as
         // "YYYY-MM-DDTHH:mm" (local); without it the value stays a plain "YYYY-MM-DD".
         withTime?: boolean
+        /**
+         * Grey out every day before today, for a field that can only mean the future: a deadline,
+         * or the two ends of a submission window.
+         *
+         * Opt-in rather than the default, because this component is not only used for deadlines
+         * and a picker that refuses the past would be wrong for anything recording when something
+         * happened. Only the DAY is constrained; a time earlier today still needs checking by the
+         * caller, which is where the rule about what "too early" means actually lives.
+         */
+        disablePast?: boolean
     }>(),
     {
         placeholder: 'Pick a date',
         withTime: false,
+        disablePast: false,
     },
 )
 
 const emits = defineEmits<{
     'update:modelValue': [value: string]
 }>()
+
+/** Undefined leaves the calendar unbounded, which is the default for every other use of it. */
+const minValue = computed(() => (props.disablePast ? today(getLocalTimeZone()) : undefined))
 
 // Binds to the vee-validate field by `name`, exactly like McSelect. The stored value is a
 // plain "YYYY-MM-DD" (or "YYYY-MM-DDTHH:mm" with time) string, so form schemas stay z.string().
@@ -155,6 +169,7 @@ const clear = () => {
                 </div>
                 <Calendar
                     :model-value="calendarValue"
+                    :min-value="minValue"
                     initial-focus
                     @update:model-value="onSelect"
                 />

@@ -6,7 +6,7 @@ import { submissionService, type SubmissionView } from '~/services/submissionSer
 import { classService, type ClassItem, type StudentRosterItem } from '~/services/classService'
 import ExamDetailTab from '~/features/components/exam/ExamDetailTab.vue'
 import StudentExamForm from '~/features/components/exam/StudentExamForm.vue'
-import AssignmentExercises from '~/features/components/assignment/AssignmentExercises.vue'
+import AssignmentSections from '~/features/components/assignment/AssignmentSections.vue'
 import AssignmentReleaseBar from '~/features/components/assignment/AssignmentReleaseBar.vue'
 import AssignmentSubmissionsTab from '~/features/components/assignment/AssignmentSubmissionsTab.vue'
 import DeleteAssignmentDialog from '~/features/components/assignment/DeleteAssignmentDialog.vue'
@@ -90,6 +90,21 @@ breadcrumb.setBreadcrumbs([
 ])
 
 type Tab = 'detail' | 'submissions'
+/**
+ * The collection this exam's questions already reference, for seeding a station added later.
+ *
+ * An exam picks one at creation and the server fans it out; questions added afterwards go through
+ * the ordinary endpoint, which does not. Reading it back off the questions keeps the two in step
+ * without storing it a second time.
+ */
+const examSlideCollectionId = computed(
+    () =>
+        exam.value?.sections
+            .flatMap((section) => section.questions)
+            .find((q) => q.image_question?.slide_collection_id != null)?.image_question
+            ?.slide_collection_id ?? null,
+)
+
 const activeTab = ref<Tab>(route.query.tab === 'submissions' ? 'submissions' : 'detail')
 const tabs = computed(() => [
     { value: 'detail', label: 'Detail' },
@@ -104,8 +119,8 @@ const onTabChange = async (tab: Tab) => {
 }
 
 const isReleased = computed(() => {
-    const exercises = exam.value?.exercises ?? []
-    return exercises.length > 0 && exercises.every((ex) => ex.released)
+    const sections = exam.value?.sections ?? []
+    return sections.length > 0 && sections.every((ex) => ex.released)
 })
 
 const studentBadges = computed(() =>
@@ -198,10 +213,11 @@ const onDeleted = async () => {
                             :submission-count="submissions.length"
                             @reload="loadExam"
                         />
-                        <AssignmentExercises
+                        <AssignmentSections
                             :assignment="exam"
                             :released="isReleased"
                             fixed-question-type="slide_identification"
+                            :default-slide-collection-id="examSlideCollectionId"
                             @reload="loadExam"
                         />
                     </div>

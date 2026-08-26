@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Send, CheckCircle2, ImageUp, X } from '@lucide/vue'
+import { Send, CheckCircle2, ImageUp, X, Lock, Clock } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { detectionService } from '~/services/detectionService'
 import { assignmentTotalPoints, type Assignment } from '~/services/assignmentService'
+import type { Dayjs } from 'dayjs'
 import { rejectUnusableImage } from '~/core/helpers/imageUpload'
 import { normalizeSlideNumber } from '~/core/helpers/slideNumber'
 import { isAnswerFormLocked } from '~/core/helpers/studentAssignmentStatus'
@@ -22,27 +23,27 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ submitted: [] }>()
 
-// Static display tree: the assignment's exercises/questions don't change during the
+// Static display tree: the assignment's sections/questions don't change during the
 // session, only the student's answers do (those live in the vee-validate form below).
 let flatIndex = 0
-const exercises = props.assignment.exercises.map((ex, exIndex) => ({
-    id: ex.id,
-    title: ex.title,
-    instructions: ex.instructions,
-    exIndex,
-    questions: ex.questions.map((q, qIndex) => ({
+const sections = props.assignment.sections.map((section, sectionIndex) => ({
+    id: section.id,
+    title: section.title,
+    instructions: section.instructions,
+    sectionIndex,
+    questions: section.questions.map((q, qIndex) => ({
         id: q.id,
         type: q.type,
         prompt: q.prompt,
         points: q.points,
         options: q.options,
-        exIndex,
+        sectionIndex,
         qIndex,
         answerIndex: flatIndex++,
     })),
 }))
-type QuestionMeta = (typeof exercises)[number]['questions'][number]
-const allQuestions = exercises.flatMap((e) => e.questions)
+type QuestionMeta = (typeof sections)[number]['questions'][number]
+const allQuestions = sections.flatMap((section) => section.questions)
 
 const schema = z.object({
     answers: z.array(z.object({ selected: z.array(z.string()), text: z.string() })),
@@ -107,7 +108,7 @@ const previousImageUrls = reactive<Record<number, string>>({})
  * The image_id behind each preview, so a photo the student keeps can be re-sent at full size.
  * The preview URL is a thumb and must never be what gets submitted.
  */
-const previousImageIds = reactive<Record<number, string>>({})
+const previousImageIds = reactive<Record<number, number>>({})
 /** True once a previous attempt actually loaded, so the notice cannot claim a prefill that failed. */
 const isRedo = ref(false)
 const loadPreviousAttempt = async () => {
@@ -130,10 +131,18 @@ const loadPreviousAttempt = async () => {
             }
             if (answer.image_id) {
                 previousImageIds[answer.question_id] = answer.image_id
-                previousImageUrls[answer.question_id] = await detectionService.imageBlobUrl(
-                    answer.image_id,
-                    'thumb',
-                )
+                // Per photo, so one that will not load does not abandon the prefill for every
+                // answer after it. The id is recorded either way: a photo the student cannot
+                // PREVIEW may still be re-sent on submit, and dropping the id would silently lose
+                // their picture instead of merely not showing it.
+                try {
+                    previousImageUrls[answer.question_id] = await detectionService.imageBlobUrl(
+                        answer.image_id,
+                        'thumb',
+                    )
+                } catch {
+                    /* the tile falls back to the empty dropzone */
+                }
             }
         }
         isRedo.value = true
@@ -143,6 +152,48 @@ const loadPreviousAttempt = async () => {
     }
 }
 onMounted(loadPreviousAttempt)
+
+/**
+ * The submission window, which regular assignments gained in v0.7 (BE-ADR-033).
+ *
+ * The server enforces it: a submit outside the window is a 403 whether or not this form allows the
+ * attempt. Showing it here is what stops a student filling in a whole assignment and losing it at
+ * the last step, which is the failure the gate creates now that it applies to every assignment
+ * rather than only to exams.
+ *
+ * `due_date` and `closes_at` are DIFFERENT things and the gap between them is the point: work
+ * handed in after the due date but before the close still lands, and counts late. A null
+ * `closes_at` means no hard cut-off at all, which is unlimited-but-late.
+ */
+const { $dayjs } = useNuxtApp()
+const now = ref($dayjs())
+let ticker: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+    // A minute is enough: nothing here is a countdown, only a state that flips at two instants.
+    ticker = setInterval(() => (now.value = $dayjs()), 60_000)
+})
+onBeforeUnmount(() => {
+    if (ticker) clearInterval(ticker)
+})
+
+const opensAt = computed(() =>
+    props.assignment.opens_at ? $dayjs(props.assignment.opens_at) : null,
+)
+const closesAt = computed(() =>
+    props.assignment.closes_at ? $dayjs(props.assignment.closes_at) : null,
+)
+const dueAt = computed(() => $dayjs(props.assignment.due_date))
+
+const windowState = computed<'before' | 'open' | 'closed'>(() => {
+    if (opensAt.value && now.value.isBefore(opensAt.value)) return 'before'
+    if (closesAt.value && now.value.isAfter(closesAt.value)) return 'closed'
+    return 'open'
+})
+
+/** Past the due date but still inside the window: it will land, and it will be marked late. */
+const willBeLate = computed(() => windowState.value === 'open' && now.value.isAfter(dueAt.value))
+
+const fmt = (d: Dayjs) => d.format('MMM D, YYYY HH:mm')
 
 const isGraded = computed(() => props.mySubmission?.status === 'graded')
 // Same derivation the grading page and the submissions table use: summed from the
@@ -248,6 +299,16 @@ onBeforeUnmount(() => {
 })
 
 const onSubmit = handleSubmit(async (v) => {
+    // The window can shut while the form is open, which is exactly what a grace period invites:
+    // someone fills this in at the deadline. The server 403s either way; catching it here keeps
+    // the answer visible instead of failing after the upload.
+    if (windowState.value !== 'open') {
+        return toast.error(
+            windowState.value === 'before'
+                ? 'This assignment is not open yet'
+                : 'This assignment has closed and can no longer be submitted',
+        )
+    }
     invalidIds.clear()
     let firstUnanswered: number | null = null
     for (const q of allQuestions) {
@@ -340,11 +401,71 @@ const onSubmit = handleSubmit(async (v) => {
         </template>
     </McStatePanel>
 
+    <!--
+        Outside the submission window. A student who already submitted never reaches this: the
+        confirmation above claims them either way. What lands here is someone with nothing in, or
+        someone whose work was handed back after the window shut, so this says which.
+    -->
+    <McStatePanel v-else-if="windowState !== 'open'">
+        <Lock class="tw:size-8 tw:text-navy-40" />
+
+        <template v-if="windowState === 'before'">
+            <p class="tw:text-lg tw:font-semibold tw:text-navy-100">
+                This assignment is not open yet
+            </p>
+            <p v-if="opensAt" class="tw:text-sm tw:text-navy-60">Opens {{ fmt(opensAt) }}</p>
+        </template>
+
+        <template v-else-if="mySubmission?.status === 'rejected'">
+            <p class="tw:text-lg tw:font-semibold tw:text-navy-100">
+                Your work was returned, and it has closed
+            </p>
+            <p
+                v-if="mySubmission.rejection_reason"
+                class="tw:max-w-prose tw:text-sm tw:whitespace-pre-line tw:text-navy-90"
+            >
+                {{ mySubmission.rejection_reason }}
+            </p>
+            <p class="tw:text-sm tw:text-navy-60">
+                Resubmitting is no longer possible. Ask your instructor if you need another attempt.
+            </p>
+        </template>
+
+        <template v-else>
+            <p class="tw:text-lg tw:font-semibold tw:text-navy-100">This assignment has closed</p>
+            <p v-if="closesAt" class="tw:text-sm tw:text-navy-60">Closed {{ fmt(closesAt) }}</p>
+            <p class="tw:text-sm tw:text-navy-60">You did not submit this assignment.</p>
+        </template>
+    </McStatePanel>
+
     <McStatePanel v-else-if="allQuestions.length === 0">
-        <p class="tw:text-sm tw:text-navy-50">No exercises yet.</p>
+        <p class="tw:text-sm tw:text-navy-50">No sections yet.</p>
     </McStatePanel>
 
     <form v-else class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="onSubmit">
+        <!--
+            Past the due date but still inside the window. Said before they start rather than after
+            they submit: the whole point of a grace period is that handing in still works, and a
+            student who does not know it counts late cannot decide whether to hurry.
+        -->
+        <div
+            v-if="willBeLate"
+            class="tw:flex tw:items-start tw:gap-3 tw:rounded-lg tw:border tw:border-warning/40 tw:bg-warning/5 tw:p-4"
+        >
+            <Clock class="tw:size-5 tw:shrink-0 tw:text-warning" />
+            <div class="tw:min-w-0">
+                <p class="tw:text-sm tw:font-semibold tw:text-navy-100">
+                    This is past its due date
+                </p>
+                <p class="tw:mt-0.5 tw:text-sm tw:text-navy-70">
+                    Due {{ fmt(dueAt) }}. You can still submit
+                    <template v-if="closesAt">until {{ fmt(closesAt) }}</template>
+                    <template v-else>for now</template>
+                    , and it will be marked late.
+                </p>
+            </div>
+        </div>
+
         <!-- Reopened because staff returned the previous attempt. Lead with why, so the
              student knows what to fix before resubmitting. -->
         <div
@@ -372,27 +493,27 @@ const onSubmit = handleSubmit(async (v) => {
         </div>
 
         <div
-            v-for="ex in exercises"
-            :key="ex.id"
+            v-for="section in sections"
+            :key="section.id"
             class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-lg tw:p-5"
         >
             <div class="tw:flex tw:items-start tw:gap-3 tw:mb-4">
                 <span
                     class="tw:flex tw:size-8 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-full tw:bg-primary/10 tw:text-sm tw:font-semibold tw:text-primary"
                 >
-                    {{ ex.exIndex + 1 }}
+                    {{ section.sectionIndex + 1 }}
                 </span>
                 <div>
-                    <p class="tw:font-semibold tw:text-lg tw:text-navy-100">{{ ex.title }}</p>
-                    <p v-if="ex.instructions" class="tw:text-xs tw:text-navy-60 tw:mt-0.5">
-                        {{ ex.instructions }}
+                    <p class="tw:font-semibold tw:text-lg tw:text-navy-100">{{ section.title }}</p>
+                    <p v-if="section.instructions" class="tw:text-xs tw:text-navy-60 tw:mt-0.5">
+                        {{ section.instructions }}
                     </p>
                 </div>
             </div>
 
             <div class="tw:flex tw:flex-col tw:gap-3">
                 <div
-                    v-for="q in ex.questions"
+                    v-for="q in section.questions"
                     :id="`question-${q.id}`"
                     :key="q.id"
                     class="tw:rounded-lg tw:border tw:p-4 tw:transition-colors"
@@ -404,7 +525,7 @@ const onSubmit = handleSubmit(async (v) => {
                 >
                     <div class="tw:flex tw:items-start tw:gap-2">
                         <span class="tw:text-sm tw:font-semibold tw:text-navy-60 tw:tabular-nums">
-                            {{ q.exIndex + 1 }}.{{ q.qIndex + 1 }}
+                            {{ q.sectionIndex + 1 }}.{{ q.qIndex + 1 }}
                         </span>
                         <p class="tw:text-navy-100 tw:font-medium">
                             {{ q.prompt }}

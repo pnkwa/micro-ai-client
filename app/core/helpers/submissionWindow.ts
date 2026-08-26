@@ -7,7 +7,7 @@
  * nowhere to go with that. These functions re-derive the same rule over the two lists the student can
  * already read, purely so the notice can name the exam and link to it.
  *
- * MIRRORS `micro-ai-server/src/detections/exam-window.ts` (`isExamOpen`) and the
+ * MIRRORS `micro-ai-server/src/detections/submission-window.ts` (`isWindowOpen`) and the
  * `studentHasOpenExam` query beside it, by hand and with no codegen. If the two ever disagree the
  * server still decides: the tool stays locked or unlocked exactly as the API says, and the worst a
  * drift here can do is name the wrong exam in a sentence, or fail to name one at all. That is why
@@ -15,20 +15,28 @@
  * the seams where it would not be.
  */
 
-/** Just the window fields, so this works on an exam list item or a full exam alike. */
-export type ExamWindowLike = {
-    exam_opens_at: string | null
-    exam_closes_at: string | null
+/**
+ * Just the window fields, so this works on an exam list item or a full exam alike.
+ *
+ * `exam_opens_at`/`exam_closes_at` until v0.7. The window stopped being exam-only (BE-ADR-033) and
+ * the server file this mirrors was renamed with it, which is why the type is no longer named after
+ * exams even though the only thing that uses it here is the AI lock.
+ */
+export type SubmissionWindowLike = {
+    // Optional, not merely nullable: the list read whitelists its fields and may omit a bound
+    // entirely, which is the same "no bound" as an explicit null.
+    opens_at?: string | null
+    closes_at?: string | null
 }
 
 /** An exam list row, narrowed to what picking and naming one needs. */
-export type BlockingExamLike = ExamWindowLike & {
+export type BlockingExamLike = SubmissionWindowLike & {
     id: number
     class_id: number
     name: string
 }
 
-const time = (value: string | null): number | null => {
+const time = (value: string | null | undefined): number | null => {
     if (!value) return null
     const ms = Date.parse(value)
     return Number.isNaN(ms) ? null : ms
@@ -41,9 +49,9 @@ const time = (value: string | null): number | null => {
  * submitting on the closing instant is still inside the window, so the tool is still withheld at
  * that instant.
  */
-export function isExamOpen(exam: ExamWindowLike, now: Date): boolean {
-    const opens = time(exam.exam_opens_at)
-    const closes = time(exam.exam_closes_at)
+export function isWindowOpen(exam: SubmissionWindowLike, now: Date): boolean {
+    const opens = time(exam.opens_at)
+    const closes = time(exam.closes_at)
     if (opens !== null && now.getTime() < opens) return false
     if (closes !== null && now.getTime() > closes) return false
     return true
@@ -52,15 +60,15 @@ export function isExamOpen(exam: ExamWindowLike, now: Date): boolean {
 /**
  * Does submitting this exam give the AI tool back?
  *
- * Mirrors the server's `AND (a.exam_closes_at IS NOT NULL OR s.id IS NULL)`: only an exam with NO
+ * Mirrors the server's `AND (a.closes_at IS NOT NULL OR s.id IS NULL)`: only an exam with NO
  * closing bound is released by handing it in. Where there is an end, that end is the release, and
  * the submission is irrelevant.
  *
- * Uses `time()` rather than testing the raw field so this agrees with `isExamOpen` on what counts
+ * Uses `time()` rather than testing the raw field so this agrees with `isWindowOpen` on what counts
  * as a real bound: an unparseable value is no bound to either of them.
  */
-export function releasesOnSubmit(exam: ExamWindowLike): boolean {
-    return time(exam.exam_closes_at) === null
+export function releasesOnSubmit(exam: SubmissionWindowLike): boolean {
+    return time(exam.closes_at) === null
 }
 
 /**
@@ -84,14 +92,14 @@ export function pickBlockingExam<T extends BlockingExamLike>(
     const open = exams.filter(
         (exam) =>
             (!releasesOnSubmit(exam) || !submittedAssignmentIds.has(exam.id)) &&
-            isExamOpen(exam, now),
+            isWindowOpen(exam, now),
     )
     if (open.length === 0) return null
 
     return (
         open.sort((a, b) => {
-            const ca = time(a.exam_closes_at) ?? Number.POSITIVE_INFINITY
-            const cb = time(b.exam_closes_at) ?? Number.POSITIVE_INFINITY
+            const ca = time(a.closes_at) ?? Number.POSITIVE_INFINITY
+            const cb = time(b.closes_at) ?? Number.POSITIVE_INFINITY
             return ca - cb
         })[0] ?? null
     )

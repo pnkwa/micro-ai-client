@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Layers, Clock, Gauge, Pencil, ClipboardList } from '@lucide/vue'
+import { Layers, Clock, Pencil, ClipboardList } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { examService, type Exam, type UpdateExamInput } from '~/services/examService'
 import {
@@ -13,13 +13,29 @@ const props = withDefaults(defineProps<{ exam: Exam; isStudent?: boolean }>(), {
 const emit = defineEmits<{ reload: [] }>()
 
 const { $dayjs } = useNuxtApp()
-const fmt = (d: string | null) => (d ? $dayjs(d).format('MMM D, YYYY HH:mm') : '-')
+const fmt = (d: string | null | undefined) => (d ? $dayjs(d).format('MMM D, YYYY HH:mm') : '-')
 
-// The slide collection and AI threshold are staff answer-key concerns; students only get the
-// window. The collection list endpoint is staff-only, so students don't call it at all.
+// The slide collection is a staff answer-key concern; students only get the window. The collection
+// list endpoint is staff-only, so students don't call it at all.
 const collections = ref<SlideCollectionListItem[]>([])
+
+/**
+ * Which collection this exam grades against, read off the QUESTIONS.
+ *
+ * It used to be a column on the assignment. In v0.7 it moved onto each question's `image_question`
+ * (BE-ADR-034), so an exam read no longer carries one at all. `POST`/`PATCH /exams` still take a
+ * top-level value and fan it out onto every question, which is what keeps authoring one field
+ * rather than one per station, so the first question that has one is the exam's answer.
+ */
+const slideCollectionId = computed(
+    () =>
+        props.exam.sections
+            .flatMap((section) => section.questions)
+            .find((q) => q.image_question?.slide_collection_id != null)?.image_question
+            ?.slide_collection_id ?? null,
+)
 const collectionName = computed(
-    () => collections.value.find((c) => c.id === props.exam.slide_collection_id)?.name ?? '-',
+    () => collections.value.find((c) => c.id === slideCollectionId.value)?.name ?? '-',
 )
 onMounted(async () => {
     if (props.isStudent) return
@@ -35,7 +51,8 @@ const isEditing = ref(false)
 const isSaving = ref(false)
 
 // McDatePicker (with-time) holds 'YYYY-MM-DDTHH:mm' local; the API returns ISO instants.
-const toLocalDateTime = (iso: string | null) => (iso ? $dayjs(iso).format('YYYY-MM-DDTHH:mm') : '')
+const toLocalDateTime = (iso: string | null | undefined) =>
+    iso ? $dayjs(iso).format('YYYY-MM-DDTHH:mm') : ''
 
 const draft = reactive({
     name: '',
@@ -44,19 +61,15 @@ const draft = reactive({
     slideCollectionId: 0,
     opensAt: '',
     closesAt: '',
-    useThreshold: false,
-    threshold: 0.6,
 })
 
 const startEdit = () => {
     draft.name = props.exam.name
     draft.description = props.exam.description ?? ''
     draft.instructions = props.exam.instructions ?? ''
-    draft.slideCollectionId = props.exam.slide_collection_id ?? 0
-    draft.opensAt = toLocalDateTime(props.exam.exam_opens_at)
-    draft.closesAt = toLocalDateTime(props.exam.exam_closes_at)
-    draft.useThreshold = props.exam.exam_confidence_threshold != null
-    draft.threshold = props.exam.exam_confidence_threshold ?? 0.6
+    draft.slideCollectionId = slideCollectionId.value ?? 0
+    draft.opensAt = toLocalDateTime(props.exam.opens_at)
+    draft.closesAt = toLocalDateTime(props.exam.closes_at)
     isEditing.value = true
 }
 
@@ -80,9 +93,8 @@ const save = async () => {
             description: draft.description.trim() || undefined,
             instructions: draft.instructions.trim() || undefined,
             slideCollectionId: draft.slideCollectionId,
-            examOpensAt: opens?.toISOString(),
-            examClosesAt: closes.toISOString(),
-            examConfidenceThreshold: draft.useThreshold ? draft.threshold : undefined,
+            opensAt: opens?.toISOString(),
+            closesAt: closes.toISOString(),
         }
         await examService.update(props.exam.id, payload)
         isEditing.value = false
@@ -155,18 +167,6 @@ const save = async () => {
         </div>
 
         <div class="tw:flex tw:flex-col tw:gap-2">
-            <label class="tw:flex tw:items-center tw:gap-2 tw:text-sm tw:font-medium">
-                <input v-model="draft.useThreshold" type="checkbox" class="tw:accent-primary" />
-                AI confidence threshold
-            </label>
-            <McConfidenceThreshold
-                v-if="draft.useThreshold"
-                v-model="draft.threshold"
-                label="Auto-pass confidence"
-            />
-        </div>
-
-        <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">Instructions</label>
             <McTextarea v-model="draft.instructions" class="tw:min-h-24 tw:bg-white/50" />
         </div>
@@ -187,7 +187,7 @@ const save = async () => {
 
         <div
             class="tw:grid tw:grid-cols-2 tw:gap-4 tw:mb-4"
-            :class="isStudent ? 'tw:sm:grid-cols-2' : 'tw:sm:grid-cols-4'"
+            :class="isStudent ? 'tw:sm:grid-cols-2' : 'tw:sm:grid-cols-3'"
         >
             <div
                 v-if="!isStudent"
@@ -205,7 +205,7 @@ const save = async () => {
                 <Clock class="tw:w-5 tw:h-5 tw:text-navy-60 tw:shrink-0" />
                 <div class="tw:min-w-0">
                     <p class="tw:text-xs tw:text-navy-60">Opens</p>
-                    <p class="tw:text-sm tw:font-medium">{{ fmt(exam.exam_opens_at) }}</p>
+                    <p class="tw:text-sm tw:font-medium">{{ fmt(exam.opens_at) }}</p>
                 </div>
             </div>
             <div
@@ -214,23 +214,7 @@ const save = async () => {
                 <Clock class="tw:w-5 tw:h-5 tw:text-navy-60 tw:shrink-0" />
                 <div class="tw:min-w-0">
                     <p class="tw:text-xs tw:text-navy-60">Closes</p>
-                    <p class="tw:text-sm tw:font-medium">{{ fmt(exam.exam_closes_at) }}</p>
-                </div>
-            </div>
-            <div
-                v-if="!isStudent"
-                class="tw:flex tw:items-center tw:gap-3 tw:p-4 tw:bg-white/50 tw:rounded-md tw:border tw:border-navy-20"
-            >
-                <Gauge class="tw:w-5 tw:h-5 tw:text-navy-60 tw:shrink-0" />
-                <div class="tw:min-w-0">
-                    <p class="tw:text-xs tw:text-navy-60">AI threshold</p>
-                    <p class="tw:text-sm tw:font-medium">
-                        {{
-                            exam.exam_confidence_threshold != null
-                                ? Math.round(exam.exam_confidence_threshold * 100) + '%'
-                                : 'Off'
-                        }}
-                    </p>
+                    <p class="tw:text-sm tw:font-medium">{{ fmt(exam.closes_at) }}</p>
                 </div>
             </div>
         </div>

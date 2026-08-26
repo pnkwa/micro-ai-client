@@ -9,16 +9,15 @@ import {
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import { classService, type ClassItem, type StudentRosterItem } from '~/services/classService'
 import AssignmentDetailTab from '~/features/components/assignment/AssignmentDetailTab.vue'
-import AssignmentExercises from '~/features/components/assignment/AssignmentExercises.vue'
+import AssignmentSections from '~/features/components/assignment/AssignmentSections.vue'
 import AssignmentReleaseBar from '~/features/components/assignment/AssignmentReleaseBar.vue'
 import AssignmentSubmissionsTab from '~/features/components/assignment/AssignmentSubmissionsTab.vue'
-import StudentExerciseForm from '~/features/components/assignment/StudentExerciseForm.vue'
+import StudentAssignmentForm from '~/features/components/assignment/StudentAssignmentForm.vue'
 import { studentStatus, studentGradeText } from '~/core/helpers/studentAssignmentStatus'
 import DeleteAssignmentDialog from '~/features/components/assignment/DeleteAssignmentDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
-const { $dayjs } = useNuxtApp()
 const authStore = useAuth()
 
 const classId = computed(() => Number(route.params.id))
@@ -34,7 +33,7 @@ const isLoadingSubmissions = ref(false)
 
 const loadAssignment = async () => {
     // Only the very first load has nothing to show yet; every reload after that
-    // (release toggle, add/edit exercise or question, …) already has content on
+    // (release toggle, add/edit section or question, …) already has content on
     // screen, so it should update in place rather than blank the whole page out
     // to "Loading…" and back for what's often a single-field change.
     const isInitialLoad = assignment.value === null
@@ -87,7 +86,7 @@ const loadSubmissions = async () => {
 const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
 
 // The signed-in student's own submission for this assignment, if any. Owned here rather
-// than inside StudentExerciseForm because the header pill needs it too, and a single fetch
+// than inside StudentAssignmentForm because the header pill needs it too, and a single fetch
 // keeps the pill and the form from ever disagreeing about whether the work is in.
 const mySubmission = ref<SubmissionView | null>(null)
 
@@ -143,12 +142,12 @@ const onTabChange = async (tab: Tab) => {
     }
 }
 
-// Release is per exercise on the server but only ever authored for the assignment as a whole.
-// Legacy data with a mix of released and draft exercises therefore reads as NOT released, so
+// Release is per section on the server but only ever authored for the assignment as a whole.
+// Legacy data with a mix of released and draft sections therefore reads as NOT released, so
 // the instructor's next action is the bulk release that sweeps the stragglers into line.
 const isReleased = computed(() => {
-    const exercises = assignment.value?.exercises ?? []
-    return exercises.length > 0 && exercises.every((ex) => ex.released)
+    const sections = assignment.value?.sections ?? []
+    return sections.length > 0 && sections.every((ex) => ex.released)
 })
 
 // The student's header standing - status badge + grade line - from the SAME shared helper the
@@ -173,8 +172,6 @@ const onDeleted = async () => {
     // The page's own record is gone, so leave before anything re-reads it.
     await router.push(`/classes/${classId.value}`)
 }
-
-const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 </script>
 
 <template>
@@ -203,7 +200,11 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                                 {{ assignment.name }}
                             </h1>
                             <p class="tw:text-xs tw:text-navy-60">
-                                Due {{ formatDate(assignment.due_date) }}
+                                {{
+                                    assignment.due_date
+                                        ? `Due ${dueDateText(assignment.due_date, 'MMM D, YYYY')}`
+                                        : 'Never due'
+                                }}
                             </p>
                         </div>
                     </div>
@@ -256,7 +257,7 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                     :is-student="isStudent"
                     @reload="loadAssignment"
                 />
-                <StudentExerciseForm
+                <StudentAssignmentForm
                     :assignment="assignment"
                     :my-submission="mySubmission"
                     class="tw:mt-6"
@@ -284,7 +285,7 @@ const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
                             :submission-count="submissions.length"
                             @reload="loadAssignment"
                         />
-                        <AssignmentExercises
+                        <AssignmentSections
                             :assignment="assignment"
                             :released="isReleased"
                             @reload="loadAssignment"

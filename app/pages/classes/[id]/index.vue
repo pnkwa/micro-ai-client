@@ -232,8 +232,8 @@ const rowScore = (item: AssignmentListItem | ExamListItem): string | null => {
 // The window as a short human phrase, shown on staff exam rows.
 const examWindow = (exam: ExamListItem): string => {
     const now = $dayjs()
-    const opens = exam.exam_opens_at ? $dayjs(exam.exam_opens_at) : null
-    const closes = exam.exam_closes_at ? $dayjs(exam.exam_closes_at) : null
+    const opens = exam.opens_at ? $dayjs(exam.opens_at) : null
+    const closes = exam.closes_at ? $dayjs(exam.closes_at) : null
     if (opens && now.isBefore(opens)) return `Opens ${opens.format('MMM D, HH:mm')}`
     if (closes && now.isAfter(closes)) return `Closed ${closes.format('MMM D')}`
     if (closes) return `Open until ${closes.format('MMM D, HH:mm')}`
@@ -350,8 +350,6 @@ const handleImportCsv = async (students: EnrollStudentInput[]) => {
         isImportCsvOpen.value = false
     }
 }
-
-const formatDate = (date: string) => $dayjs(date).format('MMM D, YYYY')
 
 const studentSearch = ref('')
 
@@ -514,7 +512,11 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     {{ assignment.name }}
                                 </h3>
                                 <p class="tw:text-xs tw:text-navy-50">
-                                    Due {{ formatDate(assignment.due_date) }}
+                                    {{
+                                        assignment.due_date
+                                            ? `Due ${dueDateText(assignment.due_date, 'MMM D, YYYY')}`
+                                            : 'Never due'
+                                    }}
                                 </p>
                             </div>
                         </div>

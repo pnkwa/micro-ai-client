@@ -5,7 +5,7 @@ import { assignmentService, type Assignment } from '~/services/assignmentService
 
 /**
  * Deleting an assignment is the most destructive thing an instructor can do here: it takes
- * the exercises, the questions, and (with force) every student's submitted work and grades
+ * the sections, the questions, and (with force) every student's submitted work and grades
  * with it, and nothing restores any of it.
  *
  * So the dialog spells out the actual counts rather than saying "this cannot be undone" and
@@ -45,9 +45,9 @@ const submissionCountFromError = (message: string): number => {
     return match?.[1] ? Number(match[1]) : 0
 }
 
-const exerciseCount = computed(() => props.assignment.exercises.length)
+const sectionCount = computed(() => props.assignment.sections.length)
 const questionCount = computed(() =>
-    props.assignment.exercises.reduce((sum, ex) => sum + ex.questions.length, 0),
+    props.assignment.sections.reduce((sum, ex) => sum + ex.questions.length, 0),
 )
 
 // The count we warn about: whatever the page loaded, unless the server has since told us
@@ -121,7 +121,7 @@ const onDelete = async () => {
                     />
                     <div class="tw:min-w-0 tw:text-sm tw:text-navy-80">
                         <p>
-                            {{ plural(exerciseCount, 'exercise') }} and
+                            {{ plural(sectionCount, 'section') }} and
                             {{ plural(questionCount, 'question') }} will be deleted.
                         </p>
                         <!-- Explains why the warning just appeared, so a second press feels

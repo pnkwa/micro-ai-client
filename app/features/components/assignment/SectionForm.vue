@@ -43,7 +43,7 @@ const onSubmit = handleSubmit((values) => {
                 Title
                 <span class="tw:text-red-500">*</span>
             </label>
-            <McInput name="title" placeholder="Exercise title" />
+            <McInput name="title" placeholder="Section title" />
         </div>
         <div class="tw:flex tw:flex-col tw:gap-1">
             <label class="tw:text-xs tw:font-medium tw:text-navy-60">Instructions</label>

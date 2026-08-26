@@ -10,9 +10,33 @@ const attachmentSchema = z.object({
     created_at: z.string(),
 })
 
+/**
+ * The image-bearing half of a question (BE-ADR-034), present ONLY on `image_detection`,
+ * `slide_identification` and `detection_review`, and null on the other types.
+ *
+ * Five fields that used to be scattered at two different grains collapse here: `model` and the
+ * curated image came off the question, while the slide collection and the confidence threshold came
+ * off the ASSIGNMENT. That is why an assignment no longer has a `slide_collection_id` at all.
+ *
+ * The last three are staff-only and absent entirely from a student's read, the same way
+ * `model_verdict` always was.
+ */
+const imageQuestionSchema = z.object({
+    image_id: z.number().nullable(),
+    slide_collection_id: z.number().nullable(),
+    model: z.string().nullable(),
+    detection_confidence_threshold: z.number().nullable(),
+    detection: z.unknown().nullable(),
+    detection_id: z.number().nullable().optional(),
+    model_verdict: z.enum(['correct', 'incorrect', 'partial']).nullable().optional(),
+    verdict_note: z.string().nullable().optional(),
+})
+
 const questionSchema = z.object({
     id: z.number(),
-    exercise_id: z.number(),
+    // `exercise_id` until v0.7. The table is `assignment_sections` and the FK keeps the qualifier
+    // even though the route and the payload key do not (BE-ADR-033).
+    assignment_section_id: z.number(),
     type: z.enum([
         'multiple_choice',
         'multiple_select',
@@ -27,17 +51,18 @@ const questionSchema = z.object({
     points: z.number().nullable().optional(),
     options: z.array(z.string()),
     accepted_answers: z.array(z.string()).optional(),
+    image_question: imageQuestionSchema.nullable().optional(),
     created_at: z.string(),
     updated_at: z.string(),
 })
 
-const exerciseSchema = z.object({
+const sectionSchema = z.object({
     id: z.number(),
     assignment_id: z.number(),
     title: z.string(),
     instructions: z.string().nullable(),
     position: z.number(),
-    // While unreleased, students never see this exercise at all (backend omits it from
+    // While unreleased, students never see this section at all (backend omits it from
     // their read entirely), and its own content is locked against edits server-side;
     // release/un-release is the one action always allowed regardless of this flag.
     released: z.boolean(),
@@ -46,9 +71,20 @@ const exerciseSchema = z.object({
     questions: z.array(questionSchema),
 })
 
-// Exam authoring reuses the exercise/question tree wholesale, so these are exported for
+// Exam authoring reuses the section/question tree wholesale, so these are exported for
 // examService to extend rather than re-declare.
-export { exerciseSchema, attachmentSchema }
+export { sectionSchema, attachmentSchema, imageQuestionSchema }
+export type ImageQuestion = z.infer<typeof imageQuestionSchema>
+export type Question = z.infer<typeof questionSchema>
+
+/** What authoring may SEND. Narrower than the read shape: the verdict fields are staff-set on a
+ *  detection_review question, which this client does not author. */
+export interface ImageQuestionInput {
+    image_id?: number | null
+    slide_collection_id?: number | null
+    model?: string | null
+    detection_confidence_threshold?: number | null
+}
 export type Attachment = z.infer<typeof attachmentSchema>
 
 // Returned by GET /assignments (list): scalars only, no tree. `is_exam` is present because
@@ -59,15 +95,18 @@ export const assignmentListItemSchema = z.object({
     name: z.string(),
     description: z.string().nullable(),
     instructions: z.string().nullable(),
-    due_date: z.string(),
+    due_date: z.string().nullable(),
     points: z.number().nullable(),
     status: z.enum(['active', 'closed']),
     is_exam: z.boolean().optional().default(false),
-    // The slide collection a slide_identification question grades against (BE-ADR-011). Set on an
-    // exam by definition, and optional on a normal assignment, which may also carry slide
-    // questions - without one the grader cannot resolve the slide and every such answer routes to
-    // instructor review. Declared here or z.object strips it and the picker reads null forever.
-    slide_collection_id: z.number().nullable().optional(),
+    // The submission window, and NO LONGER exam-only (BE-ADR-033). `exam_opens_at`/`exam_closes_at`
+    // until v0.7. Separating `closes_at` from `due_date` is what makes late submission expressible:
+    // `due_date < closes_at` is a grace period, and a null `closes_at` is unlimited-but-late.
+    //
+    // `slide_collection_id` and `exam_confidence_threshold` used to sit here too; both moved onto
+    // the question's `image_question` (BE-ADR-034), so an assignment no longer carries either.
+    opens_at: z.string().nullable().optional(),
+    closes_at: z.string().nullable().optional(),
     created_at: z.string(),
     updated_at: z.string(),
 })
@@ -75,7 +114,7 @@ export const assignmentListItemSchema = z.object({
 // Returned by GET /assignments/:id: full tree via toAssignmentView
 export const assignmentSchema = assignmentListItemSchema.extend({
     attachments: z.array(attachmentSchema),
-    exercises: z.array(exerciseSchema),
+    sections: z.array(sectionSchema),
 })
 
 export type AssignmentListItem = z.infer<typeof assignmentListItemSchema>
@@ -86,7 +125,7 @@ export type Assignment = z.infer<typeof assignmentSchema>
 // (a disconnected, manually-typed field that's easy to leave stale once questions are added
 // or edited after the fact).
 export const assignmentTotalPoints = (assignment: Assignment): number =>
-    assignment.exercises.flatMap((ex) => ex.questions).reduce((sum, q) => sum + (q.points ?? 0), 0)
+    assignment.sections.flatMap((s) => s.questions).reduce((sum, q) => sum + (q.points ?? 0), 0)
 
 /** Fallback name for a link the instructor did not name: the last path segment, else the host. */
 const deriveFilename = (url: string): string => {
@@ -127,10 +166,20 @@ export const assignmentService = {
                 name: payload.name,
                 // The form's due date carries a time ('YYYY-MM-DDTHH:mm' local); send an
                 // unambiguous ISO instant.
-                due_date: new Date(payload.dueDate).toISOString(),
+                due_date: payload.dueDate ? new Date(payload.dueDate).toISOString() : undefined,
                 status: payload.status,
                 description: payload.description,
                 instructions: payload.instructions,
+                // The window, from the create form's Advanced section. Blank means no bound rather
+                // than an empty string, which the server would reject as a bad date.
+                opens_at: payload.opensAt ? new Date(payload.opensAt).toISOString() : undefined,
+                closes_at: payload.closesAt ? new Date(payload.closesAt).toISOString() : undefined,
+                // One section, created with the assignment. The server accepts the tree inline, so
+                // the alternative was a second request that could half-fail: an assignment with no
+                // section, which is a state the authoring UI would then have to explain.
+                sections: payload.firstSectionTitle?.trim()
+                    ? [{ title: payload.firstSectionTitle.trim() }]
+                    : undefined,
                 attachments: payload.attachments?.map((a) => ({
                     // What the instructor typed, else the old derived-from-URL name. The server
                     // requires a filename, so this is never blank.
@@ -144,21 +193,33 @@ export const assignmentService = {
 
     async update(
         id: number,
-        payload: Partial<Omit<CreateAssignmentFormData, 'classId'>> & {
-            /** null clears the collection; undefined leaves it untouched. */
-            slideCollectionId?: number | null
+        // The window is omitted from the form shape and redeclared, because the two disagree about
+        // blank on purpose: the create form has no way to express "clear this", so it types them as
+        // string, while an edit must be able to remove a bound it set by mistake. Null clears here;
+        // undefined leaves it untouched.
+        payload: Partial<
+            Omit<CreateAssignmentFormData, 'classId' | 'opensAt' | 'closesAt' | 'dueDate'>
+        > & {
+            dueDate?: string | null
+            opensAt?: string | null
+            closesAt?: string | null
         },
     ): Promise<Assignment> {
         const { $api } = useNuxtApp()
         const body: Record<string, unknown> = {}
         if (payload.name !== undefined) body.name = payload.name
-        if (payload.dueDate !== undefined) body.due_date = new Date(payload.dueDate).toISOString()
+        // Empty clears the deadline rather than leaving it alone, matching the window bounds.
+        if (payload.dueDate !== undefined)
+            body.due_date = payload.dueDate ? new Date(payload.dueDate).toISOString() : null
         if (payload.status !== undefined) body.status = payload.status
         if (payload.description !== undefined) body.description = payload.description
         if (payload.instructions !== undefined) body.instructions = payload.instructions
-        // null clears it, so this checks for undefined rather than truthiness.
-        if (payload.slideCollectionId !== undefined)
-            body.slide_collection_id = payload.slideCollectionId
+        // Null clears the bound, so these check for undefined rather than truthiness. Sent as an
+        // unambiguous instant, like due_date; the picker holds local wall-clock time.
+        if (payload.opensAt !== undefined)
+            body.opens_at = payload.opensAt ? new Date(payload.opensAt).toISOString() : null
+        if (payload.closesAt !== undefined)
+            body.closes_at = payload.closesAt ? new Date(payload.closesAt).toISOString() : null
         const response = await $api(assignmentRoutes.byId(id), { method: 'PATCH', body })
         return assignmentSchema.parse(response)
     },
@@ -220,60 +281,72 @@ export const assignmentService = {
         })
     },
 
-    // ---- exercises ----
+    // ---- sections ----
 
-    async addExercise(
+    async addSection(
         assignmentId: number,
         payload: { title: string; instructions?: string },
     ): Promise<void> {
         const { $api } = useNuxtApp()
-        await $api(assignmentRoutes.exercises(assignmentId), { method: 'POST', body: payload })
+        await $api(assignmentRoutes.sections(assignmentId), { method: 'POST', body: payload })
     },
 
-    async updateExercise(
-        exerciseId: number,
+    async updateSection(
+        sectionId: number,
         payload: { title?: string; instructions?: string },
     ): Promise<void> {
         const { $api } = useNuxtApp()
-        await $api(assignmentRoutes.exerciseById(exerciseId), { method: 'PATCH', body: payload })
+        await $api(assignmentRoutes.sectionById(sectionId), { method: 'PATCH', body: payload })
     },
 
-    async removeExercise(exerciseId: number): Promise<void> {
+    async removeSection(sectionId: number): Promise<void> {
         const { $api } = useNuxtApp()
-        await $api(assignmentRoutes.exerciseById(exerciseId), { method: 'DELETE' })
+        await $api(assignmentRoutes.sectionById(sectionId), { method: 'DELETE' })
     },
 
-    // Always allowed, even while the exercise's other content is locked for editing.
-    async setExerciseReleased(exerciseId: number, released: boolean): Promise<void> {
+    // Always allowed, even while the section's other content is locked for editing.
+    async setSectionReleased(sectionId: number, released: boolean): Promise<void> {
         const { $api } = useNuxtApp()
-        await $api(assignmentRoutes.exerciseRelease(exerciseId), {
+        await $api(assignmentRoutes.sectionRelease(sectionId), {
             method: 'PATCH',
             body: { released },
         })
     },
 
-    // Convenience bulk action: releases every exercise under the assignment in one go.
-    async releaseAllExercises(assignmentId: number): Promise<void> {
+    // Convenience bulk action: releases every section under the assignment in one go.
+    async releaseAllSections(assignmentId: number): Promise<void> {
         const { $api } = useNuxtApp()
-        await $api(assignmentRoutes.releaseAllExercises(assignmentId), { method: 'PATCH' })
+        await $api(assignmentRoutes.releaseAllSections(assignmentId), { method: 'PATCH' })
     },
 
     // ---- questions ----
 
+    /**
+     * `image_question` is the subtype row for the image-bearing types (BE-ADR-034). The server
+     * enforces a per-type matrix and 400s naming the offending field, so send it only for the
+     * types that may carry one: a slide question needs `slide_collection_id` and rejects the rest,
+     * an image_detection question may set `model` and the threshold and rejects a collection.
+     */
     async addQuestion(
-        exerciseId: number,
+        sectionId: number,
         payload: {
             type: string
             prompt: string
             options?: string[]
             accepted_answers?: string[]
             points?: number
+            image_question?: ImageQuestionInput | null
         },
     ): Promise<void> {
         const { $api } = useNuxtApp()
-        await $api(assignmentRoutes.questions(exerciseId), { method: 'POST', body: payload })
+        await $api(assignmentRoutes.questions(sectionId), { method: 'POST', body: payload })
     },
 
+    /**
+     * PATCH reads `image_question` three ways: absent leaves the subtype row alone, `null` deletes
+     * it, and an object replaces it wholesale. That is why changing a question's type away from an
+     * image type has to send an explicit null rather than simply omitting the field.
+     */
     async updateQuestion(
         questionId: number,
         payload: {
@@ -281,6 +354,7 @@ export const assignmentService = {
             options?: string[]
             accepted_answers?: string[]
             points?: number
+            image_question?: ImageQuestionInput | null
         },
     ): Promise<void> {
         const { $api } = useNuxtApp()

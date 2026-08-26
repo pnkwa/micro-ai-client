@@ -39,7 +39,6 @@ const record = (over: Partial<HistoryRecord> = {}): HistoryRecord =>
     ({
         id: 1,
         source: 'upload',
-        img_path: '/x.jpg',
         model: 'best__rtdetr_v2',
         steps: [step('BV', 3)],
         created_at: '2026-08-14T03:31:00.000Z',

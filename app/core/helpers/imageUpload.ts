@@ -5,7 +5,7 @@ import { FILE_SIZE } from '~/core/constant/file'
  *
  * Shared by both student submit paths so a photo that passes in one cannot fail in the other:
  * the exam's slide stations (StudentExamForm) and an exercise's image_detection questions
- * (StudentExerciseForm).
+ * (StudentAssignmentForm).
  */
 
 /**

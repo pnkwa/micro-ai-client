@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
     detectionReleaseText,
-    isExamOpen,
+    isWindowOpen,
     pickBlockingExam,
     releasesOnSubmit,
     type BlockingExamLike,
-} from './examWindow'
+} from './submissionWindow'
 
 const at = (iso: string) => new Date(iso)
 
@@ -13,46 +13,46 @@ const exam = (over: Partial<BlockingExamLike> = {}): BlockingExamLike => ({
     id: 1,
     class_id: 7,
     name: 'Midterm',
-    exam_opens_at: '2026-08-18T09:00:00.000Z',
-    exam_closes_at: '2026-08-18T11:00:00.000Z',
+    opens_at: '2026-08-18T09:00:00.000Z',
+    closes_at: '2026-08-18T11:00:00.000Z',
     ...over,
 })
 
 const none = new Set<number>()
 
-describe('isExamOpen', () => {
+describe('isWindowOpen', () => {
     it('is closed before the window and open inside it', () => {
-        expect(isExamOpen(exam(), at('2026-08-18T08:59:59.000Z'))).toBe(false)
-        expect(isExamOpen(exam(), at('2026-08-18T10:00:00.000Z'))).toBe(true)
+        expect(isWindowOpen(exam(), at('2026-08-18T08:59:59.000Z'))).toBe(false)
+        expect(isWindowOpen(exam(), at('2026-08-18T10:00:00.000Z'))).toBe(true)
     })
 
     it('is closed after the window', () => {
-        expect(isExamOpen(exam(), at('2026-08-18T11:00:01.000Z'))).toBe(false)
+        expect(isWindowOpen(exam(), at('2026-08-18T11:00:01.000Z'))).toBe(false)
     })
 
     /** The server is inclusive at both ends, so a student on the boundary is still inside. */
     it('includes both boundary instants', () => {
-        expect(isExamOpen(exam(), at('2026-08-18T09:00:00.000Z'))).toBe(true)
-        expect(isExamOpen(exam(), at('2026-08-18T11:00:00.000Z'))).toBe(true)
+        expect(isWindowOpen(exam(), at('2026-08-18T09:00:00.000Z'))).toBe(true)
+        expect(isWindowOpen(exam(), at('2026-08-18T11:00:00.000Z'))).toBe(true)
     })
 
     it('treats a missing bound as unbounded', () => {
-        const noClose = exam({ exam_closes_at: null })
-        expect(isExamOpen(noClose, at('2036-01-01T00:00:00.000Z'))).toBe(true)
+        const noClose = exam({ closes_at: null })
+        expect(isWindowOpen(noClose, at('2036-01-01T00:00:00.000Z'))).toBe(true)
 
-        const noOpen = exam({ exam_opens_at: null })
-        expect(isExamOpen(noOpen, at('1999-01-01T00:00:00.000Z'))).toBe(true)
+        const noOpen = exam({ opens_at: null })
+        expect(isWindowOpen(noOpen, at('1999-01-01T00:00:00.000Z'))).toBe(true)
 
-        const unbounded = exam({ exam_opens_at: null, exam_closes_at: null })
-        expect(isExamOpen(unbounded, at('2026-08-18T10:00:00.000Z'))).toBe(true)
+        const unbounded = exam({ opens_at: null, closes_at: null })
+        expect(isWindowOpen(unbounded, at('2026-08-18T10:00:00.000Z'))).toBe(true)
     })
 
     /** A malformed date must not read as "open forever" through a NaN comparison. */
     it('ignores an unparseable bound rather than blocking on it', () => {
-        expect(isExamOpen(exam({ exam_opens_at: 'not a date' }), at('2026-08-18T10:00:00Z'))).toBe(
+        expect(isWindowOpen(exam({ opens_at: 'not a date' }), at('2026-08-18T10:00:00Z'))).toBe(
             true,
         )
-        expect(isExamOpen(exam({ exam_closes_at: 'not a date' }), at('2036-01-01T00:00:00Z'))).toBe(
+        expect(isWindowOpen(exam({ closes_at: 'not a date' }), at('2036-01-01T00:00:00Z'))).toBe(
             true,
         )
     })
@@ -70,7 +70,7 @@ describe('pickBlockingExam', () => {
     })
 
     it('ignores an exam whose window is not open', () => {
-        const later = exam({ id: 2, exam_opens_at: '2026-08-19T09:00:00.000Z' })
+        const later = exam({ id: 2, opens_at: '2026-08-19T09:00:00.000Z' })
         expect(pickBlockingExam([later], none, now)).toBeNull()
     })
 
@@ -85,27 +85,27 @@ describe('pickBlockingExam', () => {
 
     /** The anti-lockout valve: with no end, handing it in IS the release, so it blocks no longer. */
     it('drops a submitted exam that has no closing time', () => {
-        const openEnded = exam({ exam_closes_at: null })
+        const openEnded = exam({ closes_at: null })
         expect(pickBlockingExam([openEnded], new Set([1]), now)).toBeNull()
         expect(pickBlockingExam([openEnded], none, now)?.id).toBe(1)
     })
 
     it('picks the one closing soonest', () => {
-        const late = exam({ id: 1, exam_closes_at: '2026-08-18T18:00:00.000Z' })
-        const soon = exam({ id: 2, exam_closes_at: '2026-08-18T10:30:00.000Z' })
+        const late = exam({ id: 1, closes_at: '2026-08-18T18:00:00.000Z' })
+        const soon = exam({ id: 2, closes_at: '2026-08-18T10:30:00.000Z' })
         expect(pickBlockingExam([late, soon], none, now)?.id).toBe(2)
     })
 
     /** An exam with no closing time is not running out, so it never outranks one that is. */
     it('sorts an open-ended exam last', () => {
-        const openEnded = exam({ id: 1, exam_closes_at: null })
-        const closing = exam({ id: 2, exam_closes_at: '2026-08-18T23:00:00.000Z' })
+        const openEnded = exam({ id: 1, closes_at: null })
+        const closing = exam({ id: 2, closes_at: '2026-08-18T23:00:00.000Z' })
         expect(pickBlockingExam([openEnded, closing], none, now)?.id).toBe(2)
     })
 
     it('does not mutate the callers array order', () => {
-        const late = exam({ id: 1, exam_closes_at: '2026-08-18T18:00:00.000Z' })
-        const soon = exam({ id: 2, exam_closes_at: '2026-08-18T10:30:00.000Z' })
+        const late = exam({ id: 1, closes_at: '2026-08-18T18:00:00.000Z' })
+        const soon = exam({ id: 2, closes_at: '2026-08-18T10:30:00.000Z' })
         const input = [late, soon]
         pickBlockingExam(input, none, now)
         expect(input.map((e) => e.id)).toEqual([1, 2])
@@ -115,12 +115,12 @@ describe('pickBlockingExam', () => {
 describe('releasesOnSubmit', () => {
     it('is true only when the exam has no closing bound', () => {
         expect(releasesOnSubmit(exam())).toBe(false)
-        expect(releasesOnSubmit(exam({ exam_closes_at: null }))).toBe(true)
+        expect(releasesOnSubmit(exam({ closes_at: null }))).toBe(true)
     })
 
-    /** Same rule isExamOpen uses: a bound it cannot parse is no bound at all. */
+    /** Same rule isWindowOpen uses: a bound it cannot parse is no bound at all. */
     it('treats an unparseable closing time as no bound', () => {
-        expect(releasesOnSubmit(exam({ exam_closes_at: 'not a date' }))).toBe(true)
+        expect(releasesOnSubmit(exam({ closes_at: 'not a date' }))).toBe(true)
     })
 })
 
@@ -141,7 +141,7 @@ describe('detectionReleaseText', () => {
 
     /** The valve case, and the only one where submitting is still the answer. */
     it('says submitting releases an exam with no closing time', () => {
-        expect(detectionReleaseText(exam({ exam_closes_at: null }), null)).toBe(
+        expect(detectionReleaseText(exam({ closes_at: null }), null)).toBe(
             'It returns once you submit.',
         )
     })

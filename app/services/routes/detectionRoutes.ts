@@ -8,9 +8,6 @@ export const detectionRoutes = {
     // ids at 1 while the image volume persists - so this URL can mean a different picture
     // tomorrow, and the server sends it `no-cache` for exactly that reason (BE-ADR-027).
     image: (id: number) => `/detections/${id}/image`,
-    // Addressed by the IMAGE's own UUID name. Names one file forever, so it is the cacheable one
-    // and the one to use. Same bytes, same ?size=thumb, same auth header.
-    imageByName: (imageId: string) => `/detections/images/${imageId}`,
     availability: '/detections/availability',
     models: '/models',
 }

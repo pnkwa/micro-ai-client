@@ -23,7 +23,9 @@ const REJECTED: StatusBadge = { label: 'Rejected', variant: 'danger' }
 
 /** Only the fields the rule reads, so this works on both Assignment and AssignmentListItem. */
 type AssignmentTiming = {
-    due_date: string
+    // Nullable: an assignment need not have a deadline, and one without a due date can be neither
+    // overdue nor late, because there is nothing to be late against.
+    due_date: string | null
     status: 'active' | 'closed'
 }
 
@@ -31,6 +33,21 @@ type AssignmentTiming = {
 type SubmissionTiming = {
     status: 'submitted' | 'graded' | 'rejected'
     submitted_at: string
+}
+
+/**
+ * A due date for reading, including the case where there is not one.
+ *
+ * "Never due" rather than a dash, because a blank here is a DECISION and not missing data: an
+ * assignment with no deadline is one that nothing can be late for, and a dash reads as a value that
+ * failed to load. The three surfaces that show a deadline share this so they cannot word it
+ * differently.
+ */
+export function dueDateText(
+    dueDate: string | null | undefined,
+    format = 'MMM D, YYYY HH:mm',
+): string {
+    return dueDate ? dayjs(dueDate).format(format) : 'Never due'
 }
 
 /**
@@ -58,7 +75,7 @@ export function isLateSubmission(
  * redone, and re-submitting replaces the row (BE-ADR-019: there is no un-reject, the resubmit
  * IS the recovery path). `submitted` and `graded` both stay locked.
  *
- * Shared by StudentExerciseForm and StudentExamForm because the rule was written inline in both
+ * Shared by StudentAssignmentForm and StudentExamForm because the rule was written inline in both
  * and they drifted: the assignment form reopened on a rejection and the exam form did not, so a
  * returned exam was a dead end for the student who had to redo it.
  */
@@ -111,7 +128,10 @@ export function studentAssignmentBadges(
     // same way: the chance to submit has gone. Instant granularity, matching isLateSubmission
     // - due_date carries a real time-of-day deadline now, so "overdue" flips at that instant,
     // not at the following midnight.
-    const pastDue = dayjs().isAfter(dayjs(assignment.due_date))
+    // No deadline means never overdue. `dayjs(null)` is an INVALID date whose comparisons are all
+    // false, so this would have limped along quietly rather than failing, which is worse: the badge
+    // would silently be right for the wrong reason and wrong the moment the comparison changed.
+    const pastDue = assignment.due_date != null && dayjs().isAfter(dayjs(assignment.due_date))
     if (pastDue || assignment.status === 'closed') {
         return [{ label: 'Overdue', variant: 'destructive' }]
     }
