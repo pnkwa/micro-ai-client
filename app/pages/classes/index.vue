@@ -24,7 +24,7 @@ const loadClasses = async () => {
     try {
         classes.value =
             isStudent.value && authStore.user
-                ? await classService.listEnrolled(authStore.user.id)
+                ? await classService.listEnrolled()
                 : await classService.list()
     } catch {
         toast.error('Failed to load classes')

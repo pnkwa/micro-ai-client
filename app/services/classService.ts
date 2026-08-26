@@ -66,12 +66,9 @@ export const classService = {
         return z.array(classSchema).parse(response)
     },
 
-    async listEnrolled(userId: number): Promise<ClassItem[]> {
+    async listEnrolled(): Promise<ClassItem[]> {
         const all = await this.list()
-        const rosters = await Promise.all(
-            all.map((c) => this.getStudents(c.id).catch(() => ({ data: [], total: 0 }))),
-        )
-        return all.filter((_, i) => rosters[i]?.data.some((s) => s.userID === userId))
+        return all
     },
 
     async getById(id: number): Promise<ClassItem> {
