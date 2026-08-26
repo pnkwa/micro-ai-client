@@ -236,6 +236,27 @@ export function hitTest(shape: Shape, point: Point): boolean {
 }
 
 /**
+ * The topmost polygon VERTEX under a point, across every shape.
+ *
+ * Searched before any shape hit test, because a vertex sits ON the outline and point-in-polygon is
+ * undecided exactly there - so asking "which shape is this?" first would answer for the ring when
+ * the intent was one of its corners. Last drawn wins, same as `topmostAt`.
+ */
+export function vertexAt(
+    shapes: Shape[],
+    point: Point,
+    tolerance: number,
+): { shapeId: string; index: number } | null {
+    for (let i = shapes.length - 1; i >= 0; i--) {
+        const shape = shapes[i]!
+        if (!shape.polygon) continue
+        const index = shape.polygon.findIndex((vertex) => isNear(point, vertex, tolerance))
+        if (index !== -1) return { shapeId: shape.id, index }
+    }
+    return null
+}
+
+/**
  * The topmost shape under a point.
  *
  * Last drawn wins, because that is the one on top and the one someone just made. Searching from the

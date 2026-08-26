@@ -135,18 +135,34 @@ const commit = () => {
 const canUndo = computed(() => historyIndex.value > 0)
 const canRedo = computed(() => historyIndex.value < history.value.length - 1)
 
-const undo = () => {
-    if (!canUndo.value) return
-    historyIndex.value -= 1
-    shapes.value = snapshot(history.value[historyIndex.value]!)
-    selectedShapeId.value = null
+/**
+ * Restore a snapshot, KEEPING the selection where the shape survived it.
+ *
+ * Clearing it unconditionally was the lazy read of "the set changed". Undoing a move or a relabel
+ * leaves the shape right there, and dropping the selection means the next Delete or the next label
+ * edit has to start by finding it again.
+ */
+const restore = (index: number) => {
+    historyIndex.value = index
+    const previous = selectedShapeId.value
+    shapes.value = snapshot(history.value[index]!)
+    selectedShapeId.value = shapes.value.some((shape) => shape.id === previous) ? previous : null
 }
 
-const redo = () => {
-    if (!canRedo.value) return
-    historyIndex.value += 1
-    shapes.value = snapshot(history.value[historyIndex.value]!)
-    selectedShapeId.value = null
+const undo = () => canUndo.value && restore(historyIndex.value - 1)
+const redo = () => canRedo.value && restore(historyIndex.value + 1)
+
+/**
+ * Undo, including the polygon still being drawn.
+ *
+ * A draft ring has no id and never enters the history, so plain undo cannot reach it - and reaching
+ * PAST it to the last committed shape while points are still on screen is worse than doing nothing.
+ * While a draft is open, undo takes back its last point; right-click and the banner's Undo point
+ * button are the other two routes to the same thing.
+ */
+const undoStep = () => {
+    if (canvas.value?.hasDraft) canvas.value.undoDraftPoint()
+    else undo()
 }
 
 // Switching image resets the drawing state. Once this talks to the server, this is the seam where
@@ -188,7 +204,23 @@ const removeShape = (id: string) => {
     commit()
 }
 
-const deleteSelected = () => selectedShapeId.value && removeShape(selectedShapeId.value)
+/**
+ * The KEYBOARD route to delete, which is not the same thing as the delete tool.
+ *
+ * The tool is cursor-driven: point at a shape or a polygon node and click. This acts on whatever is
+ * currently SELECTED, so it works from any tool without leaving the one you are drawing with, and
+ * it is the only route a shape selected from the labels panel has. The canvas decides between a
+ * picked vertex and the whole shape.
+ */
+const deleteSelected = () => canvas.value?.deleteSelection()
+
+/**
+ * Undo is available while a ring is being drawn, even with an empty history.
+ *
+ * The draft is undoable by a different route (`undoStep`), so a greyed-out button next to points
+ * that visibly can be taken back would be lying about what the key does.
+ */
+const canUndoAny = computed(() => Boolean(canvas.value?.hasDraft) || canUndo.value)
 
 useEventListener('keydown', (event: KeyboardEvent) => {
     const typing = (event.target as HTMLElement | null)?.tagName === 'INPUT'
@@ -197,10 +229,18 @@ useEventListener('keydown', (event: KeyboardEvent) => {
         event.preventDefault()
         deleteSelected()
     }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+    if (!event.metaKey && !event.ctrlKey) return
+
+    const key = event.key.toLowerCase()
+    if (key === 'z') {
         event.preventDefault()
+        // Shift+Z is redo everywhere; Ctrl+Y is the Windows habit and costs one branch.
         if (event.shiftKey) redo()
-        else undo()
+        else undoStep()
+    }
+    if (key === 'y') {
+        event.preventDefault()
+        redo()
     }
 })
 
@@ -262,18 +302,16 @@ const save = () => {
             :panel-open="panelOpen"
             :zoom-percent="zoomPercent"
             :can-zoom="canZoom"
-            :can-undo="canUndo"
+            :can-undo="canUndoAny"
             :can-redo="canRedo"
-            :can-delete="Boolean(selectedShapeId)"
             :can-save="canSave"
             @toggle-panel="panelOpen = !panelOpen"
             @zoom-in="canvas?.zoomIn()"
             @zoom-out="canvas?.zoomOut()"
             @fit="canvas?.fit()"
             @actual-size="canvas?.actualSize()"
-            @undo="undo"
+            @undo="undoStep"
             @redo="redo"
-            @delete-selected="deleteSelected"
             @save="save"
         />
 

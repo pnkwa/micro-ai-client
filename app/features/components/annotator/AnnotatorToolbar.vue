@@ -16,11 +16,11 @@ import {
 } from '@lucide/vue'
 
 /**
- * The annotator's toolbar. SCAFFOLD: every control is present and disabled.
+ * The annotator's toolbar.
  *
- * Laid out now because the tool set is the part of phase 2 that decides the rest. Two tools
- * (rectangle and polygon) because those are the two geometries `image_annotations` stores: a plain
- * box, and an outline whose extent the server recomputes into the box columns on write.
+ * Everything here works except Seed from run, which needs a server to have a run to copy. Two
+ * drawing tools, because those are the two geometries `image_annotations` stores: a plain box, and
+ * an outline whose extent the server recomputes into the box columns on write.
  */
 import type { Tool } from './AnnotatorCanvas.vue'
 
@@ -30,7 +30,6 @@ defineProps<{
     canZoom: boolean
     canUndo: boolean
     canRedo: boolean
-    canDelete: boolean
     canSave: boolean
 }>()
 
@@ -44,7 +43,6 @@ const emit = defineEmits<{
     'actual-size': []
     undo: []
     redo: []
-    'delete-selected': []
     save: []
 }>()
 
@@ -53,6 +51,13 @@ const tools = [
     { id: 'select', label: 'Select and pan', icon: MousePointer2 },
     { id: 'rectangle', label: 'Rectangle', icon: Square },
     { id: 'polygon', label: 'Polygon', icon: Pentagon },
+    {
+        id: 'delete',
+        // Delete is a MODE rather than a button acting on a selection: click a shape to remove it,
+        // click a polygon's node to remove just that node. What is about to go turns red first.
+        label: 'Delete: click a shape, or a polygon point',
+        icon: Trash2,
+    },
 ] as const
 </script>
 
@@ -64,7 +69,13 @@ const tools = [
             <McButton
                 v-for="option in tools"
                 :key="option.id"
-                :variant="tool === option.id ? 'default' : 'outline'"
+                :variant="
+                    tool === option.id
+                        ? option.id === 'delete'
+                            ? 'destructive'
+                            : 'default'
+                        : 'outline'
+                "
                 size="icon-sm"
                 :aria-label="option.label"
                 :aria-pressed="tool === option.id"
@@ -81,35 +92,27 @@ const tools = [
             <McButton
                 variant="ghost"
                 size="icon-sm"
-                disabled
+                :disabled="!canUndo"
                 aria-label="Undo"
-                title="Undo (not implemented)"
+                title="Undo"
+                @click="emit('undo')"
             >
                 <Undo2 class="tw:h-4 tw:w-4" />
             </McButton>
             <McButton
                 variant="ghost"
                 size="icon-sm"
-                disabled
+                :disabled="!canRedo"
                 aria-label="Redo"
-                title="Redo (not implemented)"
+                title="Redo"
+                @click="emit('redo')"
             >
                 <Redo2 class="tw:h-4 tw:w-4" />
-            </McButton>
-            <McButton
-                variant="ghost"
-                size="icon-sm"
-                disabled
-                aria-label="Delete selected"
-                title="Delete selected (not implemented)"
-            >
-                <Trash2 class="tw:h-4 tw:w-4" />
             </McButton>
         </div>
 
         <McSeparator orientation="vertical" class="tw:h-6" />
 
-        <!-- Zoom and pan ARE implemented; the drawing tools above are not. -->
         <div class="tw:flex tw:items-center tw:gap-1">
             <McButton
                 variant="ghost"
@@ -163,7 +166,7 @@ const tools = [
             variant="outline"
             size="sm"
             disabled
-            title="Seed from a model run (not implemented)"
+            title="Seed from a model run. Needs a server connection."
         >
             <Wand2 class="tw:h-4 tw:w-4" />
             Seed from run

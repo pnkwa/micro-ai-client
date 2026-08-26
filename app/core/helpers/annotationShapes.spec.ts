@@ -14,6 +14,7 @@ import {
     resizeRect,
     toAnnotationPayload,
     topmostAt,
+    vertexAt,
     translateShape,
     withDerivedBbox,
     type Shape,
@@ -354,5 +355,48 @@ describe('removePolygonPoint', () => {
 
     it('is null for a rectangle', () => {
         expect(removePolygonPoint(box(), 0)).toBeNull()
+    })
+})
+
+describe('vertexAt', () => {
+    const triangle = poly([
+        [0.1, 0.1],
+        [0.5, 0.1],
+        [0.3, 0.5],
+    ])
+
+    it('finds a vertex within tolerance', () => {
+        expect(vertexAt([triangle], { x: 0.51, y: 0.1 }, 0.03)).toEqual({
+            shapeId: triangle.id,
+            index: 1,
+        })
+    })
+
+    it('is null when nothing is close enough', () => {
+        expect(vertexAt([triangle], { x: 0.3, y: 0.3 }, 0.02)).toBeNull()
+    })
+
+    it('ignores rectangles, which have no vertices to grab', () => {
+        expect(vertexAt([box()], { x: 0.2, y: 0.2 }, 0.5)).toBeNull()
+    })
+
+    it('picks the LAST drawn when two polygons overlap a point', () => {
+        const under = poly(
+            [
+                [0, 0],
+                [0.2, 0],
+                [0.1, 0.2],
+            ],
+            { id: 'under' },
+        )
+        const over = poly(
+            [
+                [0, 0],
+                [0.3, 0],
+                [0.15, 0.3],
+            ],
+            { id: 'over' },
+        )
+        expect(vertexAt([under, over], { x: 0, y: 0 }, 0.01)?.shapeId).toBe('over')
     })
 })

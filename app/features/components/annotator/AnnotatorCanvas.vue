@@ -24,6 +24,7 @@ import {
     rectFromDrag,
     resizeRect,
     topmostAt,
+    vertexAt,
     translateShape,
     withDerivedBbox,
     type Corner,
@@ -45,7 +46,7 @@ import { localId } from '~/core/helpers/localId'
  * approach - it recomputes the browser's layout and has to agree with the CSS exactly - and its
  * comments record what happens when two descriptions of one rectangle disagree.
  */
-export type Tool = 'select' | 'rectangle' | 'polygon'
+export type Tool = 'select' | 'rectangle' | 'polygon' | 'delete'
 
 const props = withDefaults(
     defineProps<{
@@ -159,6 +160,18 @@ const gesture = ref<Gesture>({ kind: 'none' })
 /** The polygon being built, if any. */
 const draftPolygon = ref<Point[] | null>(null)
 
+/**
+ * The vertex the next Delete would remove, if any.
+ *
+ * Selecting a POINT as well as a shape is what lets one key mean both "remove this node" and
+ * "remove this shape" without a modifier: touching a handle narrows the target, touching anything
+ * else widens it back. Cleared whenever the selected shape changes, so a stale index can never
+ * address a vertex on a different polygon.
+ */
+const selectedVertex = ref<number | null>(null)
+
+watch(selectedId, () => (selectedVertex.value = null))
+
 const newId = () => localId('s')
 
 const shapeById = (id: string) => shapes.value.find((shape) => shape.id === id)
@@ -222,10 +235,22 @@ const onPointerDown = (event: PointerEvent) => {
 
     const at = normalized(event)
     tapOrigin = { x: event.clientX, y: event.clientY }
+    // A press that reaches the canvas did not land on a handle - those stop propagation - so the
+    // delete target widens back to the shape.
+    selectedVertex.value = null
 
     // The point is placed on release; this only records where the finger went down so the rubber
     // band has somewhere to run from.
     if (props.tool === 'polygon') return
+
+    // Delete acts on release too, so a tap can be told from a drag. Empty space still pans, which
+    // is what keeps the canvas navigable without leaving the tool.
+    if (props.tool === 'delete') {
+        if (!deleteHover.value) {
+            gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
+        }
+        return
+    }
 
     if (props.tool === 'rectangle') {
         const id = newId()
@@ -275,6 +300,9 @@ const startVertex = (event: PointerEvent, id: string, index: number) => {
     event.stopPropagation()
     ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
     selectedId.value = id
+    // Set AFTER selectedId, whose watcher clears this - order matters, and reversing it silently
+    // deselects the vertex that was just grabbed.
+    selectedVertex.value = index
     gesture.value = { kind: 'vertex', id, index }
 }
 
@@ -345,6 +373,13 @@ const onPointerUp = (event: PointerEvent) => {
         return
     }
 
+    if (props.tool === 'delete' && natural.value && wasTap(event)) {
+        deleteAtCursor()
+        tapOrigin = null
+        endGesture()
+        return
+    }
+
     if (props.tool === 'polygon' && natural.value && wasTap(event)) {
         const at = normalized(event)
         const draft = draftPolygon.value
@@ -358,6 +393,10 @@ const onPointerUp = (event: PointerEvent) => {
                 const withPoint = insertPointOnEdge(selected, at, handleTolerance.value)
                 if (withPoint) {
                     replaceShape(selected.id, withPoint)
+                    // The inserted vertex becomes the delete target, so a misplaced one is undone
+                    // by the same key that removes any other.
+                    const edge = nearestEdge(selected.polygon, at)
+                    if (edge) selectedVertex.value = edge.index + 1
                     emit('commit')
                     tapOrigin = null
                     endGesture()
@@ -458,6 +497,49 @@ const onContextMenu = (event: MouseEvent) => {
         return
     }
     replaceShape(shape.id, next)
+    selectedVertex.value = null
+    emit('commit')
+}
+
+/**
+ * What Delete would remove right now: a vertex if one is picked, otherwise the whole shape.
+ *
+ * Exposed so the toolbar can SAY which, rather than offering one button whose meaning the person
+ * has to infer from what they last touched.
+ */
+const deleteTarget = computed<'vertex' | 'shape' | null>(() => {
+    if (!selectedId.value) return null
+    const shape = shapeById(selectedId.value)
+    if (!shape) return null
+    return shape.polygon && selectedVertex.value !== null ? 'vertex' : 'shape'
+})
+
+/**
+ * Delete, narrowed to a vertex when one is picked.
+ *
+ * The refusal below three points is a message rather than a silent no-op, because three is what the
+ * server accepts and a two-point polygon would otherwise be drawn here and rejected on save.
+ */
+const deleteSelection = () => {
+    const id = selectedId.value
+    if (!id) return
+    const shape = shapeById(id)
+    if (!shape) return
+
+    if (shape.polygon && selectedVertex.value !== null) {
+        const next = removePolygonPoint(shape, selectedVertex.value)
+        if (!next) {
+            toast.error('A polygon needs at least three points.')
+            return
+        }
+        replaceShape(id, next)
+        selectedVertex.value = null
+        emit('commit')
+        return
+    }
+
+    shapes.value = shapes.value.filter((other) => other.id !== id)
+    selectedId.value = null
     emit('commit')
 }
 
@@ -516,6 +598,61 @@ const canInsertAtCursor = computed(() => {
     const edge = nearestEdge(shape.polygon, cursor.value)
     return Boolean(edge && edge.distance <= handleTolerance.value)
 })
+
+/**
+ * What the delete tool would remove at the cursor.
+ *
+ * A vertex is looked for BEFORE a shape, because a vertex sits on the outline and point-in-polygon
+ * is undecided exactly there - asking "which shape is this?" first would answer for the ring when
+ * the intent was its corner.
+ *
+ * The highlight and the action read this same value, so what turns red is what goes.
+ */
+const deleteHover = computed<
+    { kind: 'vertex'; shapeId: string; index: number } | { kind: 'shape'; shapeId: string } | null
+>(() => {
+    if (props.tool !== 'delete' || !cursor.value) return null
+    const vertex = vertexAt(shapes.value, cursor.value, handleTolerance.value)
+    if (vertex) return { kind: 'vertex', ...vertex }
+    const shape = topmostAt(shapes.value, cursor.value)
+    return shape ? { kind: 'shape', shapeId: shape.id } : null
+})
+
+/** Is this shape about to be removed whole? Drives the red outline. */
+const isDeleteTargetShape = (shape: Shape) =>
+    deleteHover.value?.kind === 'shape' && deleteHover.value.shapeId === shape.id
+
+/** Is this vertex about to be removed? */
+const isDeleteTargetVertex = (shape: Shape, index: number) =>
+    deleteHover.value?.kind === 'vertex' &&
+    deleteHover.value.shapeId === shape.id &&
+    deleteHover.value.index === index
+
+/**
+ * Remove whatever the cursor is over. The tool's whole behaviour.
+ *
+ * A polygon that would drop below three points refuses with a message rather than silently, since
+ * three is the least the server accepts.
+ */
+const deleteAtCursor = () => {
+    const target = deleteHover.value
+    if (!target) return
+    const shape = shapeById(target.shapeId)
+    if (!shape) return
+
+    if (target.kind === 'vertex') {
+        const next = removePolygonPoint(shape, target.index)
+        if (!next) {
+            toast.error('A polygon needs at least three points. Delete the whole shape instead.')
+            return
+        }
+        replaceShape(shape.id, next)
+    } else {
+        shapes.value = shapes.value.filter((other) => other.id !== shape.id)
+        if (selectedId.value === shape.id) selectedId.value = null
+    }
+    emit('commit')
+}
 
 /** The first dot, highlighted when a tap there would close the ring. */
 const canCloseAtCursor = computed(() => {
@@ -612,6 +749,9 @@ const shapeRect = (shape: Shape) => ({
  * work rather than a category.
  */
 const colorClassFor = (shape: Shape): string => {
+    // Ahead of selection: while the delete tool is armed, "about to be removed" is the only thing
+    // worth saying about a shape.
+    if (isDeleteTargetShape(shape)) return 'tw:text-danger'
     if (shape.id === selectedId.value) return 'tw:text-primary'
     if (!shape.label) return 'tw:text-amber-400'
     return colorForLabel(shape.label).text
@@ -633,6 +773,9 @@ defineExpose({
         }
     },
     closePolygon,
+    undoDraftPoint,
+    deleteSelection,
+    deleteTarget,
     hasDraft: computed(() => (draftPolygon.value?.length ?? 0) > 0),
     transform: computed(() => transform.value),
     ready,
@@ -646,13 +789,19 @@ defineExpose({
         :class="
             !src
                 ? ''
-                : canInsertAtCursor
-                  ? 'tw:cursor-copy'
-                  : tool === 'select'
-                    ? gesture.kind === 'pan'
+                : tool === 'delete'
+                  ? deleteHover
+                      ? 'tw:cursor-pointer'
+                      : gesture.kind === 'pan'
                         ? 'tw:cursor-grabbing'
-                        : 'tw:cursor-grab'
-                    : 'tw:cursor-crosshair'
+                        : 'tw:cursor-crosshair'
+                  : canInsertAtCursor
+                    ? 'tw:cursor-copy'
+                    : tool === 'select'
+                      ? gesture.kind === 'pan'
+                          ? 'tw:cursor-grabbing'
+                          : 'tw:cursor-grab'
+                      : 'tw:cursor-crosshair'
         "
         @wheel.prevent="onWheel"
         @pointerdown="onPointerDown"
@@ -742,18 +891,44 @@ defineExpose({
                                 @pointerdown="startResize($event, shape.id, corner)"
                             />
                         </template>
-                        <template v-if="shape.id === selectedId && shape.polygon">
+                        <!-- Vertices show for the selected polygon, and for EVERY polygon while
+                             the delete tool is armed: a node you cannot see is a node you cannot
+                             aim at. -->
+                        <template
+                            v-if="(shape.id === selectedId || tool === 'delete') && shape.polygon"
+                        >
                             <circle
                                 v-for="(point, index) in shape.polygon"
                                 :key="index"
                                 :cx="point.x * natural.w"
                                 :cy="point.y * natural.h"
-                                :r="px(5)"
-                                fill="#fff"
-                                stroke="#249486"
+                                :r="
+                                    px(
+                                        isDeleteTargetVertex(shape, index) ||
+                                            index === selectedVertex
+                                            ? 7
+                                            : 5,
+                                    )
+                                "
+                                :fill="
+                                    isDeleteTargetVertex(shape, index)
+                                        ? '#dc2626'
+                                        : index === selectedVertex
+                                          ? '#249486'
+                                          : '#fff'
+                                "
+                                :stroke="
+                                    isDeleteTargetVertex(shape, index) || index === selectedVertex
+                                        ? '#fff'
+                                        : '#249486'
+                                "
                                 :stroke-width="px(1.5)"
-                                class="tw:cursor-move"
-                                @pointerdown="startVertex($event, shape.id, index)"
+                                :class="tool === 'delete' ? 'tw:cursor-pointer' : 'tw:cursor-move'"
+                                @pointerdown="
+                                    tool === 'delete'
+                                        ? undefined
+                                        : startVertex($event, shape.id, index)
+                                "
                             />
                         </template>
                     </g>
