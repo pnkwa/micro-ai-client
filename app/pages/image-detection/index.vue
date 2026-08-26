@@ -16,6 +16,7 @@ import {
 import { useEventListener, useMediaQuery } from '@vueuse/core'
 import { toast } from 'vue-sonner'
 import { detectionService, type DetectionStep } from '~/services/detectionService'
+import { imageService } from '~/services/imageService'
 import { useDetectionAvailability } from '~/core/composables/detectionAvailability'
 import { useBlockingExam } from '~/core/composables/blockingExam'
 import { resultModelLabel as labelForResult } from '~/core/helpers/modelLabel'
@@ -434,13 +435,34 @@ onBeforeUnmount(() => {
  */
 const cameraAutoStarted = ref(false)
 
-onMounted(() => {
+/**
+ * `?detection=<id>` opens straight into a past run.
+ *
+ * The image library's runs list links here, because a detection has no page of its own and this is
+ * the viewer that renders one. Silent on failure by design: a stale or forbidden link should land
+ * on the ordinary empty page rather than greet someone with an error for a URL they were handed.
+ */
+const openLinkedDetection = async () => {
+    const query = useRoute().query.detection
+    const id = Number(Array.isArray(query) ? query[0] : query)
+    if (!Number.isInteger(id) || id <= 0) return
+    try {
+        await loadFromHistory(await detectionService.get(id))
+    } catch {
+        // See above.
+    }
+}
+
+onMounted(async () => {
     refreshHistoryCount()
-    nextTick(() => {
-        if (!isCompact.value || mode.value !== 'empty' || !canUseInAppCamera.value) return
-        cameraAutoStarted.value = true
-        startCamera()
-    })
+    // AWAITED before the camera decision below, not fired alongside it: the autostart is guarded on
+    // `mode === 'empty'`, and a deep link that resolves a moment later would open the viewfinder
+    // over the very record the link was for.
+    await openLinkedDetection()
+    await nextTick()
+    if (!isCompact.value || mode.value !== 'empty' || !canUseInAppCamera.value) return
+    cameraAutoStarted.value = true
+    startCamera()
 })
 
 /** Back out of a staged image to where it came from: the camera, on a phone. */
@@ -633,7 +655,7 @@ const loadFromHistory = async (record: HistoryRecord) => {
         // By image id, not detection id: that one addresses the run rather than the picture and
         // is not stable across a database recreate (BE-ADR-027/031).
         if (!record.image_id) throw new Error('history record carries no image')
-        const blobUrl = await detectionService.imageBlobUrl(record.image_id)
+        const blobUrl = await imageService.blobUrl(record.image_id)
         if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
         imageUrl.value = blobUrl
         // The bytes as well as the URL, so an old run is a re-runnable image and not just a picture:

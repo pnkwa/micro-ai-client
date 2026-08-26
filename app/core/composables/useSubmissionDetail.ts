@@ -5,7 +5,7 @@ import {
     type SubmissionDetail,
 } from '~/services/submissionService'
 import { assignmentService, assignmentTotalPoints } from '~/services/assignmentService'
-import { detectionService } from '~/services/detectionService'
+import { imageService } from '~/services/imageService'
 import { isForbidden } from '~/core/helpers/error'
 
 export interface AnswerGroup {
@@ -78,9 +78,7 @@ export function useSubmissionDetail(submissionId: Ref<number>, assignmentId: Ref
                     // route checks authentication only, so a 403 is live (BE-ADR-031) and this
                     // stopped being a rare case.
                     try {
-                        imageUrls[answer.question_id] = await detectionService.imageBlobUrl(
-                            answer.image_id,
-                        )
+                        imageUrls[answer.question_id] = await imageService.blobUrl(answer.image_id)
                     } catch (err) {
                         imageErrors[answer.question_id] = isForbidden(err)
                             ? 'You do not have access to this image'

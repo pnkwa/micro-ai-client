@@ -5,7 +5,7 @@ import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
-import { detectionService } from '~/services/detectionService'
+import { imageService } from '~/services/imageService'
 import { assignmentTotalPoints, type Assignment } from '~/services/assignmentService'
 import type { Dayjs } from 'dayjs'
 import { rejectUnusableImage } from '~/core/helpers/imageUpload'
@@ -136,7 +136,7 @@ const loadPreviousAttempt = async () => {
                 // PREVIEW may still be re-sent on submit, and dropping the id would silently lose
                 // their picture instead of merely not showing it.
                 try {
-                    previousImageUrls[answer.question_id] = await detectionService.imageBlobUrl(
+                    previousImageUrls[answer.question_id] = await imageService.blobUrl(
                         answer.image_id,
                         'thumb',
                     )
@@ -222,7 +222,7 @@ const keptPhoto = async (questionId: number): Promise<File | null> => {
     const imageId = previousImageIds[questionId]
     if (!imageId) return null
     try {
-        return await detectionService.imageFile(imageId)
+        return await imageService.file(imageId)
     } catch {
         // Better to submit the rest than to fail the whole attempt over one image; the answer
         // arrives without a photo and goes to the instructor, which is where it was headed anyway.

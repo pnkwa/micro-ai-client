@@ -5,6 +5,7 @@ import {
     type DetectionRecord,
     type DetectionWithSubmitter,
 } from '~/services/detectionService'
+import { imageService } from '~/services/imageService'
 import {
     canBrowseAllDetections,
     filterHistory,
@@ -71,7 +72,7 @@ const loadThumbnail = async (record: HistoryRecord) => {
     if (thumbnails.value[id] || pending.has(id) || !record.image_id) return
     pending.add(id)
     try {
-        thumbnails.value[id] = await detectionService.imageBlobUrl(record.image_id, 'thumb')
+        thumbnails.value[id] = await imageService.blobUrl(record.image_id, 'thumb')
     } catch {
         // A missing image is not worth failing the row over - the metadata still reads fine.
     } finally {
