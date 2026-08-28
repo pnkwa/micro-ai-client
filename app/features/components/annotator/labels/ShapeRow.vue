@@ -95,10 +95,16 @@ const meta = computed(() => {
 
             <!-- Accept/reject REPLACES the eye while seeded: hiding a box you have not judged is
                  not a thing anyone wants to do, and the row has room for one control. -->
-            <span v-if="confidence !== null" class="tw:flex tw:shrink-0 tw:gap-0.5">
+            <!--
+                Always-filled chips, not hover-only, and the reject is NEUTRAL rather than red: a
+                seeded shape is a review, and rejecting the model's guess is an ordinary answer, not
+                a destructive one. 24px, the mockup's accept #E6F4F2/#0B7C70 and reject
+                #F7F8F9/#8A9099.
+            -->
+            <span v-if="confidence !== null" class="tw:flex tw:shrink-0 tw:gap-1">
                 <button
                     type="button"
-                    class="tw:flex tw:h-6 tw:w-6 tw:items-center tw:justify-center tw:rounded-md tw:text-an-accent-hover tw:hover:bg-an-accent-tint"
+                    class="tw:flex tw:h-6 tw:w-6 tw:items-center tw:justify-center tw:rounded-md tw:bg-an-accent-tint tw:text-an-accent-hover"
                     aria-label="Accept this shape"
                     title="Accept"
                     @click="emit('accept')"
@@ -107,7 +113,7 @@ const meta = computed(() => {
                 </button>
                 <button
                     type="button"
-                    class="tw:flex tw:h-6 tw:w-6 tw:items-center tw:justify-center tw:rounded-md tw:text-danger tw:hover:bg-danger/10"
+                    class="tw:flex tw:h-6 tw:w-6 tw:items-center tw:justify-center tw:rounded-md tw:bg-an-n-50 tw:text-an-n-500"
                     aria-label="Reject this shape"
                     title="Reject"
                     @click="emit('reject')"

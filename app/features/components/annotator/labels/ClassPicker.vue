@@ -54,7 +54,7 @@ const submit = () => {
             <li v-for="klass in classes" :key="klass.label">
                 <button
                     type="button"
-                    class="tw:flex tw:h-8 tw:w-full tw:items-center tw:gap-2 tw:rounded-[7px] tw:px-2 tw:text-left tw:transition-colors"
+                    class="tw:flex tw:h-[34px] tw:w-full tw:items-center tw:gap-2.5 tw:rounded-[7px] tw:px-2 tw:text-left tw:transition-colors"
                     :class="klass.label === active ? '' : 'tw:hover:bg-an-n-50'"
                     :style="
                         klass.label === active
@@ -70,9 +70,18 @@ const submit = () => {
                         class="tw:h-[11px] tw:w-[11px] tw:shrink-0 tw:rounded-[3px]"
                         :style="{ background: klass.color }"
                     ></span>
-                    <span class="tw:min-w-0 tw:flex-1 tw:truncate tw:text-[12.5px] tw:text-an-text">
+                    <span
+                        class="tw:truncate tw:text-[12.5px] tw:text-an-text"
+                        :class="klass.label === active ? 'tw:font-semibold' : ''"
+                    >
                         {{ klass.label }}
                     </span>
+                    <!-- The mockup's state note. Only the picked class carries one; it says why the
+                         row is tinted without leaning on colour alone. -->
+                    <span v-if="klass.label === active" class="tw:text-[10.5px] tw:text-an-n-400">
+                        {{ hasSelection ? 'reclass' : 'picked' }}
+                    </span>
+                    <div class="tw:flex-1"></div>
                     <!-- Both, always: the count alone was ambiguous, since a class used once
                          showed a lone "1" that read as the key rather than the tally. -->
                     <span
