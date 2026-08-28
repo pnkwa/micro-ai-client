@@ -22,6 +22,7 @@ import {
     translateShape,
     withDerivedBbox,
     type Shape,
+    shouldCommit,
 } from './annotationShapes'
 
 const box = (over: Partial<Shape> = {}): Shape => ({
@@ -581,5 +582,47 @@ describe('shapesFromDetection', () => {
     it('gives every shape a distinct local id', () => {
         const { shapes } = shapesFromDetection([...boxes, ...boxes], false)
         expect(new Set(shapes.map((s) => s.id)).size).toBe(4)
+    })
+})
+
+describe('shouldCommit', () => {
+    const box = (over = {}) => ({
+        id: 'a',
+        label: 'BV',
+        x: 0.1,
+        y: 0.1,
+        w: 0.2,
+        h: 0.2,
+        polygon: null,
+        expert_curated: false,
+        ...over,
+    })
+
+    it('commits the very first entry, when there is nothing to compare against', () => {
+        expect(shouldCommit(undefined, [box()])).toBe(true)
+    })
+
+    it('refuses a snapshot identical to the current one, which is what keeps redo alive', () => {
+        expect(shouldCommit([box()], [box()])).toBe(false)
+    })
+
+    it('ignores a reassigned local id, since it is never sent', () => {
+        expect(shouldCommit([box({ id: 'a' })], [box({ id: 'b' })])).toBe(false)
+    })
+
+    it('commits a moved box', () => {
+        expect(shouldCommit([box()], [box({ x: 0.5 })])).toBe(true)
+    })
+
+    it('commits a relabelled box', () => {
+        expect(shouldCommit([box()], [box({ label: 'TV' })])).toBe(true)
+    })
+
+    it('commits a newly drawn box that has no class yet', () => {
+        expect(shouldCommit([box()], [box(), box({ id: 'c', label: '' })])).toBe(true)
+    })
+
+    it('commits a deletion', () => {
+        expect(shouldCommit([box()], [])).toBe(true)
     })
 })

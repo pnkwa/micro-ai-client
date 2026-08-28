@@ -335,6 +335,25 @@ export function emptyFingerprint(): string {
 }
 
 /**
+ * Is this commit worth a history entry?
+ *
+ * NO when nothing that would be sent has changed, and that guard is what makes REDO survive.
+ *
+ * Every commit truncates the redo branch, because editing after an undo forks and the abandoned
+ * branch must not stay reachable. The canvas emits a commit at the end of ANY gesture that was not
+ * a pan - including a click that only selected a shape, which changes nothing. So without this,
+ * undo made redo available and the very next click threw it away, and a long pass filled the
+ * history with dozens of identical snapshots.
+ *
+ * Compared as the payload, so a rebuilt point object or a reassigned local id is not a change:
+ * those differ after every snapshot without anything the user drew being different.
+ */
+export function shouldCommit(current: Shape[] | undefined, next: Shape[]): boolean {
+    if (!current) return true
+    return annotationFingerprint(current) !== annotationFingerprint(next)
+}
+
+/**
  * What changed against the last save, counted BY IDENTITY.
  *
  * Ids make this honest. Comparing payload arrays can only say "these two lists differ", so a box
