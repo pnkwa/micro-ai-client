@@ -28,9 +28,13 @@ describe('resolveHotkey', () => {
         ['v', 'select'],
         ['r', 'rectangle'],
         ['p', 'polygon'],
-        ['w', 'smart'],
     ])('%s picks the %s tool', (key, tool) => {
         expect(press(key)).toEqual({ type: 'tool', tool })
+    })
+
+    it('leaves W unbound, since smart outline was removed rather than stubbed', () => {
+        expect(press('w')).toBeNull()
+        expect(press('W')).toBeNull()
     })
 
     it('is case-insensitive, so caps lock does not disarm the tools', () => {
@@ -119,7 +123,7 @@ describe('HOTKEY_GROUPS', () => {
         const documented = new Set(
             HOTKEY_GROUPS.flatMap((group) => group.keys.flatMap((row) => row.keys)),
         )
-        for (const key of ['V', 'R', 'P', 'W', 'J', 'K', 'S', 'M', '0', 'H', 'F', '?', '/']) {
+        for (const key of ['V', 'R', 'P', 'J', 'K', 'S', 'M', '0', 'H', 'F', '?', '/']) {
             expect(documented.has(key)).toBe(true)
         }
     })

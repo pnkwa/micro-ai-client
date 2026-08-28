@@ -665,10 +665,7 @@ const modalOpen = computed(() => seedOpen.value || shortcutsOpen.value)
 const onHotkey = (action: HotkeyAction) => {
     switch (action.type) {
         case 'tool':
-            // `smart` is a stub by agreement: the binding and the dock button exist, the
-            // segmentation behind them is a separate conversation.
-            if (action.tool === 'smart') toast.info('Smart outline is not built yet.')
-            else tool.value = action.tool
+            tool.value = action.tool
             return
         case 'class': {
             const picked = classForDigit(classes.value, action.digit)

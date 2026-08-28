@@ -10,7 +10,7 @@
  */
 
 export type HotkeyAction =
-    | { type: 'tool'; tool: 'select' | 'rectangle' | 'polygon' | 'smart' }
+    | { type: 'tool'; tool: 'select' | 'rectangle' | 'polygon' }
     /** 1-9. Picks the class, or reclasses the selection - the caller decides which. */
     | { type: 'class'; digit: number }
     | { type: 'next-image' }
@@ -39,11 +39,10 @@ export interface HotkeyEvent {
     targetEditable?: boolean
 }
 
-const TOOLS: Record<string, 'select' | 'rectangle' | 'polygon' | 'smart'> = {
+const TOOLS: Record<string, 'select' | 'rectangle' | 'polygon'> = {
     v: 'select',
     r: 'rectangle',
     p: 'polygon',
-    w: 'smart',
 }
 
 /**
@@ -138,7 +137,6 @@ export const HOTKEY_GROUPS: { title: string; keys: { keys: string[]; label: stri
             { keys: ['V'], label: 'Select and pan' },
             { keys: ['R'], label: 'Rectangle' },
             { keys: ['P'], label: 'Polygon' },
-            { keys: ['W'], label: 'Smart outline (coming soon)' },
             { keys: ['Space'], label: 'Hold to pan' },
         ],
     },

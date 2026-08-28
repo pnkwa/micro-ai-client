@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MousePointer2, Pentagon, Redo2, Sparkles, Square, Trash2, Undo2 } from '@lucide/vue'
+import { MousePointer2, Pentagon, Redo2, Square, Trash2, Undo2 } from '@lucide/vue'
 import type { Tool } from '../canvas/AnnotationCanvas.vue'
 
 /**
@@ -19,10 +19,9 @@ const emit = defineEmits<{
 }>()
 
 const tools = [
-    { id: 'select', label: 'Select and pan', icon: MousePointer2, ready: true },
-    { id: 'rectangle', label: 'Rectangle', icon: Square, ready: true },
-    { id: 'polygon', label: 'Polygon', icon: Pentagon, ready: true },
-    { id: 'smart', label: 'Smart outline · coming soon', icon: Sparkles, ready: false },
+    { id: 'select', label: 'Select and pan', icon: MousePointer2 },
+    { id: 'rectangle', label: 'Rectangle', icon: Square },
+    { id: 'polygon', label: 'Polygon', icon: Pentagon },
 ] as const
 </script>
 
@@ -35,13 +34,9 @@ const tools = [
             :key="option.id"
             type="button"
             class="tw:flex tw:h-11 tw:w-11 tw:items-center tw:justify-center tw:rounded-xl tw:transition-colors"
-            :class="[
-                tool === option.id ? 'tw:bg-an-accent tw:text-white' : 'tw:text-an-n-600',
-                option.ready ? '' : 'tw:opacity-40',
-            ]"
+            :class="tool === option.id ? 'tw:bg-an-accent tw:text-white' : 'tw:text-an-n-600'"
             :aria-label="option.label"
             :aria-pressed="tool === option.id"
-            :disabled="!option.ready"
             @click="emit('update:tool', option.id as Tool)"
         >
             <component :is="option.icon" class="tw:h-5 tw:w-5" />
