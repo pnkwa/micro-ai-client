@@ -1,17 +1,9 @@
 <script setup lang="ts">
-import { useElementSize, useMediaQuery } from '@vueuse/core'
-import { Images } from '@lucide/vue'
+import { useMediaQuery } from '@vueuse/core'
+import { Images, ImageOff, Loader2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
-import { colorForLabel } from '~/core/helpers/colors'
-import {
-    fitTransform,
-    panBy,
-    toNormalizedPoint,
-    toScreenPoint,
-    zoomAt,
-    zoomByStep,
-    type ViewTransform,
-} from '~/core/helpers/viewportTransform'
+import { colorForShape } from '~/core/helpers/annotationClasses'
+import { useCanvasViewport } from '~/core/composables/useCanvasViewport'
 import {
     CORNERS,
     clampPoint,
@@ -54,6 +46,32 @@ const props = withDefaults(
         tool: Tool
         /** What `expert_curated` starts as on a newly drawn shape. See the page for who gets true. */
         defaultCurated: boolean
+        /** The class list, in order. Position decides colour, so this must stay append-only. */
+        classLabels: string[]
+        /** Shapes the labels panel has hidden. Not drawn, and not hit-testable while hidden. */
+        hiddenIds: Set<string>
+        /** The class a newly drawn shape takes, so drawing lands labelled rather than blank. */
+        activeClass: string | null
+        /** The image's name, so a failure says WHICH image rather than "an image". */
+        name?: string
+        /** Shape id to model confidence, for the ones seeded and not yet judged. */
+        seeded?: Record<string, number>
+        /**
+         * A touch-first layout (below 1280px).
+         *
+         * Gates the loupe and the finger-sized hit areas. Keyed on the LAYOUT rather than only on
+         * the pointer, because a tablet with a trackpad attached still has fingers, and a narrow
+         * desktop window wants the same generous targets.
+         */
+        touchLayout?: boolean
+        /**
+         * Space is held.
+         *
+         * Pans regardless of the active tool, so the picture can be moved without leaving the
+         * polygon being drawn. A modifier for a gesture, which is why it arrives as STATE rather
+         * than as an action - it is true for as long as the key is down.
+         */
+        spacePanning?: boolean
         /**
          * Width in CSS pixels that something else is covering on the RIGHT, i.e. the labels panel.
          *
@@ -71,73 +89,93 @@ const props = withDefaults(
 const shapes = defineModel<Shape[]>('shapes', { required: true })
 const selectedId = defineModel<string | null>('selectedId', { required: true })
 
-const emit = defineEmits<{ commit: [] }>()
+const emit = defineEmits<{ commit: []; retry: []; undo: [] }>()
 
 const container = useTemplateRef<HTMLElement>('container')
-const { width: viewportW, height: viewportH } = useElementSize(container)
 
-const measured = ref<{ src: string; w: number; h: number } | null>(null)
-const transform = ref<ViewTransform>({ scale: 1, x: 0, y: 0 })
+/**
+ * Fit, zoom, pan and the coordinate mappings, all from one composable.
+ *
+ * This file owns pointers and DOM; `useCanvasViewport` owns the transform, and the arithmetic under
+ * it is DOM-free and unit tested. Extracted because the two concerns had grown into one 1100-line
+ * component where the part worth trusting was inseparable from the part that only handles clicks.
+ */
+const view = useCanvasViewport(container, {
+    src: computed(() => props.src),
+    insetRight: computed(() => props.insetRight),
+})
+
+const transform = view.transform
+const natural = view.natural
+const viewport = view.viewport
+const ready = view.ready
+
 const cursor = ref<Point | null>(null)
 
-const natural = computed(() =>
-    measured.value?.src === props.src ? { w: measured.value.w, h: measured.value.h } : null,
-)
-const viewport = computed(() => ({
-    w: Math.max(0, viewportW.value - props.insetRight),
-    h: viewportH.value,
-}))
-const ready = computed(() => natural.value !== null && viewportW.value > 0)
-
-const fit = () => {
-    if (natural.value) transform.value = fitTransform(natural.value, viewport.value)
-}
-
-const onLoad = (event: Event) => {
-    const img = event.target as HTMLImageElement
-    measured.value = { src: props.src ?? '', w: img.naturalWidth, h: img.naturalHeight }
-    fit()
-}
+/**
+ * Load state, driven by the `<img>` itself.
+ *
+ * A dark canvas with nothing on it is indistinguishable from a bug, which is exactly how the
+ * zero-height regression went unnoticed - so every moment before the picture appears says which
+ * moment it is: loading, or failed and why.
+ */
+const loadState = ref<'idle' | 'loading' | 'ready' | 'failed'>('idle')
 
 watch(
     () => props.src,
-    () => (measured.value = null),
+    (src) => (loadState.value = src ? 'loading' : 'idle'),
+    { immediate: true },
 )
-watch([viewportW, viewportH, () => props.insetRight], fit)
 
-const localPoint = (event: PointerEvent | WheelEvent) => {
-    const rect = container.value?.getBoundingClientRect()
-    if (!rect) return { x: 0, y: 0 }
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+const onLoad = (event: Event) => {
+    const img = event.target as HTMLImageElement
+    // A decoded image with no dimensions is a broken decode, not a success.
+    if (!img.naturalWidth || !img.naturalHeight) {
+        loadState.value = 'failed'
+        return
+    }
+    view.measure(img)
+    loadState.value = 'ready'
 }
+
+const onError = () => (loadState.value = 'failed')
+
+const emitRetry = () => emit('retry')
+
+/**
+ * The loupe: a magnified circle of what the finger is covering.
+ *
+ * Only on touch, and only while a vertex is being dragged or a ring drawn - the two moments where
+ * the thing being placed is directly under the fingertip and therefore invisible. Offset UP-LEFT of
+ * the touch point for the same reason: anywhere else and the loupe covers what the loupe is for.
+ */
+const LOUPE_SIZE = 112
+const LOUPE_ZOOM = 2.5
+
+const loupe = ref<{ x: number; y: number } | null>(null)
+
+const loupeStyle = computed(() => {
+    const at = loupe.value
+    const nat = natural.value
+    if (!at || !nat) return undefined
+    const scale = transform.value.scale * LOUPE_ZOOM
+    return {
+        // The picture, scaled up and shifted so the touched point sits at the loupe's centre.
+        width: `${nat.w * scale}px`,
+        height: `${nat.h * scale}px`,
+        transform: `translate(${LOUPE_SIZE / 2 - at.x * nat.w * scale}px, ${
+            LOUPE_SIZE / 2 - at.y * nat.h * scale
+        }px)`,
+    }
+})
+
+/** Named so the failure says which image, which is the first thing anyone needs. */
+const failureLabel = computed(() => `Could not load ${props.name || 'this image'}`)
 
 /** Pointer position in the normalized [0,1] space every shape is stored in. */
-const normalized = (event: PointerEvent): Point =>
-    natural.value
-        ? toNormalizedPoint(natural.value, viewport.value, transform.value, localPoint(event))
-        : { x: 0, y: 0 }
+const normalized = (event: PointerEvent): Point => view.toNormalized(event)
 
-// ---- zoom -------------------------------------------------------------------------------------
-
-const onWheel = (event: WheelEvent) => {
-    if (!natural.value) return
-    // Exponential in the delta, so a trackpad's many small events and a mouse wheel's few large
-    // ones cover comparable ground rather than the trackpad crawling.
-    const factor = Math.exp(-event.deltaY * 0.0015)
-    transform.value = zoomAt(
-        natural.value,
-        viewport.value,
-        transform.value,
-        factor,
-        localPoint(event),
-    )
-}
-
-const step = (factor: number) => {
-    if (natural.value) {
-        transform.value = zoomByStep(natural.value, viewport.value, transform.value, factor)
-    }
-}
+const onWheel = (event: WheelEvent) => view.zoomAtCursor(event, event.deltaY)
 
 // ---- interaction ------------------------------------------------------------------------------
 
@@ -188,6 +226,12 @@ const replaceShape = (id: string, next: Shape) => {
  */
 const active = new Map<number, { x: number; y: number }>()
 let pinchStart: { dist: number; scale: number } | null = null
+/** When the second finger landed, so a quick two-finger tap can be told from a pinch. */
+let twoFingerStart = 0
+/** Greatest change in finger separation during a pinch, so a tap is not read as a zoom. */
+let pinchTravel = 0
+/** The last single-finger tap, for double-tap-to-fit. */
+let lastTapAt = 0
 
 const pointerDistance = () => {
     const [a, b] = [...active.values()]
@@ -228,6 +272,8 @@ const onPointerDown = (event: PointerEvent) => {
 
     if (active.size === 2) {
         pinchStart = { dist: pointerDistance(), scale: transform.value.scale }
+        twoFingerStart = performance.now()
+        pinchTravel = 0
         abandonPinch()
         return
     }
@@ -235,6 +281,26 @@ const onPointerDown = (event: PointerEvent) => {
 
     const at = normalized(event)
     tapOrigin = { x: event.clientX, y: event.clientY }
+
+    // Ahead of every tool: a held Space means "move the picture", whatever is armed.
+    if (props.spacePanning) {
+        gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
+        return
+    }
+
+    /*
+     * A FINGER NEVER DRAWS. It pans, whatever tool is armed, even mid-polygon.
+     *
+     * A finger covers the thing it is placing, and a drag that draws means every attempt to move
+     * the picture adds geometry instead. Drawing belongs to the pencil and the mouse. A tap is
+     * still meaningful - it selects, or places a polygon point - and that is handled on release,
+     * where a tap can be told from the start of a pan.
+     */
+    if (!pointerDraws(event.pointerType)) {
+        gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
+        return
+    }
+
     // A press that reaches the canvas did not land on a handle - those stop propagation - so the
     // delete target widens back to the shape.
     selectedVertex.value = null
@@ -256,7 +322,7 @@ const onPointerDown = (event: PointerEvent) => {
         const id = newId()
         shapes.value.push({
             id,
-            label: '',
+            label: props.activeClass ?? '',
             ...rectFromDrag(at, at),
             polygon: null,
             expert_curated: props.defaultCurated,
@@ -308,6 +374,16 @@ const startVertex = (event: PointerEvent, id: string, index: number) => {
 
 const onPointerMove = (event: PointerEvent) => {
     if (!natural.value) return
+
+    // Shown for the gestures where the fingertip is on top of the work.
+    const g0 = gesture.value
+    // Off in the full layout, where there is a cursor rather than a fingertip covering the work.
+    loupe.value =
+        (props.touchLayout ?? isCoarsePointer.value) &&
+        !pointerDraws(event.pointerType) &&
+        (g0.kind === 'vertex' || g0.kind === 'move' || draftPolygon.value?.length)
+            ? view.toNormalized(event)
+            : null
     if (active.has(event.pointerId)) {
         active.set(event.pointerId, { x: event.clientX, y: event.clientY })
     }
@@ -316,14 +392,11 @@ const onPointerMove = (event: PointerEvent) => {
     // a pinch usually ends with, when one finger lifts a moment before the other.
     if (active.size >= 2) {
         if (pinchStart && pinchStart.dist > 0) {
+            // How far the fingers travelled relative to each other, so a two-finger TAP (no
+            // travel) can be told from a pinch when they lift.
+            pinchTravel = Math.max(pinchTravel, Math.abs(pointerDistance() - pinchStart.dist))
             const target = (pointerDistance() / pinchStart.dist) * pinchStart.scale
-            transform.value = zoomAt(
-                natural.value,
-                viewport.value,
-                transform.value,
-                target / transform.value.scale,
-                pinchMidpoint(),
-            )
+            view.zoomAtPoint(pinchMidpoint(), target / transform.value.scale)
         }
         return
     }
@@ -335,7 +408,7 @@ const onPointerMove = (event: PointerEvent) => {
     if (g.kind === 'pan') {
         const delta = { x: event.clientX - g.last.x, y: event.clientY - g.last.y }
         gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
-        transform.value = panBy(natural.value, viewport.value, transform.value, delta)
+        view.pan(delta)
         return
     }
 
@@ -368,9 +441,33 @@ const onPointerUp = (event: PointerEvent) => {
     // The gesture stays dead until every finger is up, so the second lift of a pinch does not get
     // read as a tap and drop a stray polygon point.
     if (wasPinching || gesture.value.kind === 'pinch') {
+        // A two-finger TAP - both down and up again quickly with no pinch worth the name - is undo.
+        // It is the touch stand-in for the keyboard nobody has on a tablet.
+        if (
+            wasPinching &&
+            active.size === 0 &&
+            performance.now() - twoFingerStart < 250 &&
+            pinchTravel < 12
+        ) {
+            emit('undo')
+        }
         if (active.size === 0) gesture.value = { kind: 'none' }
         tapOrigin = null
         return
+    }
+
+    // Double tap fits. Checked before the tool's own tap handling, so the second tap cannot also
+    // place a point.
+    if (!pointerDraws(event.pointerType) && wasTap(event)) {
+        const now = performance.now()
+        if (now - lastTapAt < 300) {
+            lastTapAt = 0
+            view.fit()
+            tapOrigin = null
+            endGesture()
+            return
+        }
+        lastTapAt = now
     }
 
     if (props.tool === 'delete' && natural.value && wasTap(event)) {
@@ -418,6 +515,8 @@ const onPointerUp = (event: PointerEvent) => {
 }
 
 const endGesture = () => {
+    loupe.value = null
+
     /*
      * A shape too small to mean anything is discarded, not kept and flagged.
      *
@@ -450,7 +549,7 @@ const closePolygon = () => {
     shapes.value.push(
         withDerivedBbox({
             id,
-            label: '',
+            label: props.activeClass ?? '',
             x: 0,
             y: 0,
             w: 0,
@@ -484,10 +583,7 @@ const onContextMenu = (event: MouseEvent) => {
     const shape = selectedId.value ? shapeById(selectedId.value) : null
     if (!shape?.polygon || !natural.value) return
 
-    const at = toNormalizedPoint(natural.value, viewport.value, transform.value, {
-        x: event.clientX - (container.value?.getBoundingClientRect().left ?? 0),
-        y: event.clientY - (container.value?.getBoundingClientRect().top ?? 0),
-    })
+    const at = view.toNormalized(event)
     const index = shape.polygon.findIndex((point) => isNear(at, point, handleTolerance.value))
     if (index === -1) return
 
@@ -557,11 +653,7 @@ const undoDraftPoint = () => {
  * tolerance would demand a pixel-perfect tap zoomed out and swallow half the image zoomed in.
  * Bigger on a coarse pointer, because a fingertip is not a cursor.
  */
-const screenTolerance = (pixels: number) => {
-    const nat = natural.value
-    if (!nat || !transform.value.scale) return 0.02
-    return pixels / transform.value.scale / Math.max(nat.w, nat.h)
-}
+const screenTolerance = view.screenTolerance
 
 /**
  * Two different questions, so two different queries.
@@ -677,6 +769,22 @@ useEventListener('keydown', (event: KeyboardEvent) => {
 // 16px when you zoom in is not a hairline.
 const px = (value: number) => value / transform.value.scale
 
+/** A picked or about-to-be-deleted vertex is bigger, so the target you mean is the bigger one. */
+const handleSize = (shape: Shape, index: number) =>
+    isDeleteTargetVertex(shape, index) || index === selectedVertex.value
+        ? HANDLE_DRAWN + 2
+        : HANDLE_DRAWN
+
+/**
+ * The invisible square that actually catches the press.
+ *
+ * 44px on touch against a 12px drawn handle: a fingertip is roughly that wide, and a target the
+ * size of the thing it is grabbing can only be hit by looking at where the finger is not. Drawn at
+ * zero opacity rather than by enlarging the handle, so precision is unchanged and only the
+ * catchment grows.
+ */
+const hitSize = computed(() => (isCoarsePointer.value || props.touchLayout ? TOUCH_TARGET : 18))
+
 /**
  * Label size, in CSS pixels on screen.
  *
@@ -704,15 +812,29 @@ const px = (value: number) => value / transform.value.scale
 const labelBoxes = computed(() => {
     const nat = natural.value
     if (!nat) return []
-    return shapes.value
+    return visibleShapes.value
         .filter((shape) => shape.label)
         .map((shape) => {
             // Anchored to the shape's top-left corner, which is where the eye looks for it.
-            const at = toScreenPoint(nat, viewport.value, transform.value, {
-                x: shape.x,
-                y: shape.y,
-            })
-            return { id: shape.id, label: shape.label, x: at.x, y: at.y, shape }
+            const at = view.toScreen({ x: shape.x, y: shape.y })
+            const confidence = props.seeded?.[shape.id]
+            return {
+                id: shape.id,
+                label: shape.label,
+                // The detail the mockup carries: a seeded shape shows what the model thought, a
+                // selected polygon shows its point count. Neither is worth the width on every chip
+                // at once, so an unselected hand-drawn box shows nothing extra.
+                detail:
+                    confidence !== undefined
+                        ? confidence.toFixed(2)
+                        : shape.id === selectedId.value && shape.polygon
+                          ? `${shape.polygon.length} pts`
+                          : null,
+                color: colorForShape(props.classLabels, shape) ?? '#D97706',
+                x: at.x,
+                y: at.y,
+                shape,
+            }
         })
 })
 
@@ -739,45 +861,49 @@ const shapeRect = (shape: Shape) => ({
 /**
  * The colour class for a shape, as a Tailwind TEXT class consumed via `currentColor`.
  *
- * `colorForLabel` is the same deterministic label-to-palette map McAnnotatedImage and
- * McConfidenceBar use, so a human's "clue cell" is the same colour as a model's box carrying that
- * label. It returns CLASSES rather than hex, which is why this is bound to `class` and the SVG
- * paints with `currentColor` rather than a `stroke` attribute.
+ * Colours come from the annotator's OWN class palette (`annotationClasses`), assigned by position
+ * in the class list, not from the app-wide `colorForLabel` that McAnnotatedImage and McConfidenceBar
+ * share. Adopting that one would have restyled /image-detection and grading, which this rebuild was
+ * not asked to touch.
  *
  * Two states are not label colours and should not be: the selection is always primary so it is
  * findable, and an UNLABELLED shape is amber, because a region nobody has named yet is unfinished
  * work rather than a category.
  */
-const colorClassFor = (shape: Shape): string => {
-    // Ahead of selection: while the delete tool is armed, "about to be removed" is the only thing
-    // worth saying about a shape.
-    if (isDeleteTargetShape(shape)) return 'tw:text-danger'
-    if (shape.id === selectedId.value) return 'tw:text-primary'
-    if (!shape.label) return 'tw:text-amber-400'
-    return colorForLabel(shape.label).text
+/**
+ * The colour a shape paints in, as a CSS value rather than a class.
+ *
+ * Class colours are assigned by position in the class list, so they cannot be Tailwind utilities -
+ * a class built by concatenation is never emitted, and the palette is data. Two states override the
+ * class colour because they say something more urgent: about to be deleted, and selected.
+ */
+const strokeFor = (shape: Shape): string => {
+    if (isDeleteTargetShape(shape)) return '#dc2626'
+    if (shape.id === selectedId.value) return '#0E9384'
+    return colorForShape(props.classLabels, shape) ?? '#D97706'
 }
 
+/** Hidden shapes are not drawn, and must not be hit-testable either. */
+const visibleShapes = computed(() => shapes.value.filter((shape) => !props.hiddenIds.has(shape.id)))
+
 defineExpose({
-    zoomIn: () => step(1.25),
-    zoomOut: () => step(1 / 1.25),
-    fit,
-    actualSize: () => {
-        if (natural.value) {
-            transform.value = zoomAt(
-                natural.value,
-                viewport.value,
-                transform.value,
-                1 / transform.value.scale,
-                { x: viewport.value.w / 2, y: viewport.value.h / 2 },
-            )
-        }
-    },
+    zoomIn: () => view.zoomStep(1.25),
+    zoomOut: () => view.zoomStep(1 / 1.25),
+    fit: view.fit,
+    actualSize: view.actualSize,
     closePolygon,
+    cancelDraft: cancelPolygon,
     undoDraftPoint,
     deleteSelection,
     deleteTarget,
     hasDraft: computed(() => (draftPolygon.value?.length ?? 0) > 0),
-    transform: computed(() => transform.value),
+    transform,
+    /** Natural pixel size, for the image card. Undefined until the picture has loaded. */
+    natural,
+    /** So the zoom readout can say "Fit 13%" rather than a bare percentage that reads as a bug. */
+    fitScale: view.fitAt,
+    /** Already a tolerance-compared boolean; the page should not re-derive it. */
+    atFit: view.atFit,
     ready,
 })
 </script>
@@ -785,23 +911,27 @@ defineExpose({
 <template>
     <div
         ref="container"
-        class="tw:relative tw:min-h-0 tw:flex-1 tw:touch-none tw:overflow-hidden tw:bg-slate-950 tw:select-none"
+        class="tw:absolute tw:inset-0 tw:touch-none tw:overflow-hidden tw:select-none"
         :class="
             !src
                 ? ''
-                : tool === 'delete'
-                  ? deleteHover
-                      ? 'tw:cursor-pointer'
-                      : gesture.kind === 'pan'
-                        ? 'tw:cursor-grabbing'
-                        : 'tw:cursor-crosshair'
-                  : canInsertAtCursor
-                    ? 'tw:cursor-copy'
-                    : tool === 'select'
-                      ? gesture.kind === 'pan'
+                : spacePanning
+                  ? gesture.kind === 'pan'
+                      ? 'tw:cursor-grabbing'
+                      : 'tw:cursor-grab'
+                  : tool === 'delete'
+                    ? deleteHover
+                        ? 'tw:cursor-pointer'
+                        : gesture.kind === 'pan'
                           ? 'tw:cursor-grabbing'
-                          : 'tw:cursor-grab'
-                      : 'tw:cursor-crosshair'
+                          : 'tw:cursor-crosshair'
+                    : canInsertAtCursor
+                      ? 'tw:cursor-copy'
+                      : tool === 'select'
+                        ? gesture.kind === 'pan'
+                            ? 'tw:cursor-grabbing'
+                            : 'tw:cursor-grab'
+                        : 'tw:cursor-crosshair'
         "
         @wheel.prevent="onWheel"
         @pointerdown="onPointerDown"
@@ -830,6 +960,7 @@ defineExpose({
                     class="tw:block tw:h-full tw:w-full tw:select-none"
                     draggable="false"
                     @load="onLoad"
+                    @error="onError"
                     @dragstart.prevent
                 />
 
@@ -839,25 +970,23 @@ defineExpose({
                     :viewBox="`0 0 ${natural.w} ${natural.h}`"
                     preserveAspectRatio="none"
                 >
-                    <g v-for="shape in shapes" :key="shape.id">
+                    <g v-for="shape in visibleShapes" :key="shape.id">
                         <polygon
                             v-if="shape.polygon"
                             :points="polygonPoints(shape.polygon)"
-                            fill="currentColor"
-                            fill-opacity="0.12"
-                            stroke="currentColor"
-                            :stroke-width="px(2)"
+                            :fill="strokeFor(shape)"
+                            fill-opacity="0.18"
+                            :stroke="strokeFor(shape)"
+                            :stroke-width="px(shape.id === selectedId ? 3 : 2)"
                             stroke-linejoin="round"
-                            :class="colorClassFor(shape)"
                         />
                         <rect
                             v-else
                             v-bind="shapeRect(shape)"
-                            fill="currentColor"
-                            fill-opacity="0.08"
-                            stroke="currentColor"
-                            :stroke-width="px(2)"
-                            :class="colorClassFor(shape)"
+                            :fill="strokeFor(shape)"
+                            fill-opacity="0.18"
+                            :stroke="strokeFor(shape)"
+                            :stroke-width="px(shape.id === selectedId ? 3 : 2)"
                         />
 
                         <!-- The vertex a click would create. The cursor says a node can be
@@ -876,17 +1005,32 @@ defineExpose({
                         />
 
                         <!-- Handles only on the selection, and only for the geometry that has
-                             them: a rectangle resizes by corners, a polygon by vertices. -->
+                             them: a rectangle resizes by corners, a polygon by vertices. Squares
+                             rather than dots - a grab target reads as a square - white with the
+                             class colour as its border so it shows on a pale field. -->
                         <template v-if="shape.id === selectedId && !shape.polygon">
-                            <circle
+                            <rect
                                 v-for="corner in CORNERS"
                                 :key="corner"
-                                :cx="cornerPoint(shape, corner).x * natural.w"
-                                :cy="cornerPoint(shape, corner).y * natural.h"
-                                :r="px(5)"
+                                :x="cornerPoint(shape, corner).x * natural.w - px(4)"
+                                :y="cornerPoint(shape, corner).y * natural.h - px(4)"
+                                :width="px(8)"
+                                :height="px(8)"
                                 fill="#fff"
-                                stroke="#249486"
-                                :stroke-width="px(1.5)"
+                                :stroke="strokeFor(shape)"
+                                :stroke-width="px(2)"
+                                class="tw:pointer-events-none"
+                            />
+                            <!-- The catchment: invisible and finger-sized. The square above is
+                                 what you see, this is what you hit. -->
+                            <rect
+                                v-for="corner in CORNERS"
+                                :key="`hit-${corner}`"
+                                :x="cornerPoint(shape, corner).x * natural.w - px(hitSize / 2)"
+                                :y="cornerPoint(shape, corner).y * natural.h - px(hitSize / 2)"
+                                :width="px(hitSize)"
+                                :height="px(hitSize)"
+                                fill="transparent"
                                 class="tw:cursor-nwse-resize"
                                 @pointerdown="startResize($event, shape.id, corner)"
                             />
@@ -897,32 +1041,39 @@ defineExpose({
                         <template
                             v-if="(shape.id === selectedId || tool === 'delete') && shape.polygon"
                         >
-                            <circle
+                            <!-- Squares, not dots: a vertex handle is a grab target and a square
+                                 reads as one. White with the class colour as its border, so it is
+                                 visible on a pale field and still tied to its shape. -->
+                            <rect
                                 v-for="(point, index) in shape.polygon"
                                 :key="index"
-                                :cx="point.x * natural.w"
-                                :cy="point.y * natural.h"
-                                :r="
-                                    px(
-                                        isDeleteTargetVertex(shape, index) ||
-                                            index === selectedVertex
-                                            ? 7
-                                            : 5,
-                                    )
-                                "
+                                :x="point.x * natural.w - px(handleSize(shape, index) / 2)"
+                                :y="point.y * natural.h - px(handleSize(shape, index) / 2)"
+                                :width="px(handleSize(shape, index))"
+                                :height="px(handleSize(shape, index))"
                                 :fill="
                                     isDeleteTargetVertex(shape, index)
                                         ? '#dc2626'
                                         : index === selectedVertex
-                                          ? '#249486'
+                                          ? '#0E9384'
                                           : '#fff'
                                 "
                                 :stroke="
                                     isDeleteTargetVertex(shape, index) || index === selectedVertex
                                         ? '#fff'
-                                        : '#249486'
+                                        : strokeFor(shape)
                                 "
-                                :stroke-width="px(1.5)"
+                                :stroke-width="px(2)"
+                                class="tw:pointer-events-none"
+                            />
+                            <rect
+                                v-for="(point, index) in shape.polygon"
+                                :key="`hit-${index}`"
+                                :x="point.x * natural.w - px(hitSize / 2)"
+                                :y="point.y * natural.h - px(hitSize / 2)"
+                                :width="px(hitSize)"
+                                :height="px(hitSize)"
+                                fill="transparent"
                                 :class="tool === 'delete' ? 'tw:cursor-pointer' : 'tw:cursor-move'"
                                 @pointerdown="
                                     tool === 'delete'
@@ -999,18 +1150,21 @@ defineExpose({
             <div
                 v-for="entry in labelBoxes"
                 :key="entry.id"
-                class="tw:pointer-events-none tw:absolute tw:z-[5] tw:max-w-[40%] tw:truncate tw:rounded tw:px-1.5 tw:py-0.5 tw:font-semibold tw:whitespace-nowrap tw:text-white"
-                :class="[
-                    isTouchCapable ? 'tw:text-base' : 'tw:text-xs',
-                    entry.shape.id === selectedId ? 'tw:bg-primary' : 'tw:bg-black/75',
-                ]"
+                class="tw:pointer-events-none tw:absolute tw:z-[5] tw:flex tw:max-w-[40%] tw:items-center tw:gap-1 tw:rounded tw:px-1.5 tw:py-0.5 tw:font-semibold tw:whitespace-nowrap tw:text-white tw:shadow-sm"
+                :class="isTouchCapable ? 'tw:text-sm' : 'tw:text-xs'"
                 :style="{
                     left: `${entry.x}px`,
                     top: `${entry.y}px`,
+                    // Pinned OUTSIDE the shape's top edge, so a chip never covers the thing it
+                    // names. Solid class colour, which is what ties it to its outline at a glance.
                     transform: 'translateY(-100%)',
+                    background: entry.color,
                 }"
             >
-                {{ entry.label }}
+                <span class="tw:truncate">{{ entry.label }}</span>
+                <span v-if="entry.detail" class="tw:font-mono tw:font-normal tw:opacity-80">
+                    {{ entry.detail }}
+                </span>
             </div>
 
             <!--
@@ -1021,7 +1175,7 @@ defineExpose({
             -->
             <div
                 v-if="draftPolygon?.length"
-                class="tw:absolute tw:top-2 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-2 tw:rounded tw:bg-black/75 tw:px-2 tw:py-1.5 tw:text-xs tw:text-white"
+                class="tw:absolute tw:top-2 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-2 tw:rounded tw:bg-an-overlay/95 tw:px-2 tw:py-1.5 tw:text-xs tw:text-white"
                 :style="{ left: `${viewport.w / 2}px` }"
             >
                 <span>{{ draftPolygon.length }} point(s)</span>
@@ -1055,6 +1209,45 @@ defineExpose({
                 </button>
             </div>
 
+            <!-- Offset up-left of the touch point, because the finger is on the spot itself. -->
+            <div
+                v-if="loupe && natural && src"
+                class="tw:pointer-events-none tw:absolute tw:z-20 tw:overflow-hidden tw:rounded-full tw:border-2 tw:border-white/70 tw:bg-an-canvas tw:shadow-lg"
+                :style="{
+                    width: `${LOUPE_SIZE}px`,
+                    height: `${LOUPE_SIZE}px`,
+                    left: `${view.toScreen(loupe).x - LOUPE_SIZE - 12}px`,
+                    top: `${view.toScreen(loupe).y - LOUPE_SIZE - 12}px`,
+                }"
+            >
+                <img
+                    :src="src"
+                    alt=""
+                    class="tw:max-w-none tw:origin-top-left"
+                    :style="loupeStyle"
+                />
+                <svg
+                    :width="LOUPE_SIZE"
+                    :height="LOUPE_SIZE"
+                    class="tw:absolute tw:inset-0"
+                    :viewBox="`0 0 ${LOUPE_SIZE} ${LOUPE_SIZE}`"
+                >
+                    <path
+                        :d="`M${LOUPE_SIZE / 2} 40v32M40 ${LOUPE_SIZE / 2}h32`"
+                        stroke="rgba(255,255,255,0.75)"
+                        stroke-width="1.5"
+                    />
+                    <circle
+                        :cx="LOUPE_SIZE / 2"
+                        :cy="LOUPE_SIZE / 2"
+                        r="7"
+                        fill="none"
+                        stroke="#0E9384"
+                        stroke-width="3"
+                    />
+                </svg>
+            </div>
+
             <div
                 v-if="cursor"
                 class="tw:pointer-events-none tw:absolute tw:right-2 tw:bottom-2 tw:rounded tw:bg-black/60 tw:px-2 tw:py-1 tw:font-mono tw:text-[10px] tw:text-white/80"
@@ -1065,10 +1258,31 @@ defineExpose({
 
         <div
             v-else
-            class="tw:flex tw:h-full tw:w-full tw:flex-col tw:items-center tw:justify-center tw:gap-2 tw:text-white/50"
+            class="tw:flex tw:h-full tw:w-full tw:flex-col tw:items-center tw:justify-center tw:gap-2 tw:text-an-d-disabled"
         >
             <Images class="tw:h-6 tw:w-6" />
-            <p class="tw:text-sm">Load an image below to start annotating.</p>
+            <p class="tw:text-sm">Pick an image from the queue to start annotating.</p>
+        </div>
+
+        <!-- Over the picture rather than instead of it, so a slow decode does not blank a canvas
+             the person is already looking at. -->
+        <div
+            v-if="loadState === 'loading'"
+            class="tw:absolute tw:inset-0 tw:z-20 tw:flex tw:items-center tw:justify-center tw:bg-an-canvas"
+        >
+            <Loader2 class="tw:h-6 tw:w-6 tw:animate-spin tw:text-an-d-icon" />
+        </div>
+
+        <div
+            v-else-if="loadState === 'failed'"
+            class="tw:absolute tw:inset-0 tw:z-20 tw:flex tw:flex-col tw:items-center tw:justify-center tw:gap-3 tw:bg-an-canvas tw:px-8 tw:text-center"
+        >
+            <ImageOff class="tw:h-6 tw:w-6 tw:text-an-d-disabled" />
+            <p class="tw:text-sm tw:text-an-d-text">{{ failureLabel }}</p>
+            <McButton variant="outline" size="sm" @click="emitRetry">Retry</McButton>
+            <p class="tw:max-w-full tw:truncate tw:font-mono tw:text-[10px] tw:text-an-d-disabled">
+                {{ src }}
+            </p>
         </div>
     </div>
 </template>

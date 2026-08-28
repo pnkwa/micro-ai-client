@@ -38,7 +38,28 @@ export interface Viewport {
  * 16x, because past that a microscopy pixel is a blank square the size of a thumbnail and the only
  * thing gained is the ability to place a box edge more precisely than the image can justify.
  */
-export const MAX_SCALE = 16
+export const MAX_SCALE = 40
+
+/**
+ * Floor on magnification.
+ *
+ * Not zero, and that is the point: a scale of 0 paints nothing, and every downstream division by
+ * it yields Infinity or NaN, which then propagate into the pan bounds and the pointer mapping. A
+ * canvas that renders a black void is the symptom; an unguarded scale is the cause.
+ */
+export const MIN_SCALE = 0.02
+
+/**
+ * Force a usable number out of anything.
+ *
+ * A viewport measured before layout, an image that never decoded, a division by a zero dimension -
+ * each produces 0, NaN or Infinity, and each one blanks the canvas silently. Falling back to 1
+ * shows the picture at natural size, which is wrong but visible, and visible is debuggable.
+ */
+export function safeScale(scale: number): number {
+    if (!Number.isFinite(scale) || scale <= 0) return 1
+    return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale))
+}
 
 /**
  * The scale at which the whole image fits inside the viewport: CONTAIN, not cover.
@@ -50,7 +71,7 @@ export const MAX_SCALE = 16
  */
 export function fitScale(natural: ImageSize, viewport: Viewport): number {
     if (!natural.w || !natural.h || !viewport.w || !viewport.h) return 1
-    return Math.min(viewport.w / natural.w, viewport.h / natural.h)
+    return safeScale(Math.min(viewport.w / natural.w, viewport.h / natural.h))
 }
 
 /**
@@ -61,7 +82,7 @@ export function fitScale(natural: ImageSize, viewport: Viewport): number {
  * without information.
  */
 export function clampScale(scale: number, fit: number): number {
-    return Math.min(MAX_SCALE, Math.max(fit, scale))
+    return safeScale(Math.min(MAX_SCALE, Math.max(safeScale(fit), scale)))
 }
 
 /**

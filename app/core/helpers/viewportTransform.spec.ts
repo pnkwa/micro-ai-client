@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
     MAX_SCALE,
+    MIN_SCALE,
+    safeScale,
     clampPan,
     clampScale,
     fitScale,
@@ -249,5 +251,44 @@ describe('toScreenPoint', () => {
         const point = toScreenPoint(natural, viewport, panned, { x: 0.5, y: 0.5 })
         expect(point.x).toBeCloseTo(230, 10)
         expect(point.y).toBeCloseTo(180, 10)
+    })
+})
+
+describe('safeScale', () => {
+    /**
+     * The guard that exists because a zero scale blanked the whole canvas: every downstream
+     * division by it yields Infinity or NaN, and the symptom is a black void with no error.
+     */
+    it.each([
+        ['zero', 0],
+        ['negative', -3],
+        ['NaN', NaN],
+        ['Infinity', Infinity],
+        ['-Infinity', -Infinity],
+    ])('falls back to 1 for %s', (_name, value) => {
+        expect(safeScale(value)).toBe(1)
+    })
+
+    it('clamps into the usable range', () => {
+        expect(safeScale(0.0001)).toBe(MIN_SCALE)
+        expect(safeScale(1000)).toBe(MAX_SCALE)
+    })
+
+    it('leaves an ordinary scale alone', () => {
+        expect(safeScale(0.37)).toBe(0.37)
+    })
+})
+
+describe('fitScale guards', () => {
+    it('never returns a scale that cannot paint, whatever it is handed', () => {
+        for (const viewport of [
+            { w: 0, h: 0 },
+            { w: 400, h: 0 },
+            { w: NaN, h: 400 },
+        ]) {
+            const scale = fitScale({ w: 800, h: 400 }, viewport)
+            expect(Number.isFinite(scale)).toBe(true)
+            expect(scale).toBeGreaterThan(0)
+        }
     })
 })

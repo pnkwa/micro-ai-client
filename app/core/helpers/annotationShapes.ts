@@ -1,3 +1,5 @@
+import { localId } from './localId'
+
 /**
  * The shapes a person draws, and the payload they become.
  *
@@ -267,6 +269,174 @@ export function topmostAt(shapes: Shape[], point: Point): Shape | null {
         if (hitTest(shapes[i]!, point)) return shapes[i]!
     }
     return null
+}
+
+/**
+ * One annotation as the server sends it, structurally.
+ *
+ * Declared here rather than imported from `annotationService` so this module stays free of the
+ * service layer: the geometry has no business knowing how it was fetched, and the service's Zod
+ * type satisfies this by shape.
+ */
+export interface AnnotationView {
+    id: number
+    label: string
+    x: number
+    y: number
+    w: number
+    h: number
+    polygon?: number[][] | null
+    expert_curated: boolean
+}
+
+/**
+ * Server annotations to editable shapes.
+ *
+ * The local id is prefixed and derived from the server's rather than reused raw, so nothing can
+ * confuse "the row this came from" with "the shape being edited" - and a shape drawn in the same
+ * session carries a `localId` that could otherwise collide with a small integer.
+ *
+ * `polygon` arrives as `[[x, y], ...]` pairs and becomes points. A pair missing a member would be a
+ * server bug rather than a case to handle, but 0 is the honest reading of absent here: it keeps the
+ * outline closed instead of producing NaN that propagates silently into the next bounding box.
+ */
+export function toShapes(views: AnnotationView[]): Shape[] {
+    return views.map((view) => {
+        const polygon = view.polygon?.length
+            ? view.polygon.map(([x, y]) => ({ x: x ?? 0, y: y ?? 0 }))
+            : null
+        return {
+            id: `srv-${view.id}`,
+            label: view.label,
+            x: view.x,
+            y: view.y,
+            w: view.w,
+            h: view.h,
+            polygon,
+            expert_curated: view.expert_curated,
+        }
+    })
+}
+
+/**
+ * A stable string for "what would be sent", used to tell saved from unsaved.
+ *
+ * The PAYLOAD rather than the shapes, deliberately: a throwaway local id or a point object rebuilt
+ * by an undo snapshot differs without anything the server would store having changed, and treating
+ * that as unsaved work puts a discard prompt in front of someone who has done nothing.
+ */
+export function annotationFingerprint(shapes: Shape[]): string {
+    return JSON.stringify(toAnnotationPayload(shapes))
+}
+
+/** The fingerprint an editor with nothing open starts from. */
+export function emptyFingerprint(): string {
+    return annotationFingerprint([])
+}
+
+/**
+ * What changed against the last save, counted BY IDENTITY.
+ *
+ * Ids make this honest. Comparing payload arrays can only say "these two lists differ", so a box
+ * nudged by one pixel reads as one deletion plus one addition, and the previous version gave up and
+ * reported the whole shape count - which is how a freshly-opened image with five annotations
+ * offered to save "5 unsaved edits" before anyone touched it.
+ *
+ * A shape keeps its id across an edit, so a move is one CHANGE. Ids are local and never sent, which
+ * is exactly why they are safe to compare on.
+ */
+export function diffAnnotations(
+    current: Shape[],
+    baseline: Shape[],
+): { added: number; removed: number; changed: number; total: number } {
+    // Compared as the PAYLOAD, so a difference that would not be sent is not an edit: a label
+    // whitespace change, or a shape too small to survive the filter.
+    const fingerprint = (shape: Shape) =>
+        JSON.stringify(toAnnotationPayload([shape]).annotations[0] ?? null)
+
+    const before = new Map(baseline.map((shape) => [shape.id, fingerprint(shape)]))
+    const after = new Map(current.map((shape) => [shape.id, fingerprint(shape)]))
+
+    let added = 0
+    let changed = 0
+    for (const [id, print] of after) {
+        if (!before.has(id)) added += 1
+        else if (before.get(id) !== print) changed += 1
+    }
+    let removed = 0
+    for (const id of before.keys()) if (!after.has(id)) removed += 1
+
+    return { added, removed, changed, total: added + removed + changed }
+}
+
+/**
+ * Is there unsaved work?
+ *
+ * Pure and exported because getting the INITIAL value wrong is invisible until it is in front of a
+ * user: seeding the baseline with `''` rather than the empty payload made a freshly-opened editor
+ * report unsaved changes, so every navigation away from the page - signing out included - asked
+ * whether to discard annotations nobody had drawn.
+ *
+ * `hasImage` is part of the question rather than a caller's guard: with nothing open there is
+ * nothing to be dirty about, whatever the shape list happens to hold.
+ */
+export function hasUnsavedAnnotations(input: {
+    hasImage: boolean
+    shapes: Shape[]
+    baseline: Shape[]
+}): boolean {
+    if (!input.hasImage) return false
+    return diffAnnotations(input.shapes, input.baseline).total > 0
+}
+
+/** A detection box, structurally, as `detection_steps[].boxes[]` carries it. */
+export interface DetectionBoxView {
+    label: string
+    confidence: number
+    x: number
+    y: number
+    w: number
+    h: number
+    polygon?: number[][] | null
+}
+
+/**
+ * Model output as editable shapes, WITH the confidences kept alongside.
+ *
+ * Seeded client-side from the run's own boxes rather than through
+ * `POST /images/:id/annotations/seed-from-detection`, and only because of the confidence:
+ * `image_annotations` has no confidence column, and the server synthesizes `1` at its serializer
+ * precisely so a fabricated number never reaches the dataset export. Going through the endpoint
+ * would give correct shapes and no way to say which of them the model was unsure about, which is
+ * the one thing that makes a seeded set worth reviewing in order.
+ *
+ * The confidences are therefore SESSION-ONLY, returned separately rather than hung on the Shape, so
+ * nothing can mistake them for something that will be saved.
+ */
+export function shapesFromDetection(
+    boxes: DetectionBoxView[],
+    expertCurated: boolean,
+): { shapes: Shape[]; confidence: Record<string, number> } {
+    const shapes: Shape[] = []
+    const confidence: Record<string, number> = {}
+    for (const box of boxes) {
+        const polygon = box.polygon?.length
+            ? box.polygon.map(([x, y]) => ({ x: x ?? 0, y: y ?? 0 }))
+            : null
+        const shape: Shape = {
+            id: localId('seed'),
+            label: box.label,
+            x: box.x,
+            y: box.y,
+            w: box.w,
+            h: box.h,
+            polygon,
+            expert_curated: expertCurated,
+        }
+        shapes.push(polygon ? withDerivedBbox(shape) : shape)
+        confidence[shape.id] = box.confidence
+    }
+    return { shapes, confidence }
 }
 
 /** The server's cap. Exported so the UI can say so before a save is refused. */

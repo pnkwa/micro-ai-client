@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+    diffAnnotations,
     bboxOfPolygon,
+    hasUnsavedAnnotations,
     distanceToSegment,
     insertPointOnEdge,
     isNear,
@@ -13,6 +15,8 @@ import {
     rectFromDrag,
     resizeRect,
     toAnnotationPayload,
+    shapesFromDetection,
+    toShapes,
     topmostAt,
     vertexAt,
     translateShape,
@@ -398,5 +402,184 @@ describe('vertexAt', () => {
             { id: 'over' },
         )
         expect(vertexAt([under, over], { x: 0, y: 0 }, 0.01)?.shapeId).toBe('over')
+    })
+})
+
+describe('toShapes', () => {
+    const view = {
+        id: 7,
+        label: 'clue cell',
+        x: 0.1,
+        y: 0.2,
+        w: 0.3,
+        h: 0.4,
+        polygon: null,
+        expert_curated: true,
+    }
+
+    it('prefixes the server id rather than reusing it raw', () => {
+        expect(toShapes([view])[0]!.id).toBe('srv-7')
+    })
+
+    it('carries the label, the box and the curated flag', () => {
+        expect(toShapes([view])[0]).toMatchObject({
+            label: 'clue cell',
+            x: 0.1,
+            y: 0.2,
+            w: 0.3,
+            h: 0.4,
+            expert_curated: true,
+        })
+    })
+
+    it('turns polygon PAIRS into points', () => {
+        const [shape] = toShapes([
+            {
+                ...view,
+                polygon: [
+                    [0.1, 0.1],
+                    [0.3, 0.1],
+                    [0.2, 0.3],
+                ],
+            },
+        ])
+        expect(shape!.polygon).toEqual([
+            { x: 0.1, y: 0.1 },
+            { x: 0.3, y: 0.1 },
+            { x: 0.2, y: 0.3 },
+        ])
+    })
+
+    it.each([
+        ['null', null],
+        ['undefined', undefined],
+        ['an empty array', []],
+    ])('reads %s polygon as a plain box', (_name, polygon) => {
+        expect(
+            toShapes([{ ...view, polygon: polygon as number[][] | null }])[0]!.polygon,
+        ).toBeNull()
+    })
+
+    /** A shape read back and sent again unchanged must survive the round trip. */
+    it('round-trips through toAnnotationPayload', () => {
+        const original = {
+            ...view,
+            polygon: [
+                [0.1, 0.1],
+                [0.3, 0.1],
+                [0.2, 0.3],
+            ],
+        }
+        const [sent] = toAnnotationPayload(toShapes([original])).annotations
+        expect(sent).toMatchObject({
+            label: original.label,
+            polygon: original.polygon,
+            expert_curated: true,
+        })
+        expect(sent).not.toHaveProperty('id')
+    })
+})
+
+describe('diffAnnotations', () => {
+    const a = box({ id: 'a' })
+    const b = box({ id: 'b', x: 0.5 })
+
+    it('is empty for an untouched set', () => {
+        expect(diffAnnotations([a, b], [a, b])).toMatchObject({ total: 0 })
+    })
+
+    /** The bug: a moved box used to read as one deletion plus one addition. */
+    it('counts a moved shape as ONE change, not an add plus a remove', () => {
+        expect(diffAnnotations([{ ...a, x: 0.9 }, b], [a, b])).toMatchObject({
+            added: 0,
+            removed: 0,
+            changed: 1,
+            total: 1,
+        })
+    })
+
+    it('counts an addition', () => {
+        expect(diffAnnotations([a, b], [a])).toMatchObject({ added: 1, total: 1 })
+    })
+
+    it('counts a deletion', () => {
+        expect(diffAnnotations([a], [a, b])).toMatchObject({ removed: 1, total: 1 })
+    })
+
+    /** A difference that would never be sent is not an edit. */
+    it('ignores a change the payload would not carry', () => {
+        expect(diffAnnotations([{ ...a, label: 'x ' }], [{ ...a, label: 'x' }])).toMatchObject({
+            total: 1,
+        })
+        expect(diffAnnotations([a], [a])).toMatchObject({ total: 0 })
+    })
+})
+
+describe('hasUnsavedAnnotations', () => {
+    const saved = [box({ id: 'a' })]
+
+    /**
+     * The regression this exists for: a freshly loaded image reported unsaved work, which put the
+     * discard prompt in front of every navigation away - signing out included.
+     */
+    it('is FALSE for a freshly loaded image, whatever it holds', () => {
+        expect(hasUnsavedAnnotations({ hasImage: true, shapes: saved, baseline: saved })).toBe(
+            false,
+        )
+    })
+
+    it('is false with no image open, whatever the shape list holds', () => {
+        expect(hasUnsavedAnnotations({ hasImage: false, shapes: saved, baseline: [] })).toBe(false)
+    })
+
+    it('is true once something actually changes', () => {
+        expect(hasUnsavedAnnotations({ hasImage: true, shapes: [], baseline: saved })).toBe(true)
+    })
+})
+
+describe('shapesFromDetection', () => {
+    const boxes = [
+        { label: 'clue cell', confidence: 0.91, x: 0.1, y: 0.1, w: 0.2, h: 0.2, polygon: null },
+        {
+            label: 'fungus',
+            confidence: 0.42,
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+            polygon: [
+                [0.5, 0.5],
+                [0.7, 0.5],
+                [0.6, 0.8],
+            ],
+        },
+    ]
+
+    it('keeps each box confidence against the shape it made', () => {
+        const { shapes, confidence } = shapesFromDetection(boxes, false)
+        expect(shapes).toHaveLength(2)
+        expect(confidence[shapes[0]!.id]).toBe(0.91)
+        expect(confidence[shapes[1]!.id]).toBe(0.42)
+    })
+
+    /** The confidence is session-only; hanging it on the Shape would imply it gets saved. */
+    it('does not put confidence on the shape itself', () => {
+        const [shape] = shapesFromDetection(boxes, false).shapes
+        expect(shape).not.toHaveProperty('confidence')
+    })
+
+    it('derives a polygon shape bbox from its outline rather than the zeroes sent', () => {
+        const [, polygonShape] = shapesFromDetection(boxes, false).shapes
+        expect(polygonShape!.w).toBeCloseTo(0.2, 10)
+        expect(polygonShape!.h).toBeCloseTo(0.3, 10)
+    })
+
+    it('applies the caller default for expert_curated', () => {
+        expect(shapesFromDetection(boxes, true).shapes[0]!.expert_curated).toBe(true)
+    })
+
+    it('gives every shape a distinct local id', () => {
+        const { shapes } = shapesFromDetection([...boxes, ...boxes], false)
+        expect(new Set(shapes.map((s) => s.id)).size).toBe(4)
     })
 })

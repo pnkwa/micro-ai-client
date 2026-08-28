@@ -32,6 +32,7 @@ const crumbs = computed(() => {
              the scroll container - nothing between here and <body> sets overflow). z-30 keeps
              it above page content and any in-page sticky table headers, below dialogs/popovers. -->
         <div
+            data-mc-app-bar
             class="tw:sticky tw:top-0 tw:z-30 tw:flex tw:items-center tw:justify-between tw:bg-white tw:px-4 tw:min-h-12 tw:border-b"
         >
             <div
