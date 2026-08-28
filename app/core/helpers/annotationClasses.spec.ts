@@ -5,7 +5,9 @@ import {
     classColorAt,
     classForDigit,
     colorForShape,
+    dominantLabel,
     mergeClassLabels,
+    mergeLabels,
 } from './annotationClasses'
 import type { Shape } from './annotationShapes'
 
@@ -102,5 +104,47 @@ describe('classForDigit', () => {
     /** Clamping would relabel a shape with a class nobody picked. */
     it('is null past the end of the list rather than clamping to the last', () => {
         expect(classForDigit(classes, 9)).toBeNull()
+    })
+})
+
+describe('dominantLabel', () => {
+    it('returns the label most of the shapes carry', () => {
+        expect(dominantLabel([shape('BV', 'a'), shape('TV', 'b'), shape('TV', 'c')])).toBe('TV')
+    })
+
+    it('is null when nothing is labelled, so the caller can keep the current pick', () => {
+        expect(dominantLabel([])).toBeNull()
+        expect(dominantLabel([shape('', 'a'), shape('   ', 'b')])).toBeNull()
+    })
+
+    it('ignores blank labels rather than counting them as a class', () => {
+        expect(dominantLabel([shape('', 'a'), shape('', 'b'), shape('BV', 'c')])).toBe('BV')
+    })
+
+    it('keeps the first-seen label on a tie, so a reload does not flip the pick', () => {
+        expect(dominantLabel([shape('BV', 'a'), shape('TV', 'b')])).toBe('BV')
+        expect(dominantLabel([shape('TV', 'a'), shape('BV', 'b')])).toBe('TV')
+    })
+
+    it('trims, so the same class spelled with padding is one class', () => {
+        expect(dominantLabel([shape(' BV ', 'a'), shape('BV', 'b'), shape('TV', 'c')])).toBe('BV')
+    })
+})
+
+describe('mergeLabels', () => {
+    it('appends unknown labels and keeps the known ones in place, so colours never move', () => {
+        expect(mergeLabels(['BV', 'TV'], ['VVC', 'BV'])).toEqual(['BV', 'TV', 'VVC'])
+    })
+
+    it('dedupes within the incoming list, which arrives with one entry per annotation', () => {
+        expect(mergeLabels([], ['BV', 'BV', 'TV', 'BV'])).toEqual(['BV', 'TV'])
+    })
+
+    it('trims and drops blanks, matching what mergeClassLabels does to shapes', () => {
+        expect(mergeLabels([], [' BV ', '', '   ', 'TV'])).toEqual(['BV', 'TV'])
+    })
+
+    it('is a no-op when everything is already known', () => {
+        expect(mergeLabels(['BV'], ['BV'])).toEqual(['BV'])
     })
 })

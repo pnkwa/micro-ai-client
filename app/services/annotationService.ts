@@ -57,6 +57,31 @@ export const annotationService = {
     },
 
     /**
+     * Every label the library already uses, in dataset order, DUPLICATES INCLUDED.
+     *
+     * For seeding the class picker when the annotator opens, so the classes a batch was labelled
+     * with are there before any image is opened rather than appearing one at a time as you happen
+     * to visit the images that use them.
+     *
+     * Deduping is left to `mergeLabels`, which owns the append-only ordering rule that decides each
+     * class's colour; doing it in two places is how the picker and the canvas would come to disagree.
+     *
+     * *** THIS READS THE WHOLE DATASET EXPORT, because no endpoint lists distinct labels. *** It is
+     * the only source that has them today, and it grows with every annotation ever made. Fine at a
+     * teaching dataset's size and the wrong shape long-term: the fix is a labels endpoint on the
+     * server, not a cleverer parse here. Only the labels are picked off the wire, so the rest of the
+     * payload is parsed and dropped.
+     */
+    async usedLabels(): Promise<string[]> {
+        const { $api } = useNuxtApp()
+        const response = await $api(imageRoutes.annotationsExport)
+        const rows = z
+            .array(z.object({ annotations: z.array(z.object({ label: z.string() })) }))
+            .parse(response)
+        return rows.flatMap((row) => row.annotations.map((entry) => entry.label))
+    },
+
+    /**
      * REPLACE-ALL, in one transaction.
      *
      * Send the complete set every time. An annotation pass is one editing session rather than a

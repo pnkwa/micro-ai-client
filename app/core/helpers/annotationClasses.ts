@@ -51,16 +51,62 @@ export interface AnnotationClass {
  * put a nameless entry at the top of the picker.
  */
 export function mergeClassLabels(known: string[], shapes: Shape[]): string[] {
+    return mergeLabels(
+        known,
+        shapes.map((shape) => shape.label),
+    )
+}
+
+/**
+ * The same fold, over bare label strings.
+ *
+ * Exists for the page-load seed, which reads every label the library already uses from the dataset
+ * export and so has no shapes to fold - only names. Same append-only contract, same trimming, same
+ * blank rule, because the two have to agree about what counts as a class or the picker's colours
+ * would depend on which route filled it.
+ */
+export function mergeLabels(known: string[], labels: string[]): string[] {
     const seen = new Set(known)
     const merged = [...known]
-    for (const shape of shapes) {
-        const label = shape.label.trim()
+    for (const raw of labels) {
+        const label = raw.trim()
         if (label && !seen.has(label)) {
             seen.add(label)
             merged.push(label)
         }
     }
     return merged
+}
+
+/**
+ * The label most of these shapes carry, or null when none of them is labelled.
+ *
+ * This is what the picked class becomes when an image opens, so the picker describes the image in
+ * front of you rather than the last one you touched. Without it the pick is set once per session
+ * and never revisited: open an image of TV after one of BV and BV stays highlighted at count 0,
+ * which is both wrong on its face and a trap, since the next shape drawn silently takes it.
+ *
+ * Ties go to the label seen FIRST in draw order - `Map` keeps insertion order and the comparison is
+ * strict, so an image split evenly keeps the earlier class rather than flipping on reload.
+ *
+ * Null for an unlabelled image is deliberate and the caller relies on it: a blank image must not
+ * clear the pick, because labelling a run of empty images with one class is the ordinary flow.
+ */
+export function dominantLabel(shapes: Shape[]): string | null {
+    const counts = new Map<string, number>()
+    for (const shape of shapes) {
+        const label = shape.label.trim()
+        if (label) counts.set(label, (counts.get(label) ?? 0) + 1)
+    }
+    let best: string | null = null
+    let bestCount = 0
+    for (const [label, count] of counts) {
+        if (count > bestCount) {
+            best = label
+            bestCount = count
+        }
+    }
+    return best
 }
 
 /** The class list to render, with per-image counts. */
