@@ -92,12 +92,12 @@ const onDragStart = (event: DragEvent) => {
                 <McSkeleton v-else class="tw:h-full tw:w-full tw:rounded-none" />
 
                 <div class="tw:absolute tw:top-1.5 tw:right-1.5 tw:flex tw:gap-1">
-                    <!-- The precondition for annotating, not a decoration: PUT refuses an image
-                         that is in no curated album. -->
+                    <!-- Vetted, which is now only about question authoring: annotation stopped
+                         being gated on it when BE-ADR-030 was amended on 2026-08-26. -->
                     <span
                         v-if="image.in_curated_album"
                         class="tw:flex tw:items-center tw:gap-1 tw:rounded tw:bg-black/60 tw:px-1.5 tw:py-0.5 tw:text-[10px] tw:font-medium tw:text-white"
-                        title="In a curated album, so it can be annotated"
+                        title="In a curated album, so it can be used to author a question"
                     >
                         <Star class="tw:h-3 tw:w-3" />
                     </span>

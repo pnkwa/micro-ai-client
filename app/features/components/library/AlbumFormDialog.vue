@@ -1,107 +1,102 @@
 <script setup lang="ts">
-import { ALBUM_KINDS, type Album, type AlbumInput, type AlbumKind } from '~/services/albumService'
+import { useForm } from 'vee-validate'
+import { toTypedSchema } from '@vee-validate/zod'
+import { ALBUM_KINDS, type Album, type AlbumInput } from '~/services/albumService'
+import { albumFormSchema, type AlbumFormData } from '~/features/types/forms/album'
 
+/**
+ * Create or rename an album. CONTENT ONLY - the page owns the dialog, as CreateClass.vue does.
+ *
+ * The content sits inside a portal that exists only while open, so this mounts fresh on every open
+ * and `initialValues` IS the reset. That replaces a watcher that had to guess when to clear the
+ * form, and before that a `@vue:mounted` hook which depended on how DialogContent forwards attrs
+ * and silently kept the previous album's values when it did not fire.
+ */
 const props = defineProps<{
-    open: boolean
     /** Set to edit; omit to create. */
     album?: Album | null
     loading?: boolean
 }>()
 
-const emit = defineEmits<{
-    'update:open': [value: boolean]
-    save: [input: AlbumInput]
-}>()
+const emit = defineEmits<{ close: []; save: [input: AlbumInput] }>()
 
-const name = ref('')
-const description = ref('')
-const kind = ref<AlbumKind>('personal')
-
-const reset = () => {
-    name.value = props.album?.name ?? ''
-    description.value = props.album?.description ?? ''
-    kind.value = props.album?.kind ?? 'personal'
-}
-
-// Reset when the dialog OPENS, from the prop. Watching `props.album` alone would miss reopening
-// for the same album after a cancelled edit, and the `@vue:mounted` hook this replaces depended on
-// reka-ui's portal mounting and on how DialogContent forwards attrs - neither ours to rely on, and
-// when it silently did not fire the form kept the previous album's values.
-watch(
-    () => props.open,
-    (open) => {
-        if (open) reset()
+const { handleSubmit } = useForm<AlbumFormData>({
+    validationSchema: toTypedSchema(albumFormSchema),
+    initialValues: {
+        name: props.album?.name ?? '',
+        description: props.album?.description ?? '',
+        kind: props.album?.kind ?? 'personal',
     },
-    { immediate: true },
-)
+})
+
+const handleSave = handleSubmit((values) => {
+    emit('save', {
+        name: values.name.trim(),
+        // An emptied field clears the column: PATCH reads an omitted key as "leave it alone" and an
+        // explicit null as "delete it", so the two cases have to be told apart here.
+        description: values.description?.trim() || null,
+        kind: values.kind,
+    })
+})
 
 const kindOptions = ALBUM_KINDS.map((value) => ({
     value,
     label:
         value === 'curated'
-            ? 'Curated (vetted: usable for question authoring and annotation)'
+            ? 'Curated (vetted: usable for question authoring)'
             : value === 'personal'
               ? 'Personal (a working set)'
               : 'System',
 }))
-
-const canSave = computed(() => name.value.trim().length > 0)
-
-const submit = () => {
-    if (!canSave.value) return
-    emit('save', {
-        name: name.value.trim(),
-        description: description.value.trim() || null,
-        kind: kind.value,
-    })
-}
 </script>
 
 <template>
-    <McDialog :open="open" @update:open="emit('update:open', $event)">
-        <McDialogContent class="tw:sm:max-w-md">
-            <McDialogHeader>
-                <McDialogTitle>{{ album ? 'Edit album' : 'New album' }}</McDialogTitle>
-                <McDialogDescription>
-                    An album is a named set of images. Deleting one unfiles its images rather than
-                    deleting them. Dragging a picture onto an album moves it there; use an image's
-                    own panel if it needs to sit in more than one.
-                </McDialogDescription>
-            </McDialogHeader>
+    <McDialogHeader>
+        <McDialogTitle>{{ album ? 'Edit album' : 'New album' }}</McDialogTitle>
+        <McDialogDescription>
+            An album is a named set of images. Deleting one unfiles its images rather than deleting
+            them. Dragging a picture onto an album moves it there; use an image's own panel if it
+            needs to sit in more than one.
+        </McDialogDescription>
+    </McDialogHeader>
 
-            <div class="tw:flex tw:flex-col tw:gap-3 tw:py-2">
-                <div class="tw:flex tw:flex-col tw:gap-1.5">
-                    <label class="tw:text-sm tw:font-medium tw:text-navy-80">Name</label>
-                    <McInput v-model="name" placeholder="HRP unknowns, vetted fields" />
-                </div>
+    <form class="tw:flex tw:flex-col tw:gap-4 tw:py-4" @submit.prevent="handleSave">
+        <div class="tw:flex tw:flex-col tw:gap-2">
+            <label class="tw:text-sm tw:font-medium">Name</label>
+            <McInput name="name" placeholder="e.g., HRP unknowns, vetted fields" />
+        </div>
 
-                <div class="tw:flex tw:flex-col tw:gap-1.5">
-                    <label class="tw:text-sm tw:font-medium tw:text-navy-80">Description</label>
-                    <McTextarea
-                        v-model="description"
-                        rows="2"
-                        placeholder="Fields of view good enough to ask a question about"
-                    />
-                </div>
+        <div class="tw:flex tw:flex-col tw:gap-2">
+            <label class="tw:text-sm tw:font-medium">Description</label>
+            <McTextarea
+                name="description"
+                rows="2"
+                placeholder="e.g., Fields of view good enough to ask a question about"
+            />
+        </div>
 
-                <div class="tw:flex tw:flex-col tw:gap-1.5">
-                    <label class="tw:text-sm tw:font-medium tw:text-navy-80">Kind</label>
-                    <McSelect v-model="kind" :options="kindOptions" />
-                    <!-- The default is `personal` on the server for this reason, so say it here
-                         rather than letting someone discover it by being refused an annotation. -->
-                    <p class="tw:text-xs tw:text-navy-60">
-                        Only images in a curated album can be annotated or used to author a
-                        question.
-                    </p>
-                </div>
-            </div>
+        <div class="tw:flex tw:flex-col tw:gap-2">
+            <label class="tw:text-sm tw:font-medium">Kind</label>
+            <McSelect
+                name="kind"
+                :options="kindOptions"
+                option-value="value"
+                option-label="label"
+                placeholder="Select a kind"
+            />
+            <!-- `personal` is the server's default so a new album is never accidentally an
+                 authoring pool. Annotation is no longer gated on this (BE-ADR-030, amended
+                 2026-08-26); question authoring still is. -->
+            <p class="tw:text-xs tw:text-navy-60">
+                Only images in a curated album can be used to author a question.
+            </p>
+        </div>
+    </form>
 
-            <McDialogFooter>
-                <McButton variant="outline" @click="emit('update:open', false)">Cancel</McButton>
-                <McButton :disabled="!canSave" :loading="loading" @click="submit">
-                    {{ album ? 'Save' : 'Create' }}
-                </McButton>
-            </McDialogFooter>
-        </McDialogContent>
-    </McDialog>
+    <McDialogFooter>
+        <McButton variant="outline" @click="emit('close')">Cancel</McButton>
+        <McButton :loading="loading" @click="handleSave">
+            {{ album ? 'Save' : 'Create' }}
+        </McButton>
+    </McDialogFooter>
 </template>

@@ -9,7 +9,7 @@ import AlbumFormDialog from '~/features/components/library/AlbumFormDialog.vue'
 import ImageGrid from '~/features/components/library/ImageGrid.vue'
 import ImageDetailSheet from '~/features/components/library/ImageDetailSheet.vue'
 import LibraryFilterBar from '~/features/components/library/LibraryFilterBar.vue'
-import UploadImagesDialog from '~/features/components/library/UploadImagesDialog.vue'
+import UploadImages from '~/features/components/library/UploadImages.vue'
 
 /**
  * The image library (BE-ADR-030/031/032).
@@ -269,21 +269,32 @@ const onAnnotate = (imageId: number) =>
             @annotate="onAnnotate"
         />
 
-        <UploadImagesDialog
-            :open="uploadOpen"
-            :albums="albums"
-            :default-album-id="albumId"
-            @update:open="uploadOpen = $event"
-            @uploaded="onUploaded"
-        />
+        <!--
+            The page owns the dialog; the child is content only, the way CreateClass does it.
+            McDialogContent renders inside a portal that exists only while open, so the child mounts
+            fresh each time and its initial state is the reset.
+        -->
+        <McDialog v-model:open="uploadOpen">
+            <McDialogContent class="tw:sm:max-w-lg">
+                <UploadImages
+                    :albums="albums"
+                    :default-album-id="albumId"
+                    @close="uploadOpen = false"
+                    @uploaded="onUploaded"
+                />
+            </McDialogContent>
+        </McDialog>
 
-        <AlbumFormDialog
-            :open="albumFormOpen"
-            :album="albumBeingEdited"
-            :loading="albumSaving"
-            @update:open="albumFormOpen = $event"
-            @save="onAlbumSave"
-        />
+        <McDialog v-model:open="albumFormOpen">
+            <McDialogContent class="tw:sm:max-w-md">
+                <AlbumFormDialog
+                    :album="albumBeingEdited"
+                    :loading="albumSaving"
+                    @close="albumFormOpen = false"
+                    @save="onAlbumSave"
+                />
+            </McDialogContent>
+        </McDialog>
 
         <McConfirmDialog
             :open="albumPendingDelete !== null"

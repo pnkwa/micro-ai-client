@@ -275,19 +275,16 @@ const remove = async () => {
                     <div
                         class="tw:flex tw:w-full tw:shrink-0 tw:flex-col tw:gap-5 tw:overflow-y-auto tw:border-navy-15 tw:p-4 tw:lg:w-90 tw:lg:border-l"
                     >
-                        <div class="tw:flex tw:flex-col tw:gap-2">
-                            <McButton
-                                :disabled="!detail.in_curated_album"
-                                @click="emit('annotate', detail.id)"
-                            >
-                                <Shapes class="tw:h-4 tw:w-4" />
-                                {{ detail.annotation_count ? 'Edit annotations' : 'Annotate' }}
-                            </McButton>
-                            <p v-if="!detail.in_curated_album" class="tw:text-xs tw:text-navy-60">
-                                Only images in a curated album can be annotated. File it into one
-                                below.
-                            </p>
-                        </div>
+                        <!-- No curated gate. Annotating used to require the image to be in a
+                             `curated` album, which inverted the workflow it was meant to protect:
+                             deciding a picture is worth labelling is usually what leads to curating
+                             it. BE-ADR-030 was amended on 2026-08-26 and the server dropped the
+                             guard from both annotation writers; `curated` now gates question
+                             authoring and nothing else. -->
+                        <McButton @click="emit('annotate', detail.id)">
+                            <Shapes class="tw:h-4 tw:w-4" />
+                            {{ detail.annotation_count ? 'Edit annotations' : 'Annotate' }}
+                        </McButton>
 
                         <section class="tw:flex tw:flex-col tw:gap-2">
                             <h3 class="tw:text-sm tw:font-semibold tw:text-navy-100">Albums</h3>
