@@ -55,8 +55,6 @@ const props = withDefaults(
         classLabels: string[]
         /** Shapes the labels panel has hidden. Not drawn, and not hit-testable while hidden. */
         hiddenIds: Set<string>
-        /** The class a newly drawn shape takes, so drawing lands labelled rather than blank. */
-        activeClass: string | null
         /** The image's name, so a failure says WHICH image rather than "an image". */
         name?: string
         /** Shape id to model confidence, for the ones seeded and not yet judged. */
@@ -94,7 +92,20 @@ const props = withDefaults(
 const shapes = defineModel<Shape[]>('shapes', { required: true })
 const selectedId = defineModel<string | null>('selectedId', { required: true })
 
-const emit = defineEmits<{ commit: []; retry: []; undo: [] }>()
+const emit = defineEmits<{
+    commit: []
+    retry: []
+    undo: []
+    /**
+     * A class typed onto the shape's own chip.
+     *
+     * The page handles it rather than this component writing the label directly, because naming a
+     * class is two facts: what this shape is, and that the class now exists. Only the page owns the
+     * class list, and a label written here alone would render amber until something else happened
+     * to fold it in.
+     */
+    'label-shape': [id: string, label: string]
+}>()
 
 const container = useTemplateRef<HTMLElement>('container')
 
@@ -116,6 +127,45 @@ const viewport = view.viewport
 const ready = view.ready
 
 const cursor = ref<Point | null>(null)
+
+/**
+ * Naming a shape without leaving the picture.
+ *
+ * The chip over a box is where the eye already is when you decide what the thing is, so it is also
+ * where the name should be typeable. Only the SELECTED shape's chip accepts a pointer - every other
+ * chip stays inert, because a chip that swallows clicks is a hole in the drawing surface, and a
+ * field opens under the tool the moment you drew a box.
+ */
+const editingId = ref<string | null>(null)
+const draftLabel = ref('')
+
+const startEditing = (shape: Shape) => {
+    if (shape.id !== selectedId.value) return
+    editingId.value = shape.id
+    draftLabel.value = shape.label
+    // Focused after the input exists. A `ref` inside a v-for would have to be an array keyed by
+    // shape, and there is only ever one field open.
+    void nextTick(() => {
+        const field = container.value?.querySelector<HTMLInputElement>('[data-label-input]')
+        field?.focus()
+        field?.select()
+    })
+}
+
+const stopEditing = () => {
+    editingId.value = null
+    draftLabel.value = ''
+}
+
+const commitLabel = () => {
+    const id = editingId.value
+    if (!id) return
+    const label = draftLabel.value.trim()
+    stopEditing()
+    // A blank is a cancel, not a way to unname a shape: clearing a class is what the labels panel
+    // and the delete tool are for, and an empty chip would look like the edit simply failed.
+    if (label) emit('label-shape', id, label)
+}
 
 /**
  * Load state, driven by the `<img>` itself.
@@ -327,7 +377,10 @@ const onPointerDown = (event: PointerEvent) => {
         const id = newId()
         shapes.value.push({
             id,
-            label: props.activeClass ?? '',
+            // Unnamed on purpose: you draw the region, then name it on its own chip. The picked
+            // class no longer leaks into new geometry, so a shape is never labelled by something
+            // you set several images ago and forgot about.
+            label: '',
             ...rectFromDrag(at, at),
             polygon: null,
             expert_curated: props.defaultCurated,
@@ -554,7 +607,10 @@ const closePolygon = () => {
     shapes.value.push(
         withDerivedBbox({
             id,
-            label: props.activeClass ?? '',
+            // Unnamed on purpose: you draw the region, then name it on its own chip. The picked
+            // class no longer leaks into new geometry, so a shape is never labelled by something
+            // you set several images ago and forgot about.
+            label: '',
             x: 0,
             y: 0,
             w: 0,
@@ -763,6 +819,8 @@ const canCloseAtCursor = computed(() => {
 watch(() => props.tool, cancelPolygon)
 
 useEventListener('keydown', (event: KeyboardEvent) => {
+    // The label field owns both keys while it is open: Escape abandons the edit, Enter commits it.
+    if (editingId.value) return
     if (event.key === 'Escape') cancelPolygon()
     if (event.key === 'Enter' && draftPolygon.value) closePolygon()
 })
@@ -818,7 +876,7 @@ const labelBoxes = computed(() => {
     const nat = natural.value
     if (!nat) return []
     return visibleShapes.value
-        .filter((shape) => shape.label)
+        .filter((shape) => shape.label || shape.id === selectedId.value)
         .map((shape) => {
             // Anchored to the shape's top-left corner, which is where the eye looks for it.
             const at = view.toScreen({ x: shape.x, y: shape.y })
@@ -835,7 +893,10 @@ const labelBoxes = computed(() => {
                         : shape.id === selectedId.value && shape.polygon
                           ? `${shape.polygon.length} pts`
                           : null,
-                color: colorForShape(props.classLabels, shape) ?? '#D97706',
+                // White when there is no class, matching the outline. The chip then needs dark
+                // text, since white on white is nothing at all.
+                color: colorForShape(props.classLabels, shape) ?? NEUTRAL,
+                onWhite: !colorForShape(props.classLabels, shape),
                 x: at.x,
                 y: at.y,
                 shape,
@@ -882,11 +943,65 @@ const shapeRect = (shape: Shape) => ({
  * a class built by concatenation is never emitted, and the palette is data. Two states override the
  * class colour because they say something more urgent: about to be deleted, and selected.
  */
+/** Unnamed, and the selection: white, which belongs to no class and so cannot be mistaken for one. */
+const NEUTRAL = '#ffffff'
+
+/**
+ * A grey halo under any white outline.
+ *
+ * White alone fails on this imagery - the fields are roughly half bright, and the bright half is
+ * the pale cytoplasm where the cells are - so every white line gets a casing beneath it. That is
+ * the same trick as the white casing under a coloured line, inverted: the halo disappears into the
+ * dark rim and separates the line from everything else.
+ *
+ * GREY rather than near-black. Black reads as a border in its own right, so the shape stops looking
+ * like a white outline and starts looking like a black one with a white core; the neutral slate
+ * carries the same separation without competing with the class colours beside it.
+ */
+const CASING = 'rgba(60, 67, 76, 0.55)'
+
 const strokeFor = (shape: Shape): string => {
     if (isDeleteTargetShape(shape)) return '#dc2626'
-    if (shape.id === selectedId.value) return '#0E9384'
-    return colorForShape(props.classLabels, shape) ?? '#D97706'
+    if (shape.id === selectedId.value) return NEUTRAL
+    return colorForShape(props.classLabels, shape) ?? NEUTRAL
 }
+
+/**
+ * The handle's own outline.
+ *
+ * Handles are white squares, so a white shape would give them a white border on a pale field and
+ * they would disappear into it. Dark edge in that case, the shape's own colour otherwise.
+ */
+const handleStroke = (shape: Shape): string => {
+    const stroke = strokeFor(shape)
+    return stroke === NEUTRAL ? '#3c434c' : stroke
+}
+
+/** White reads on nothing bright, so anything drawn white is cased. */
+const isCased = (shape: Shape): boolean => shape.id === selectedId.value || !shape.label.trim()
+
+/**
+ * The chip's type size, as a class put on EVERY text node inside it rather than on the chip.
+ *
+ * Font size does not inherit in this app - something sets it per element - so a size on the wrapper
+ * styles the wrapper and nothing within it. The label span fell back to 16px and the input to the
+ * UA's own ~13px, which is why the chip changed size the moment it was clicked. The metadata rows
+ * in ImageMetaCard had the same fault.
+ */
+const chipText = computed(() => (isTouchCapable.value ? 'tw:text-sm' : 'tw:text-xs'))
+
+/**
+ * The field's floor: one LINE tall and one CHARACTER wide.
+ *
+ * The pill fits its text and is the same height whether or not it is being edited - a label is a
+ * thing you click into, and growing it on click moves the target out from under the pointer aiming
+ * at it. This minimum changes nothing while there is text, since the line already provides that
+ * height; it exists for the empty field, whose invisible mirror has no content and would otherwise
+ * collapse the typing area to nothing. The width floor is `1ch` on the wrapper for the same reason
+ * and in the same spirit: the smallest thing the field could ever hold, rather than a round number
+ * that would make an emptied pill wider than the label it replaced.
+ */
+const fieldMinH = computed(() => (isTouchCapable.value ? 'tw:min-h-5' : 'tw:min-h-4'))
 
 /** Hidden shapes are not drawn, and must not be hit-testable either. */
 const visibleShapes = computed(() => shapes.value.filter((shape) => !props.hiddenIds.has(shape.id)))
@@ -902,6 +1017,8 @@ defineExpose({
     deleteSelection,
     deleteTarget,
     hasDraft: computed(() => (draftPolygon.value?.length ?? 0) > 0),
+    /** A label field is open on a chip. The page pauses auto-save while one is. */
+    editingLabel: computed(() => editingId.value !== null),
     transform,
     /** Natural pixel size, for the image card. Undefined until the picture has loaded. */
     natural,
@@ -976,6 +1093,36 @@ defineExpose({
                     preserveAspectRatio="none"
                 >
                     <g v-for="shape in visibleShapes" :key="shape.id">
+                        <!--
+                            THE CASING: a wider white stroke drawn UNDER the selected shape's own.
+
+                            The selection keeps its class colour - losing it was the real cost of
+                            painting the selection one fixed accent, since the class is exactly what
+                            you are checking when you select something. That leaves legibility to
+                            solve, and these fields are roughly half bright and half dark (measured
+                            across the batch), so no single outline colour reads everywhere. A white
+                            casing does: it disappears into the pale cytoplasm, where the mid-dark
+                            class colour already reads on its own, and separates the line from the
+                            dark rim, where it would otherwise be lost.
+                        -->
+                        <template v-if="isCased(shape)">
+                            <polygon
+                                v-if="shape.polygon"
+                                :points="polygonPoints(shape.polygon)"
+                                fill="none"
+                                :stroke="CASING"
+                                :stroke-width="px(shape.id === selectedId ? 6 : 5)"
+                                stroke-linejoin="round"
+                            />
+                            <rect
+                                v-else
+                                v-bind="shapeRect(shape)"
+                                fill="none"
+                                :stroke="CASING"
+                                :stroke-width="px(shape.id === selectedId ? 6 : 5)"
+                            />
+                        </template>
+
                         <polygon
                             v-if="shape.polygon"
                             :points="polygonPoints(shape.polygon)"
@@ -1022,7 +1169,7 @@ defineExpose({
                                 :width="px(8)"
                                 :height="px(8)"
                                 fill="#fff"
-                                :stroke="strokeFor(shape)"
+                                :stroke="handleStroke(shape)"
                                 :stroke-width="px(2)"
                                 class="tw:pointer-events-none"
                             />
@@ -1066,7 +1213,7 @@ defineExpose({
                                 :stroke="
                                     isDeleteTargetVertex(shape, index) || index === selectedVertex
                                         ? '#fff'
-                                        : strokeFor(shape)
+                                        : handleStroke(shape)
                                 "
                                 :stroke-width="px(2)"
                                 class="tw:pointer-events-none"
@@ -1155,8 +1302,18 @@ defineExpose({
             <div
                 v-for="entry in labelBoxes"
                 :key="entry.id"
-                class="tw:pointer-events-none tw:absolute tw:z-[5] tw:flex tw:max-w-[40%] tw:items-center tw:gap-1 tw:rounded tw:px-1.5 tw:py-0.5 tw:font-semibold tw:whitespace-nowrap tw:text-white tw:shadow-sm"
-                :class="isTouchCapable ? 'tw:text-sm' : 'tw:text-xs'"
+                class="tw:absolute tw:z-[5] tw:flex tw:max-w-[40%] tw:items-center tw:gap-1 tw:rounded tw:px-1.5 tw:py-0.5 tw:font-semibold tw:whitespace-nowrap tw:shadow-sm"
+                :class="[
+                    isTouchCapable ? 'tw:text-sm' : 'tw:text-xs',
+                    // A white chip carries dark text and a hairline, or it is an invisible pill
+                    // floating over a pale field.
+                    entry.onWhite ? 'tw:text-an-text tw:ring-1 tw:ring-black/15' : 'tw:text-white',
+                    // Only the selection takes a pointer. Every other chip stays inert so it can
+                    // never eat a press meant for the picture underneath it.
+                    entry.shape.id === selectedId
+                        ? 'tw:pointer-events-auto tw:cursor-text'
+                        : 'tw:pointer-events-none',
+                ]"
                 :style="{
                     left: `${entry.x}px`,
                     top: `${entry.y}px`,
@@ -1165,11 +1322,62 @@ defineExpose({
                     transform: 'translateY(-100%)',
                     background: entry.color,
                 }"
+                :title="entry.shape.id === selectedId ? 'Click to name this shape' : undefined"
+                @pointerdown.stop
+                @click.stop="startEditing(entry.shape)"
             >
-                <span class="tw:truncate">{{ entry.label }}</span>
-                <span v-if="entry.detail" class="tw:font-mono tw:font-normal tw:opacity-80">
-                    {{ entry.detail }}
+                <!--
+                    The field is sized by an INVISIBLE MIRROR of its own text.
+
+                    An input carries an intrinsic width of roughly twenty characters that has
+                    nothing to do with its contents, so left in flow it sets the wrapper's size and
+                    the pill jumped from 31px to 139px the moment it was clicked. The input is
+                    therefore taken OUT OF FLOW and the mirror alone decides the width, which makes
+                    the chip identical in both states and grow only as the name is typed.
+
+                    `v-text` rather than an interpolated child: the formatter puts a child on its
+                    own line, and under `whitespace-pre` that indentation would render as real
+                    space and as extra lines. There is no placeholder, so a `min-w` is what keeps
+                    an empty field wide enough to aim at.
+                -->
+                <span
+                    v-if="editingId === entry.id"
+                    class="tw:relative tw:block tw:min-w-[1ch]"
+                    :class="fieldMinH"
+                    @pointerdown.stop
+                >
+                    <span
+                        class="tw:invisible tw:block tw:font-semibold tw:whitespace-pre"
+                        :class="chipText"
+                        aria-hidden="true"
+                        v-text="draftLabel"
+                    ></span>
+                    <input
+                        v-model="draftLabel"
+                        data-label-input
+                        size="1"
+                        class="tw:absolute tw:inset-0 tw:w-full tw:min-w-0 tw:border-0 tw:bg-transparent tw:p-0 tw:font-semibold tw:outline-none"
+                        :class="[chipText, entry.onWhite ? 'tw:text-an-text' : 'tw:text-white']"
+                        @keydown.enter.prevent="commitLabel"
+                        @keydown.esc.prevent="stopEditing"
+                        @blur="commitLabel"
+                    />
                 </span>
+                <template v-else>
+                    <span
+                        class="tw:truncate"
+                        :class="[chipText, entry.label ? '' : 'tw:font-normal tw:italic']"
+                    >
+                        {{ entry.label || 'Add class' }}
+                    </span>
+                    <span
+                        v-if="entry.detail"
+                        class="tw:font-mono tw:font-normal tw:opacity-80"
+                        :class="chipText"
+                    >
+                        {{ entry.detail }}
+                    </span>
+                </template>
             </div>
 
             <!--

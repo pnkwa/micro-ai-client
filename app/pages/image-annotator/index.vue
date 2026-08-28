@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
-import { PanelLeftOpen, PanelRight, Shapes, Sparkles } from '@lucide/vue'
+import { CircleCheck, PanelLeft, PanelLeftOpen, PanelRight, Shapes, Sparkles } from '@lucide/vue'
 import { onBeforeRouteLeave } from 'vue-router'
+import { watchDebounced } from '@vueuse/core'
 import { zoomPercent as toPercent } from '~/core/helpers/viewportTransform'
 import {
     MAX_ANNOTATIONS,
     shapesFromDetection,
     diffAnnotations,
     hasUnsavedAnnotations,
+    shouldCommit,
     toAnnotationPayload,
     toShapes,
     type Shape,
@@ -18,7 +20,9 @@ import {
     buildClasses,
     classForDigit,
     colorForShape,
+    dominantLabel,
     mergeClassLabels,
+    mergeLabels,
 } from '~/core/helpers/annotationClasses'
 import { queueRowView, type QueueFilter } from '~/core/helpers/annotationQueue'
 import { metadataTitle } from '~/core/helpers/imageMetadata'
@@ -30,6 +34,10 @@ import AnnotatorHeader from '~/features/components/annotator/AnnotatorHeader.vue
 import ImageQueue from '~/features/components/annotator/queue/ImageQueue.vue'
 import FocusRail from '~/features/components/annotator/queue/FocusRail.vue'
 import FocusOverlays from '~/features/components/annotator/canvas/FocusOverlays.vue'
+import ToolDock from '~/features/components/annotator/canvas/ToolDock.vue'
+import PagerPill from '~/features/components/annotator/canvas/PagerPill.vue'
+import HintBar from '~/features/components/annotator/canvas/HintBar.vue'
+import ZoomPill from '~/features/components/annotator/canvas/ZoomPill.vue'
 import BottomTools from '~/features/components/annotator/mobile/BottomTools.vue'
 import ClassStrip from '~/features/components/annotator/mobile/ClassStrip.vue'
 import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
@@ -72,6 +80,7 @@ const auth = useAuth()
  */
 const APP_FILL_CLASS = 'mc-app-fill'
 const HIDE_BAR_CLASS = 'mc-hide-app-bar'
+const HIDE_NAV_CLASS = 'mc-hide-app-nav'
 
 /**
  * The app nav starts collapsed HERE and nowhere else.
@@ -96,7 +105,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-    document.documentElement.classList.remove(APP_FILL_CLASS, HIDE_BAR_CLASS)
+    document.documentElement.classList.remove(APP_FILL_CLASS, HIDE_BAR_CLASS, HIDE_NAV_CLASS)
     sidebar.open.value = navWasOpen
 })
 
@@ -123,6 +132,7 @@ const imagesLoading = ref(false)
 const leftOpen = ref(true)
 const rightOpen = ref(true)
 const autoAdvance = ref(false)
+const autoSave = ref(false)
 const search = ref('')
 const queueFilter = ref<QueueFilter>('all')
 
@@ -145,6 +155,18 @@ const pickClass = (label: string) => {
     // draw, then press 2, without the pointer ever leaving the canvas.
     if (selectedShapeId.value) updateShape(selectedShapeId.value, { label })
     else activeClass.value = label
+}
+
+/**
+ * A class typed straight onto a shape's chip on the canvas.
+ *
+ * Both halves, in one gesture: the shape takes the label, and the class joins the list so it gets a
+ * colour and a number key. Deliberately does NOT move the active class - you named one shape, and
+ * silently re-arming the next draw with it is a decision the person did not make.
+ */
+const labelShape = (id: string, label: string) => {
+    classLabels.value = mergeLabels(classLabels.value, [label])
+    updateShape(id, { label })
 }
 
 const createClass = (label: string) => {
@@ -296,6 +318,10 @@ const resetHistory = (loaded: Shape[]) => {
 }
 
 const commit = () => {
+    // A commit with nothing new in it is dropped entirely. See `shouldCommit`: the canvas emits a
+    // commit at the end of every gesture that was not a pan, so a click that only selected a shape
+    // used to truncate the redo branch and put an identical snapshot on the stack.
+    if (!shouldCommit(history.value[historyIndex.value], shapes.value)) return
     // Everything after the current point is dropped: editing after an undo forks, and keeping the
     // abandoned branch reachable by Redo is how a redo puts back something you did not do.
     history.value = [...history.value.slice(0, historyIndex.value + 1), snapshot(shapes.value)]
@@ -310,6 +336,30 @@ const restore = (index: number) => {
     const previous = selectedShapeId.value
     shapes.value = snapshot(history.value[index]!)
     selectedShapeId.value = shapes.value.some((shape) => shape.id === previous) ? previous : null
+}
+
+/**
+ * Take the server's version of the set WITHOUT throwing the history away.
+ *
+ * Saving used to call `resetHistory`, which is right for opening an image and wrong for saving one:
+ * a save changes what is PERSISTED, not what you did, and undo should still reach the edits that
+ * led here. It was survivable while saving was a deliberate act; with auto-save it happens every
+ * second or so, which silently made undo useless.
+ *
+ * The current entry is replaced rather than appended, because the server's copy and the local one
+ * are the same work - it recomputes a polygon's extent and reissues every id, so this is the same
+ * state under different names. Anything ahead of it goes, exactly as an ordinary commit would.
+ */
+const adoptSaved = (saved: Shape[]) => {
+    // Selection follows POSITION, not id. A replace-all write reissues every id, so the shape you
+    // had selected is still on screen under a new name; dropping the selection on every save was
+    // tolerable when you asked for the save and is not when it happens on a timer.
+    const at = shapes.value.findIndex((shape) => shape.id === selectedShapeId.value)
+    shapes.value = saved
+    history.value = [...history.value.slice(0, historyIndex.value), snapshot(saved)]
+    historyIndex.value = history.value.length - 1
+    baseline.value = snapshot(saved)
+    selectedShapeId.value = at === -1 ? null : (saved[at]?.id ?? null)
 }
 
 const undo = () => canUndo.value && restore(historyIndex.value - 1)
@@ -332,6 +382,17 @@ const canUndoAny = computed(() => Boolean(canvas.value?.hasDraft) || canUndo.val
 
 /** Both panels away: the shell swaps to the dark two-column layout and the overlays take over. */
 const focus = computed(() => !leftOpen.value && !rightOpen.value)
+
+/*
+ * The app nav goes while focus mode is on.
+ *
+ * A side effect on an element this page does not own, so it is a watcher rather than derived state:
+ * the nav lives in the layout, above the router view. Cleared in onBeforeUnmount as well, since
+ * leaving the route mid-focus would otherwise strand every other page without navigation.
+ */
+watchEffect(() => {
+    document.documentElement.classList.toggle(HIDE_NAV_CLASS, focus.value)
+})
 
 // The shell decides its own columns from the same composable; the page needs only the one flag
 // the canvas keys on.
@@ -404,6 +465,9 @@ const openImage = async (image: LibraryImage) => {
         const loaded = toShapes(await annotationService.list(image.id))
         resetHistory(loaded)
         rememberClasses(loaded)
+        // The pick follows the image. Only when the image opened with labels of its own: a blank
+        // one keeps whatever was picked, which is what makes labelling a run of empty images work.
+        activeClass.value = dominantLabel(loaded) ?? activeClass.value
         rememberDots(image.id, loaded)
     } catch (error) {
         toast.error(apiErrorMessage(error, 'Could not load the annotations'))
@@ -427,6 +491,25 @@ const linkedImageId = computed(() => {
 })
 
 await loadImages()
+
+/*
+ * The class picker starts full, not empty.
+ *
+ * Every label the library already uses is read once here, so the classes this batch was labelled
+ * with are pickable before the first image is opened. Without it the picker filled in one class at
+ * a time as you happened to open images that used them, which meant the number keys meant different
+ * things at the start of a pass than at the end.
+ *
+ * NOT awaited and never fatal: it is a convenience over a list that still fills itself from each
+ * image as before, so a slow or refused export must not hold up the queue or blank the page.
+ */
+void annotationService
+    .usedLabels()
+    .then((labels) => {
+        classLabels.value = mergeLabels(classLabels.value, labels)
+        activeClass.value ??= classLabels.value[0] ?? null
+    })
+    .catch(() => {})
 
 if (linkedImageId.value) {
     const inStrip = images.value.find((row) => row.id === linkedImageId.value)
@@ -550,6 +633,18 @@ const queueDots = computed(() => {
  * the guard from both annotation writers. `curated` now gates question authoring and nothing else,
  * so `in_curated_album` is a badge in the library rather than a gate here.
  */
+/**
+ * Shapes that would be written with no class at all.
+ *
+ * `toAnnotationPayload` passes a blank label straight through - it only drops degenerate shapes -
+ * so a box drawn before a class was picked reaches the server unnamed and lands in the dataset
+ * export, which is the entire point of BE-ADR-030. Counted off the payload so this and the write
+ * cannot disagree about which shapes are even going.
+ */
+const unlabelledCount = computed(
+    () => toAnnotationPayload(shapes.value).annotations.filter((a) => !a.label.trim()).length,
+)
+
 const canSave = computed(() => Boolean(selectedImage.value) && isDirty.value && !isSaving.value)
 
 const save = async () => {
@@ -561,6 +656,12 @@ const save = async () => {
         toast.error(`An image is limited to ${MAX_ANNOTATIONS} annotations.`)
         return
     }
+    // Refused rather than quietly filtered: dropping them would throw away a region someone drew
+    // deliberately and just has not named yet.
+    if (unlabelledCount.value > 0) {
+        toast.error(`${unlabelledCount.value} shape(s) still need a class. Name them, then save.`)
+        return
+    }
 
     isSaving.value = true
     try {
@@ -568,7 +669,7 @@ const save = async () => {
         // server-side, so the stored box can differ from the one that was sent.
         const saved = await annotationService.replace(image.id, payload.annotations)
         const reloaded = toShapes(saved)
-        resetHistory(reloaded)
+        adoptSaved(reloaded)
         rememberClasses(reloaded)
         rememberDots(image.id, reloaded)
         // Saving ends the review: the ids the confidences were keyed to are gone, and a persisted
@@ -591,6 +692,38 @@ const save = async () => {
         isSaving.value = false
     }
 }
+
+/**
+ * Auto-save: write a moment after the drawing stops.
+ *
+ * DEBOUNCED, not per-edit. The write is REPLACE-ALL over the whole set, so a request per pointer-up
+ * while someone drags a box across a slide would be dozens of full-set writes in a few seconds.
+ * `maxWait` still forces one through during continuous work, so a long unbroken pass is not left
+ * entirely unsaved waiting for a pause that never comes.
+ *
+ * Guarded on `canSave`, which already covers "an image is open", "there is something to save" and
+ * "a save is not already in flight", so this cannot re-enter itself: the save resets the baseline,
+ * `canSave` goes false, and the watcher has nothing left to fire on.
+ */
+watchDebounced(
+    () =>
+        [
+            autoSave.value,
+            canSave.value,
+            edits.value.total,
+            // Never mid-rename. A label field is open with a partial word in it, and a stray key
+            // that lands in one is exactly how a class got rewritten during testing; persisting
+            // that a second later turns a slip into stored data.
+            Boolean(canvas.value?.editingLabel),
+            // Never with something unnamed. Auto-save waits silently rather than refusing out
+            // loud once a second - the manual Save says why.
+            unlabelledCount.value,
+        ] as const,
+    ([on, can, total, editing, unlabelled]) => {
+        if (on && can && total > 0 && !editing && unlabelled === 0) void save()
+    },
+    { debounce: 1500, maxWait: 6000 },
+)
 
 onBeforeRouteLeave(() => confirmDiscard())
 
@@ -776,6 +909,7 @@ const step = (delta: number) => {
     <AnnotatorShell v-model:left-open="leftOpen" v-model:right-open="rightOpen">
         <template #header>
             <AnnotatorHeader
+                v-model:auto-save="autoSave"
                 scope-label="All images"
                 :count="total"
                 :unsaved-edits="unsavedEdits"
@@ -940,6 +1074,66 @@ const step = (delta: number) => {
             />
         </template>
 
+        <!--
+            The right rail restores exactly what focus mode took away on that side: the shape list,
+            seeding, and the one per-image verdict. Nothing else - the point of the mode is that the
+            rest is gone.
+        -->
+        <template #focus-rail-right>
+            <div class="tw:flex tw:h-full tw:w-full tw:flex-col tw:items-center tw:gap-1 tw:py-2.5">
+                <button
+                    type="button"
+                    class="tw:flex tw:h-[34px] tw:w-[34px] tw:items-center tw:justify-center tw:rounded-lg tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white"
+                    aria-label="Show the shapes panel"
+                    title="Show the shapes panel (F)"
+                    @click="rightOpen = true"
+                >
+                    <Shapes class="tw:h-[17px] tw:w-[17px]" />
+                </button>
+                <button
+                    type="button"
+                    class="tw:flex tw:h-[34px] tw:w-[34px] tw:items-center tw:justify-center tw:rounded-lg tw:text-an-d-rail-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-35 tw:disabled:hover:bg-transparent"
+                    :disabled="!selectedImage"
+                    aria-label="Seed from a model run"
+                    title="Seed from a model run"
+                    @click="seedOpen = true"
+                >
+                    <Sparkles class="tw:h-[17px] tw:w-[17px]" />
+                </button>
+                <button
+                    type="button"
+                    class="tw:flex tw:h-[34px] tw:w-[34px] tw:items-center tw:justify-center tw:rounded-lg tw:transition-colors tw:hover:bg-white/10 tw:disabled:opacity-35 tw:disabled:hover:bg-transparent"
+                    :class="
+                        selectedImage?.metadata?.reviewed === true
+                            ? 'tw:text-an-accent'
+                            : 'tw:text-an-d-rail-icon tw:hover:text-white'
+                    "
+                    :disabled="!selectedImage"
+                    aria-label="Mark this image reviewed"
+                    title="Mark reviewed (M)"
+                    @click="markReviewed(!(selectedImage?.metadata?.reviewed === true))"
+                >
+                    <CircleCheck class="tw:h-[17px] tw:w-[17px]" />
+                </button>
+
+                <div class="tw:flex-1"></div>
+
+                <button
+                    type="button"
+                    class="tw:flex tw:h-[34px] tw:w-[34px] tw:items-center tw:justify-center tw:rounded-lg tw:text-an-d-rail-icon tw:hover:bg-white/10 tw:hover:text-white"
+                    aria-label="Keyboard shortcuts"
+                    title="Keyboard shortcuts (?)"
+                    @click="shortcutsOpen = true"
+                >
+                    <span
+                        class="tw:rounded tw:border tw:border-white/12 tw:bg-white/10 tw:px-[5px] tw:py-[3px] tw:font-mono tw:text-[10px] tw:leading-none"
+                    >
+                        ?
+                    </span>
+                </button>
+            </div>
+        </template>
+
         <!-- A collapsed panel becomes a rail rather than vanishing, so the way back is on screen. -->
         <template #queue-rail>
             <button
@@ -965,10 +1159,10 @@ const step = (delta: number) => {
                 :default-curated="defaultCurated"
                 :class-labels="classLabels"
                 :hidden-ids="hiddenIds"
-                :active-class="activeClass"
                 :space-panning="spacePanning"
                 :inset-right="0"
                 @commit="commit"
+                @label-shape="labelShape"
                 @retry="retryImage"
                 @undo="undoStep"
             />
@@ -998,6 +1192,7 @@ const step = (delta: number) => {
                 :shapes="shapes"
                 :class-labels="classLabels"
                 :selected-shape-id="selectedShapeId"
+                :seeded="seeded"
                 @save="save"
                 @pick-class="pickClass"
                 @select-shape="selectedShapeId = $event"
@@ -1006,6 +1201,7 @@ const step = (delta: number) => {
 
             <template v-if="selectedImage">
                 <ToolDock
+                    :centered="focus"
                     :tool="tool"
                     :can-undo="canUndoAny"
                     :can-redo="canRedo"
@@ -1016,6 +1212,7 @@ const step = (delta: number) => {
                     @delete-selected="deleteSelected"
                 />
                 <PagerPill
+                    v-if="!focus"
                     :name="currentName"
                     :index="position"
                     :total="images.length"
@@ -1023,11 +1220,13 @@ const step = (delta: number) => {
                     @next="step(1)"
                 />
                 <HintBar
+                    v-if="!focus"
                     :tool="tool"
                     :selected-count="selectedShapeId ? 1 : 0"
                     :drafting="Boolean(canvas?.hasDraft)"
                 />
                 <ZoomPill
+                    v-if="!focus"
                     :percent="zoomPercent"
                     :at-fit="atFit"
                     :enabled="canZoom"

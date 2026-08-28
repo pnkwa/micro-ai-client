@@ -11,7 +11,7 @@ import { colorForShape } from '~/core/helpers/annotationClasses'
  * the two things you reach for while drawing - which class, and what have I drawn. Both float on
  * the canvas's own ground so the picture keeps the full width.
  */
-defineProps<{
+const props = defineProps<{
     name: string
     unsavedEdits: number
     canSave: boolean
@@ -21,7 +21,22 @@ defineProps<{
     shapes: Shape[]
     classLabels: string[]
     selectedShapeId: string | null
+    /** Shape id to model confidence, for the ones seeded and not yet judged. */
+    seeded: Record<string, number>
 }>()
+
+/**
+ * The one fact per row that is worth 40px of a floating card.
+ *
+ * A seeded shape shows what the model thought, because that is the number you are about to agree or
+ * disagree with. Anything else shows its point count, which is the only way to tell two shapes of
+ * the same class apart in a list with no thumbnails.
+ */
+const metaFor = (shape: Shape): string => {
+    const confidence = props.seeded[shape.id]
+    if (confidence !== undefined) return confidence.toFixed(2)
+    return shape.polygon ? `${shape.polygon.length} pts` : 'rect'
+}
 
 const emit = defineEmits<{
     save: []
@@ -68,17 +83,18 @@ const emit = defineEmits<{
             v-for="klass in classes.slice(0, 9)"
             :key="klass.label"
             type="button"
-            class="tw:flex tw:h-8 tw:items-center tw:gap-1.5 tw:rounded-lg tw:px-2.5 tw:transition-colors"
-            :class="klass.label === activeClass ? 'tw:bg-white/12' : 'tw:hover:bg-white/8'"
+            class="tw:flex tw:h-8 tw:items-center tw:gap-[7px] tw:rounded-lg tw:px-2.5 tw:transition-colors"
+            :class="klass.label === activeClass ? '' : 'tw:hover:bg-white/8'"
+            :style="klass.label === activeClass ? { background: `${klass.color}33` } : undefined"
             @click="emit('pick-class', klass.label)"
         >
             <span
-                class="tw:h-2.5 tw:w-2.5 tw:shrink-0 tw:rounded-[3px]"
+                class="tw:h-[9px] tw:w-[9px] tw:shrink-0 tw:rounded-[3px]"
                 :style="{ background: klass.color }"
             ></span>
             <span
                 class="tw:text-[12px] tw:font-medium"
-                :class="klass.label === activeClass ? 'tw:text-white' : 'tw:text-an-d-text'"
+                :class="klass.label === activeClass ? 'tw:text-white' : 'tw:text-an-d-soft'"
             >
                 {{ klass.label }}
             </span>
@@ -124,15 +140,19 @@ const emit = defineEmits<{
                 :key="shape.id"
                 type="button"
                 class="tw:flex tw:h-7 tw:w-full tw:items-center tw:gap-2 tw:rounded-[7px] tw:px-1.5 tw:text-left"
-                :class="shape.id === selectedShapeId ? 'tw:bg-white/12' : 'tw:hover:bg-white/8'"
+                :class="shape.id === selectedShapeId ? 'tw:bg-white/6' : 'tw:hover:bg-white/8'"
                 @click="emit('select-shape', shape.id)"
             >
                 <span
-                    class="tw:h-3.5 tw:w-[3px] tw:shrink-0 tw:rounded-full"
+                    class="tw:h-[15px] tw:w-[3px] tw:shrink-0 tw:rounded-[2px]"
                     :style="{ background: colorForShape(classLabels, shape) ?? '#D97706' }"
                 ></span>
-                <span class="tw:truncate tw:text-[11.5px] tw:text-an-d-text">
+                <span class="tw:truncate tw:text-[11.5px] tw:text-an-d-strong">
                     {{ shape.label || 'Unlabelled' }}
+                </span>
+                <div class="tw:flex-1"></div>
+                <span class="tw:shrink-0 tw:font-mono tw:text-[10px] tw:text-an-d-disabled">
+                    {{ metaFor(shape) }}
                 </span>
             </button>
         </div>

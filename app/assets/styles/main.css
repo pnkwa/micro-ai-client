@@ -183,6 +183,11 @@
     --color-an-n-50: #f6f7f8;
 
     /* On the dark canvas, where the light ramp is unreadable. */
+    /* Text ON the dark overlays, which sit over a photograph rather than a flat panel and so need
+       more contrast than the rail icons: a shape name in the floating card, and a class name in the
+       palette. */
+    --color-an-d-strong: #d7dde4;
+    --color-an-d-soft: #b9c1cb;
     --color-an-d-icon: #aeb6c0;
     --color-an-d-text: #9ba4af;
     --color-an-d-rail-icon: #8b94a0;
@@ -591,5 +596,13 @@ html.mc-app-fill body {
  * above the page body.
  */
 html.mc-hide-app-bar [data-mc-app-bar] {
+    display: none;
+}
+
+/* Focus mode hides the app's NAV as well as its bar.
+   The mode exists to give the picture the screen, and 120px of collapsed nav down the left is the
+   largest thing left competing with it. Paired with the annotator's own 52px rails, which are the
+   only chrome that survives. Toggled from the annotator page and removed when it unmounts. */
+html.mc-hide-app-nav [data-slot='sidebar'] {
     display: none;
 }

@@ -56,9 +56,10 @@ const rows = computed(() => {
 const columns = computed(() => {
     // One pane: the canvas is the whole width, and everything else is a bar or a summoned surface.
     if (stacked.value) return 'minmax(0, 1fr)'
-    // Focus mode is TWO columns: a rail and the picture. The labels panel does not narrow, it goes -
-    // what it was doing floats over the canvas instead.
-    if (focus.value) return `${RAIL} minmax(0, 1fr)`
+    // Focus mode is a rail, the picture, and a rail. BOTH panels collapse rather than the labels
+    // side vanishing: what those panels were doing floats over the canvas, but the way back to each
+    // of them has to stay on screen, and a mode you cannot see the exit from is a trap.
+    if (focus.value) return `${RAIL} minmax(0, 1fr) ${RAIL}`
     // Medium landscape docks the labels and turns the queue into a drawer, so the queue column is
     // not in the grid at all.
     if (layout.value === 'medium') {
@@ -118,8 +119,18 @@ const columns = computed(() => {
             <slot name="canvas" />
         </main>
 
+        <!-- Focus mode's right rail. Dark like the canvas, not a collapsed light panel: in focus
+             mode the chrome is gone, and a pale strip down the edge would be the one piece of the
+             old screen still shouting. -->
         <aside
-            v-if="!focus && !stacked"
+            v-if="focus && !stacked"
+            class="tw:flex tw:min-h-0 tw:flex-col tw:overflow-hidden tw:border-l tw:border-white/5 tw:bg-an-rail"
+        >
+            <slot name="focus-rail-right" />
+        </aside>
+
+        <aside
+            v-else-if="!stacked"
             class="tw:flex tw:min-h-0 tw:flex-col tw:overflow-hidden tw:border-l tw:border-an-border"
             :class="rightOpen ? 'tw:bg-an-panel' : 'tw:bg-an-chrome'"
         >

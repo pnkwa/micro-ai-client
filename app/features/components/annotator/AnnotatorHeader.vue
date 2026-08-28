@@ -29,6 +29,16 @@ defineProps<{
     lastRun: string | null
 }>()
 
+/**
+ * Save after every change, off by default.
+ *
+ * Beside Save rather than in a menu, because it changes what that button means: with it on, the
+ * button is a "now" rather than the only way work reaches the server. Off by default because the
+ * write is REPLACE-ALL - an auto-save part way through redrawing a region persists the half of it
+ * that exists at that moment, which is not what someone mid-edit has asked for.
+ */
+const autoSave = defineModel<boolean>('autoSave', { required: true })
+
 const emit = defineEmits<{
     seed: []
     save: []
@@ -71,7 +81,6 @@ const emit = defineEmits<{
             </McBreadcrumbItem>
         </McBreadcrumbList>
     </McBreadcrumb>
-    <!-- Mono pill with a hairline border, "N images" - the mockup's, not a bare number. -->
     <span
         class="tw:rounded-[5px] tw:border tw:border-an-n-150 tw:bg-an-n-50 tw:px-1.5 tw:py-0.5 tw:font-mono tw:text-[11px] tw:tabular-nums tw:text-an-faint"
     >
@@ -100,18 +109,24 @@ const emit = defineEmits<{
 
     <div class="tw:mx-1 tw:h-5 tw:w-px tw:bg-an-divider"></div>
 
-    <!-- A count, not a boolean. "2 unsaved edits" says how much would be lost; a dot says only
-         that something would be. -->
     <span
         v-if="unsavedEdits > 0"
         class="tw:flex tw:items-center tw:gap-1.5 tw:text-[12px] tw:text-an-muted"
     >
         <span class="tw:h-1.5 tw:w-1.5 tw:rounded-full tw:bg-an-warn"></span>
-        <span class="tw:font-mono tw:tabular-nums">{{ unsavedEdits }}</span>
+        {{ unsavedEdits }}
         unsaved edit{{ unsavedEdits === 1 ? '' : 's' }}
     </span>
 
-    <McButton size="sm" :disabled="!canSave" :loading="saving" @click="emit('save')">
+    <label
+        class="tw:flex tw:shrink-0 tw:cursor-pointer tw:items-center tw:gap-1.5 tw:text-[12px] tw:text-an-muted tw:select-none"
+        title="Save automatically a moment after each change"
+    >
+        <input v-model="autoSave" type="checkbox" class="tw:h-3.5 tw:w-3.5 tw:accent-an-accent" />
+        Auto-save
+    </label>
+
+    <McButton size="sm" :disabled="!canSave" :loading="saving" class="tw:m-2" @click="emit('save')">
         <Save class="tw:h-4 tw:w-4" />
         Save
         <kbd
