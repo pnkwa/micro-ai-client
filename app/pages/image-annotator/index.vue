@@ -1066,7 +1066,6 @@ const step = (delta: number) => {
             <ClassPicker
                 :classes="classes"
                 :active="activeClass"
-                :has-selection="Boolean(selectedShapeId)"
                 @pick="pickClass"
                 @create="createClass"
             />

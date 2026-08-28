@@ -163,6 +163,12 @@
     --color-an-warn: #a56a08;
     --color-an-warn-tint: #fdf3e3;
 
+    /* The seeded SHAPE ROW specifically, which is much fainter than the badge above.
+       A row is read down a column next to the picture, so it gets a near-white wash and a 1px
+       ring; `an-warn-tint` at that size pulls the eye off the image it is describing. */
+    --color-an-seed-tint: #fefbf4;
+    --color-an-seed-ring: #e8d3a8;
+
     /* Neutral ramp. The panels lean on these hard, and the gaps between them are what make a
        disabled row read as disabled rather than as faint text. */
     --color-an-n-700: #3c434c;

@@ -43,39 +43,58 @@ const extras = computed(() =>
 </script>
 
 <template>
-    <div v-if="image" class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-panel">
+    <div
+        v-if="image"
+        class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:px-3.5 tw:pt-[11px] tw:pb-3"
+    >
         <button
             type="button"
-            class="tw:flex tw:w-full tw:items-center tw:gap-1.5 tw:px-3.5 tw:py-2 tw:text-left"
+            class="tw:mb-2 tw:flex tw:w-full tw:items-center tw:gap-1.5 tw:text-left"
             @click="open = !open"
         >
             <span
-                class="tw:min-w-0 tw:flex-1 tw:truncate tw:text-[12.5px] tw:font-semibold tw:text-an-text"
+                class="tw:min-w-0 tw:flex-1 tw:truncate tw:text-[11px] tw:font-semibold tw:text-an-text"
             >
                 {{ position ? `Image ${position}` : name }}
             </span>
-            <ChevronDown v-if="open" class="tw:h-3.5 tw:w-3.5 tw:text-an-n-400" />
-            <ChevronUp v-else class="tw:h-3.5 tw:w-3.5 tw:text-an-n-400" />
+            <ChevronUp v-if="open" class="tw:h-3.5 tw:w-3.5 tw:text-an-faint" />
+            <ChevronDown v-else class="tw:h-3.5 tw:w-3.5 tw:text-an-faint" />
         </button>
 
-        <dl v-if="open" class="tw:flex tw:flex-col tw:gap-1 tw:px-3.5 tw:pb-2.5">
-            <div class="tw:flex tw:gap-2 tw:text-[11.5px]">
-                <dt class="tw:w-24 tw:shrink-0 tw:text-an-n-400">File</dt>
-                <dd class="tw:min-w-0 tw:truncate tw:font-mono tw:text-an-n-700">{{ name }}</dd>
+        <dl v-if="open" class="tw:mb-[11px] tw:flex tw:flex-col tw:gap-1">
+            <div class="tw:flex tw:items-center tw:text-[10.5px]">
+                <dt class="tw:text-[10.5px] tw:w-[74px] tw:shrink-0 tw:text-an-faint">File</dt>
+                <dd class="tw:text-[10.5px] tw:min-w-0 tw:truncate tw:font-mono tw:text-an-n-700">
+                    {{ name }}
+                </dd>
             </div>
-            <div v-if="dimensions" class="tw:flex tw:gap-2 tw:text-[11.5px]">
-                <dt class="tw:w-24 tw:shrink-0 tw:text-an-n-400">Dimensions</dt>
-                <dd class="tw:min-w-0 tw:truncate tw:font-mono tw:tabular-nums tw:text-an-n-700">
+            <div v-if="dimensions" class="tw:flex tw:items-center tw:text-[10.5px]">
+                <dt class="tw:text-[10.5px] tw:w-[74px] tw:shrink-0 tw:text-an-faint">
+                    Dimensions
+                </dt>
+                <dd
+                    class="tw:text-[10.5px] tw:min-w-0 tw:truncate tw:font-mono tw:tabular-nums tw:text-an-n-700"
+                >
                     {{ dimensions.w }} × {{ dimensions.h }}
                 </dd>
             </div>
-            <div v-if="seededBy" class="tw:flex tw:gap-2 tw:text-[11.5px]">
-                <dt class="tw:w-24 tw:shrink-0 tw:text-an-n-400">Seeded by</dt>
-                <dd class="tw:min-w-0 tw:truncate tw:font-mono tw:text-an-n-700">{{ seededBy }}</dd>
+            <div v-if="seededBy" class="tw:flex tw:items-center tw:text-[10.5px]">
+                <dt class="tw:text-[10.5px] tw:w-[74px] tw:shrink-0 tw:text-an-faint">Seeded by</dt>
+                <dd class="tw:text-[10.5px] tw:min-w-0 tw:truncate tw:font-mono tw:text-an-n-700">
+                    {{ seededBy }}
+                </dd>
             </div>
-            <div v-for="entry in extras" :key="entry.key" class="tw:flex tw:gap-2 tw:text-[11.5px]">
-                <dt class="tw:w-24 tw:shrink-0 tw:truncate tw:text-an-n-400">{{ entry.label }}</dt>
-                <dd class="tw:min-w-0 tw:truncate tw:text-an-n-700">{{ entry.value }}</dd>
+            <div
+                v-for="entry in extras"
+                :key="entry.key"
+                class="tw:flex tw:items-center tw:text-[10.5px]"
+            >
+                <dt class="tw:text-[10.5px] tw:w-[74px] tw:shrink-0 tw:truncate tw:text-an-faint">
+                    {{ entry.label }}
+                </dt>
+                <dd class="tw:text-[10.5px] tw:min-w-0 tw:truncate tw:text-an-n-700">
+                    {{ entry.value }}
+                </dd>
             </div>
         </dl>
 
@@ -83,12 +102,16 @@ const extras = computed(() =>
             `M`, not `R`: R is the rectangle tool. Persisted into `images.metadata.reviewed`, which
             is an open bag with a PATCH - so it survives a reload today, and it is the placeholder
             for the first-class field this wants.
+
+            A bordered box on the tinted footer rather than a full-width bar: it is a control, and
+            the design gives it an edge so it reads as one thing to press.
         -->
         <label
-            class="tw:flex tw:cursor-pointer tw:items-center tw:gap-2 tw:border-t tw:border-an-divider tw:px-3.5 tw:py-2.5 tw:text-[12px] tw:text-an-n-700"
+            class="tw:flex tw:h-[30px] tw:cursor-pointer tw:items-center tw:gap-2 tw:rounded-lg tw:border tw:border-an-n-200 tw:bg-an-panel tw:px-2.5 tw:text-[11.5px] tw:text-an-n-700"
         >
             <input
                 type="checkbox"
+                class="tw:h-3.5 tw:w-3.5 tw:accent-an-accent"
                 :checked="reviewed"
                 :disabled="saving"
                 @change="emit('update:reviewed', ($event.target as HTMLInputElement).checked)"
@@ -96,7 +119,7 @@ const extras = computed(() =>
             Mark reviewed
             <div class="tw:flex-1"></div>
             <kbd
-                class="tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-1.5 tw:py-0.5 tw:font-mono tw:text-[10px] tw:leading-none tw:text-an-muted"
+                class="tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-[5px] tw:py-[3px] tw:font-mono tw:text-[9.5px] tw:leading-none tw:text-an-muted"
             >
                 M
             </kbd>

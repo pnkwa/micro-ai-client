@@ -17,8 +17,6 @@ defineProps<{
     classes: AnnotationClass[]
     /** The class new shapes take. Null before anything is picked. */
     active: string | null
-    /** Changes the keycap hint from "pick" to "reclass". */
-    hasSelection: boolean
 }>()
 
 const emit = defineEmits<{ pick: [label: string]; create: [label: string] }>()
@@ -36,13 +34,16 @@ const submit = () => {
 
 <template>
     <section class="tw:flex tw:shrink-0 tw:flex-col">
-        <div class="tw:flex tw:items-center tw:gap-2 tw:px-3.5 tw:pt-3 tw:pb-2">
-            <span class="tw:text-[12.5px] tw:font-semibold tw:text-an-text">Classes</span>
+        <div class="tw:flex tw:items-center tw:gap-2 tw:pt-3 tw:pr-3 tw:pb-2 tw:pl-3.5">
+            <span class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text">
+                Classes
+            </span>
             <div class="tw:flex-1"></div>
-            <!-- A stub by agreement: there is no class entity to manage yet. -->
+            <!-- Accent-coloured per the design, and still disabled: there is no class entity to
+                 manage yet, so the tooltip carries what the colour would otherwise promise. -->
             <button
                 type="button"
-                class="tw:cursor-not-allowed tw:text-[11.5px] tw:text-an-n-300"
+                class="tw:cursor-not-allowed tw:text-[11px] tw:font-medium tw:text-an-accent tw:opacity-60"
                 title="Class management is not built yet"
                 disabled
             >
@@ -50,17 +51,17 @@ const submit = () => {
             </button>
         </div>
 
-        <ul class="tw:flex tw:flex-col tw:gap-0.5 tw:px-2 tw:pb-2">
+        <ul class="tw:flex tw:flex-col tw:gap-0.5 tw:px-2 tw:pb-2.5">
             <li v-for="klass in classes" :key="klass.label">
                 <button
                     type="button"
-                    class="tw:flex tw:h-[34px] tw:w-full tw:items-center tw:gap-2.5 tw:rounded-[7px] tw:px-2 tw:text-left tw:transition-colors"
+                    class="tw:flex tw:h-8 tw:w-full tw:items-center tw:gap-[9px] tw:rounded-[7px] tw:pr-[9px] tw:pl-2 tw:text-left tw:transition-colors"
                     :class="klass.label === active ? '' : 'tw:hover:bg-an-n-50'"
                     :style="
                         klass.label === active
                             ? {
-                                  background: `${klass.color}14`,
-                                  boxShadow: `inset 0 0 0 1px ${klass.color}`,
+                                  background: `${klass.color}12`,
+                                  boxShadow: `inset 0 0 0 1px ${klass.color}44`,
                               }
                             : undefined
                     "
@@ -71,29 +72,20 @@ const submit = () => {
                         :style="{ background: klass.color }"
                     ></span>
                     <span
-                        class="tw:truncate tw:text-[12.5px] tw:text-an-text"
-                        :class="klass.label === active ? 'tw:font-semibold' : ''"
+                        class="tw:truncate tw:text-[11.5px] tw:text-an-text"
+                        :class="klass.label === active ? 'tw:font-semibold' : 'tw:font-medium'"
                     >
                         {{ klass.label }}
                     </span>
-                    <!-- The mockup's state note. Only the picked class carries one; it says why the
-                         row is tinted without leaning on colour alone. -->
-                    <span v-if="klass.label === active" class="tw:text-[10.5px] tw:text-an-n-400">
-                        {{ hasSelection ? 'reclass' : 'picked' }}
-                    </span>
                     <div class="tw:flex-1"></div>
-                    <!-- Both, always: the count alone was ambiguous, since a class used once
-                         showed a lone "1" that read as the key rather than the tally. -->
-                    <span
-                        class="tw:w-4 tw:text-right tw:font-mono tw:text-[11px] tw:tabular-nums"
-                        :class="klass.count ? 'tw:text-an-faint' : 'tw:text-an-n-250'"
-                    >
-                        {{ klass.count || '-' }}
+                    <!-- A real zero, not a dash. The tally is the point, and an unused class
+                         reading "0" is the same shape of answer as one reading "3". -->
+                    <span class="tw:font-mono tw:text-[10px] tw:tabular-nums tw:text-an-faint">
+                        {{ klass.count }}
                     </span>
                     <kbd
                         v-if="klass.index < 9"
-                        class="tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-1.5 tw:py-0.5 tw:font-mono tw:text-[10px] tw:leading-none tw:text-an-muted"
-                        :title="hasSelection ? 'Reclass the selected shape' : 'Pick this class'"
+                        class="tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-[5px] tw:py-[3px] tw:font-mono tw:text-[9.5px] tw:leading-none tw:text-an-muted"
                     >
                         {{ klass.index + 1 }}
                     </kbd>
@@ -106,7 +98,7 @@ const submit = () => {
                     v-model="draft"
                     autofocus
                     placeholder="Class name"
-                    class="tw:h-8 tw:w-full tw:rounded-[7px] tw:border tw:border-an-accent tw:px-2 tw:text-[12.5px] tw:text-an-text tw:outline-none"
+                    class="tw:h-[30px] tw:w-full tw:rounded-[7px] tw:border tw:border-an-accent tw:px-2 tw:text-[11.5px] tw:text-an-text tw:outline-none"
                     @keydown.enter="submit"
                     @keydown.esc="((adding = false), (draft = ''))"
                     @blur="submit"
@@ -114,10 +106,10 @@ const submit = () => {
                 <button
                     v-else
                     type="button"
-                    class="tw:flex tw:h-8 tw:w-full tw:items-center tw:gap-2 tw:rounded-[7px] tw:border tw:border-dashed tw:border-an-n-200 tw:px-2 tw:text-[12.5px] tw:text-an-faint tw:hover:border-an-n-250 tw:hover:text-an-muted"
+                    class="tw:flex tw:h-[30px] tw:w-full tw:items-center tw:gap-[9px] tw:rounded-[7px] tw:border tw:border-dashed tw:border-an-n-200 tw:px-2 tw:text-[11.5px] tw:text-an-faint tw:hover:border-an-n-250 tw:hover:text-an-muted"
                     @click="adding = true"
                 >
-                    <Plus class="tw:h-3.5 tw:w-3.5" />
+                    <Plus class="tw:h-[13px] tw:w-[13px]" />
                     New class
                 </button>
             </li>
