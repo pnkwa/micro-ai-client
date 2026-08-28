@@ -24,6 +24,11 @@ import {
     type Shape,
 } from '~/core/helpers/annotationShapes'
 import { localId } from '~/core/helpers/localId'
+// Imported explicitly rather than left to `imports.dirs: ['core/**']`, like every other helper this
+// file uses. Auto-import resolves at BUILD time: a helper added while the dev server is running is
+// typed (so typecheck passes) but undefined at runtime, which is exactly how the whole pointer
+// pipeline came to throw `pointerDraws is not defined` on every press while every check stayed green.
+import { HANDLE_DRAWN, TOUCH_TARGET, pointerDraws } from '~/core/helpers/annotatorHotkeys'
 
 /**
  * The zoomable, pannable, drawable image surface.
