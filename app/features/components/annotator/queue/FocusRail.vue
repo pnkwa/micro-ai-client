@@ -28,7 +28,7 @@ const window = computed(() => {
 })
 
 watchEffect(() => {
-    for (const image of window.value) void load(image.id, 'thumb')
+    for (const image of window.value) void load(image.id, 'thumb', image.content_hash)
 })
 </script>
 

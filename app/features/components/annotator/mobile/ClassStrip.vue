@@ -8,9 +8,9 @@ import type { AnnotationClass } from '~/core/helpers/annotationClasses'
  * No number keycaps here: there is no keyboard, and a key hint on a surface that cannot receive one
  * is noise. Picking is the tap itself, which is why every chip is 44px tall.
  */
-defineProps<{ classes: AnnotationClass[]; active: string | null }>()
+defineProps<{ classes: AnnotationClass[]; active: number | null }>()
 
-const emit = defineEmits<{ pick: [label: string]; create: [] }>()
+const emit = defineEmits<{ pick: [labelId: number]; create: [] }>()
 </script>
 
 <template>
@@ -19,19 +19,19 @@ const emit = defineEmits<{ pick: [label: string]; create: [] }>()
     >
         <button
             v-for="klass in classes"
-            :key="klass.label"
+            :key="klass.id"
             type="button"
             class="tw:flex tw:h-11 tw:shrink-0 tw:items-center tw:gap-2 tw:rounded-xl tw:px-3 tw:transition-colors"
-            :class="klass.label === active ? '' : 'tw:bg-an-n-100'"
+            :class="klass.id === active ? '' : 'tw:bg-an-n-100'"
             :style="
-                klass.label === active
+                klass.id === active
                     ? {
                           background: `${klass.color}1A`,
                           boxShadow: `inset 0 0 0 1.5px ${klass.color}`,
                       }
                     : undefined
             "
-            @click="emit('pick', klass.label)"
+            @click="emit('pick', klass.id)"
         >
             <span
                 class="tw:h-3 tw:w-3 tw:shrink-0 tw:rounded-[4px]"

@@ -8,6 +8,7 @@ import {
     CORNERS,
     clampPoint,
     cornerPoint,
+    edgeAt,
     insertPointOnEdge,
     isDegenerate,
     isNear,
@@ -24,6 +25,7 @@ import {
     type Shape,
 } from '~/core/helpers/annotationShapes'
 import { localId } from '~/core/helpers/localId'
+import type { AnnotationLabel } from '~/services/annotationLabelService'
 // Imported explicitly rather than left to `imports.dirs: ['core/**']`, like every other helper this
 // file uses. Auto-import resolves at BUILD time: a helper added while the dev server is running is
 // typed (so typecheck passes) but undefined at runtime, which is exactly how the whole pointer
@@ -51,8 +53,8 @@ const props = withDefaults(
         tool: Tool
         /** What `expert_curated` starts as on a newly drawn shape. See the page for who gets true. */
         defaultCurated: boolean
-        /** The class list, in order. Position decides colour, so this must stay append-only. */
-        classLabels: string[]
+        /** The caller's own label rows. Each shape's colour is looked up here by its `labelId`. */
+        palette: AnnotationLabel[]
         /** Shapes the labels panel has hidden. Not drawn, and not hit-testable while hidden. */
         hiddenIds: Set<string>
         /** The image's name, so a failure says WHICH image rather than "an image". */
@@ -230,7 +232,32 @@ const failureLabel = computed(() => `Could not load ${props.name || 'this image'
 /** Pointer position in the normalized [0,1] space every shape is stored in. */
 const normalized = (event: PointerEvent): Point => view.toNormalized(event)
 
-const onWheel = (event: WheelEvent) => view.zoomAtCursor(event, event.deltaY)
+/**
+ * The wheel SCROLLS the picture, on both axes. Zoom is the modified gesture.
+ *
+ * Scrolling is what lets the picture be moved without leaving the tool being drawn with, and it is
+ * the reading every other viewer takes. The alternatives both cost the drawing hand something: a
+ * trip to the select tool abandons a ring in progress, and holding Space means holding a key with
+ * the hand that is holding the pencil.
+ *
+ * Ctrl/Cmd zooms, which is the convention everywhere and also how a trackpad PINCH arrives: the
+ * browser synthesises a wheel event with `ctrlKey` set rather than exposing a gesture of its own,
+ * so one branch serves both without a separate listener.
+ *
+ * Shift means horizontal, for a mouse with only one axis. Platforms disagree about whether it
+ * arrives already transposed onto `deltaX` or left on `deltaY` with the modifier set, so both
+ * readings are accepted.
+ */
+const onWheel = (event: WheelEvent) => {
+    if (event.ctrlKey || event.metaKey) {
+        view.zoomAtCursor(event, event.deltaY)
+        return
+    }
+    const x = event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX
+    const y = event.shiftKey ? 0 : event.deltaY
+    // Negated: scrolling down moves the VIEWPORT down, which moves the picture up.
+    view.pan({ x: -x, y: -y })
+}
 
 // ---- interaction ------------------------------------------------------------------------------
 
@@ -381,6 +408,7 @@ const onPointerDown = (event: PointerEvent) => {
             // class no longer leaks into new geometry, so a shape is never labelled by something
             // you set several images ago and forgot about.
             label: '',
+            labelId: null,
             ...rectFromDrag(at, at),
             polygon: null,
             expert_curated: props.defaultCurated,
@@ -453,7 +481,12 @@ const onPointerMove = (event: PointerEvent) => {
             // How far the fingers travelled relative to each other, so a two-finger TAP (no
             // travel) can be told from a pinch when they lift.
             pinchTravel = Math.max(pinchTravel, Math.abs(pointerDistance() - pinchStart.dist))
-            const target = (pointerDistance() / pinchStart.dist) * pinchStart.scale
+            // Slightly more than the fingers actually travelled. A 1:1 ratio is honest and feels
+            // stiff, because the span a thumb and forefinger can cover on a held tablet is a good
+            // deal smaller than the zoom range being asked for. The exponent is applied to the
+            // RATIO rather than to the distance, so 1 is still 1: pinching back to where the
+            // fingers started returns the exact scale it started at.
+            const target = pinchStart.scale * Math.pow(pointerDistance() / pinchStart.dist, 1.3)
             view.zoomAtPoint(pinchMidpoint(), target / transform.value.scale)
         }
         return
@@ -535,28 +568,36 @@ const onPointerUp = (event: PointerEvent) => {
         return
     }
 
-    if (props.tool === 'polygon' && natural.value && wasTap(event)) {
+    // Not while a node is being dragged. A press on a handle is captured by the handle, but the
+    // release still bubbles to here, and without this a tap that merely grabbed a node would go on
+    // to read the edge under it and insert a second node in the same place.
+    if (
+        props.tool === 'polygon' &&
+        natural.value &&
+        wasTap(event) &&
+        gesture.value.kind !== 'vertex'
+    ) {
         const at = normalized(event)
         const draft = draftPolygon.value
 
-        // No ring in progress and the tap landed on an edge of the selected polygon: add a vertex
-        // there. Starting a second polygon on top of the one being edited is almost never what was
-        // meant, and it is the reading this tool used to take.
-        if (!draft?.length) {
-            const selected = selectedId.value ? shapeById(selectedId.value) : null
-            if (selected?.polygon) {
-                const withPoint = insertPointOnEdge(selected, at, handleTolerance.value)
-                if (withPoint) {
-                    replaceShape(selected.id, withPoint)
-                    // The inserted vertex becomes the delete target, so a misplaced one is undone
-                    // by the same key that removes any other.
-                    const edge = nearestEdge(selected.polygon, at)
-                    if (edge) selectedVertex.value = edge.index + 1
-                    emit('commit')
-                    tapOrigin = null
-                    endGesture()
-                    return
-                }
+        // No ring in progress and the tap landed on a polygon's edge: add a vertex there. Starting
+        // a second polygon on top of an existing one is almost never what was meant, and it is the
+        // reading this tool used to take.
+        const target = insertTargetAt(at)
+        const onEdge = target ? shapeById(target.shapeId) : null
+        if (target && onEdge) {
+            const withPoint = insertPointOnEdge(onEdge, at, handleTolerance.value)
+            if (withPoint) {
+                replaceShape(onEdge.id, withPoint)
+                selectedId.value = onEdge.id
+                // The inserted vertex becomes the delete target, so a misplaced one is undone by
+                // the same key that removes any other. On the next tick because selecting a shape
+                // clears the vertex, and set synchronously the two assignments would race.
+                void nextTick(() => (selectedVertex.value = target.index + 1))
+                emit('commit')
+                tapOrigin = null
+                endGesture()
+                return
             }
         }
         // Tapping the first dot closes the ring, the gesture every other polygon tool uses. Three
@@ -611,6 +652,7 @@ const closePolygon = () => {
             // class no longer leaks into new geometry, so a shape is never labelled by something
             // you set several images ago and forgot about.
             label: '',
+            labelId: null,
             x: 0,
             y: 0,
             w: 0,
@@ -737,20 +779,39 @@ const closeTolerance = computed(() => screenTolerance(isCoarsePointer.value ? 22
 const handleTolerance = computed(() => screenTolerance(isCoarsePointer.value ? 18 : 8))
 
 /**
- * Would a click right now add a vertex to the selected polygon?
+ * Which polygon edge would a click at `point` add a vertex to, if any?
+ *
+ * The two tools ask different questions of it. SELECT offers only the edge of the polygon ALREADY
+ * selected, because with that tool a click on an unselected shape means "select this", and taking
+ * that click to grow a ring would make a polygon unreachable by its own outline. POLYGON offers any
+ * polygon's edge: the tool is about ring geometry and nothing else it does needs a selection, so
+ * requiring one first puts the node behind a step that is invisible from the tool that places it.
+ *
+ * Takes the point rather than reading `cursor` so a TAP can ask it too - on touch there is often no
+ * pointermove before the release, and `cursor` would still be wherever the last one left it.
+ */
+const insertTargetAt = (point: Point): { shapeId: string; index: number } | null => {
+    if (draftPolygon.value?.length) return null
+    if (props.tool === 'polygon') return edgeAt(visibleShapes.value, point, handleTolerance.value)
+    if (props.tool !== 'select') return null
+    const shape = selectedId.value ? shapeById(selectedId.value) : null
+    if (!shape?.polygon) return null
+    const edge = nearestEdge(shape.polygon, point)
+    return edge && edge.distance <= handleTolerance.value
+        ? { shapeId: shape.id, index: edge.index }
+        : null
+}
+
+/**
+ * Would a click right now add a vertex?
  *
  * Drives the cursor as well as the behaviour, so the affordance and the action come from ONE
  * predicate. Previously an edge that would accept a node looked exactly like empty space that would
  * pan, and the only way to find out was to click.
  */
-const canInsertAtCursor = computed(() => {
-    if (draftPolygon.value?.length) return false
-    if (props.tool !== 'select' && props.tool !== 'polygon') return false
-    const shape = selectedId.value ? shapeById(selectedId.value) : null
-    if (!shape?.polygon || !cursor.value) return false
-    const edge = nearestEdge(shape.polygon, cursor.value)
-    return Boolean(edge && edge.distance <= handleTolerance.value)
-})
+const canInsertAtCursor = computed(
+    () => cursor.value !== null && insertTargetAt(cursor.value) !== null,
+)
 
 /**
  * What the delete tool would remove at the cursor.
@@ -774,6 +835,19 @@ const deleteHover = computed<
 /** Is this shape about to be removed whole? Drives the red outline. */
 const isDeleteTargetShape = (shape: Shape) =>
     deleteHover.value?.kind === 'shape' && deleteHover.value.shapeId === shape.id
+
+/**
+ * Does the current tool DRAG a node, or only point at one?
+ *
+ * Only erase points: it removes whatever it is over, and a handle that grabbed the press would
+ * swallow that. Every other tool moves the node, the POLYGON tool included - it already puts a node
+ * on an edge, and a tool that adds nodes but cannot nudge one is a tool with a hole in it.
+ *
+ * The conflict this looks like it should have does not arise. Handles are only drawn for the
+ * polygon tool while NO ring is in progress, so a point placed on top of an existing node while
+ * drawing still lands on the canvas rather than grabbing what is underneath it.
+ */
+const vertexDragTool = computed(() => props.tool !== 'delete')
 
 /** Is this vertex about to be removed? */
 const isDeleteTargetVertex = (shape: Shape, index: number) =>
@@ -895,8 +969,8 @@ const labelBoxes = computed(() => {
                           : null,
                 // White when there is no class, matching the outline. The chip then needs dark
                 // text, since white on white is nothing at all.
-                color: colorForShape(props.classLabels, shape) ?? NEUTRAL,
-                onWhite: !colorForShape(props.classLabels, shape),
+                color: colorForShape(props.palette, shape) ?? NEUTRAL,
+                onWhite: !colorForShape(props.palette, shape),
                 x: at.x,
                 y: at.y,
                 shape,
@@ -925,23 +999,15 @@ const shapeRect = (shape: Shape) => ({
 })
 
 /**
- * The colour class for a shape, as a Tailwind TEXT class consumed via `currentColor`.
- *
- * Colours come from the annotator's OWN class palette (`annotationClasses`), assigned by position
- * in the class list, not from the app-wide `colorForLabel` that McAnnotatedImage and McConfidenceBar
- * share. Adopting that one would have restyled /image-detection and grading, which this rebuild was
- * not asked to touch.
- *
- * Two states are not label colours and should not be: the selection is always primary so it is
- * findable, and an UNLABELLED shape is amber, because a region nobody has named yet is unfinished
- * work rather than a category.
- */
-/**
  * The colour a shape paints in, as a CSS value rather than a class.
  *
- * Class colours are assigned by position in the class list, so they cannot be Tailwind utilities -
- * a class built by concatenation is never emitted, and the palette is data. Two states override the
- * class colour because they say something more urgent: about to be deleted, and selected.
+ * A class colour is AUTHORED and arrives as data on the label row (BE-ADR-038), so it can never be
+ * a Tailwind utility: a class name built by concatenation is never emitted. It is also not the
+ * app-wide `colorForLabel` that McAnnotatedImage and McConfidenceBar share - that one hashes a name
+ * and is still right for model output, where nobody chose anything.
+ *
+ * Two states override the class colour because they say something more urgent: about to be deleted,
+ * and selected.
  */
 /** Unnamed, and the selection: white, which belongs to no class and so cannot be mistaken for one. */
 const NEUTRAL = '#ffffff'
@@ -960,10 +1026,31 @@ const NEUTRAL = '#ffffff'
  */
 const CASING = 'rgba(60, 67, 76, 0.55)'
 
+/**
+ * The ring in progress: white, on a BLACK casing rather than the grey one above it.
+ *
+ * It used to be drawn in the accent green, which made it one more coloured outline on a picture
+ * already full of them - and the one colour it could never be mistaken for was the thing it needs
+ * to say, that nothing here is committed yet. White says that (it is what an unnamed shape wears),
+ * and black under it is the one casing no finished shape uses, so a draft is distinguishable from
+ * a saved white outline at a glance rather than by counting vertices.
+ *
+ * The argument against black in CASING does not apply here: that halo has class colours beside it
+ * to compete with. This one is drawn over the picture alone, and for a few seconds.
+ */
+const DRAFT_LINE = '#ffffff'
+const DRAFT_CASING = 'rgba(0, 0, 0, 0.75)'
+
+/** Casing first, line second: the same geometry painted twice, widest underneath. */
+const DRAFT_LAYERS = [
+    { color: DRAFT_CASING, width: 4.5 },
+    { color: DRAFT_LINE, width: 2 },
+] as const
+
 const strokeFor = (shape: Shape): string => {
     if (isDeleteTargetShape(shape)) return '#dc2626'
     if (shape.id === selectedId.value) return NEUTRAL
-    return colorForShape(props.classLabels, shape) ?? NEUTRAL
+    return colorForShape(props.palette, shape) ?? NEUTRAL
 }
 
 /**
@@ -1188,10 +1275,17 @@ defineExpose({
                             />
                         </template>
                         <!-- Vertices show for the selected polygon, and for EVERY polygon while
-                             the delete tool is armed: a node you cannot see is a node you cannot
-                             aim at. -->
+                             the erase or polygon tool is armed: a node you cannot see is a node you
+                             cannot aim at, and both of those tools act on whichever polygon is
+                             under the cursor rather than on the selection. Not while a ring is
+                             being drawn - there the nodes that matter are the draft's own. -->
                         <template
-                            v-if="(shape.id === selectedId || tool === 'delete') && shape.polygon"
+                            v-if="
+                                (shape.id === selectedId ||
+                                    tool === 'delete' ||
+                                    (tool === 'polygon' && !draftPolygon?.length)) &&
+                                shape.polygon
+                            "
                         >
                             <!-- Squares, not dots: a vertex handle is a grab target and a square
                                  reads as one. White with the class colour as its border, so it is
@@ -1226,11 +1320,11 @@ defineExpose({
                                 :width="px(hitSize)"
                                 :height="px(hitSize)"
                                 fill="transparent"
-                                :class="tool === 'delete' ? 'tw:cursor-pointer' : 'tw:cursor-move'"
+                                :class="vertexDragTool ? 'tw:cursor-move' : 'tw:cursor-pointer'"
                                 @pointerdown="
-                                    tool === 'delete'
-                                        ? undefined
-                                        : startVertex($event, shape.id, index)
+                                    vertexDragTool
+                                        ? startVertex($event, shape.id, index)
+                                        : undefined
                                 "
                             />
                         </template>
@@ -1239,53 +1333,61 @@ defineExpose({
                     <!-- The polygon in progress: an open path plus its vertices, so it is obvious
                          it is unfinished and obvious where the next click continues from. -->
                     <g v-if="draftPolygon?.length">
-                        <!-- The committed part of the ring: solid, because those points are
-                             placed. -->
-                        <polyline
-                            :points="polygonPoints(draftPolygon)"
+                        <!-- Every segment twice, black casing then white line, so one v-for keeps
+                             the two layers in step: geometry edited on one is edited on both. -->
+                        <g
+                            v-for="layer in DRAFT_LAYERS"
+                            :key="layer.color"
+                            :stroke="layer.color"
+                            :stroke-width="px(layer.width)"
                             fill="none"
-                            stroke="#249486"
-                            :stroke-width="px(2)"
-                            stroke-linejoin="round"
-                        />
+                        >
+                            <!-- The committed part of the ring: solid, because those points are
+                                 placed. -->
+                            <polyline
+                                :points="polygonPoints(draftPolygon)"
+                                stroke-linejoin="round"
+                                stroke-linecap="round"
+                            />
 
-                        <!--
-                            The rubber band: last placed point to the cursor, dashed because it is
-                            a preview rather than an edge. Without it, placing a point is aiming at
-                            nothing - you cannot see the segment you are about to create until
-                            after you have created it.
-                        -->
-                        <line
-                            v-if="cursor"
-                            :x1="draftPolygon[draftPolygon.length - 1]!.x * natural.w"
-                            :y1="draftPolygon[draftPolygon.length - 1]!.y * natural.h"
-                            :x2="(canCloseAtCursor ? draftPolygon[0]!.x : cursor.x) * natural.w"
-                            :y2="(canCloseAtCursor ? draftPolygon[0]!.y : cursor.y) * natural.h"
-                            stroke="#249486"
-                            :stroke-width="px(2)"
-                            :style="{ strokeDasharray: `${px(6)} ${px(4)}` }"
-                        />
-                        <!-- The closing edge, previewed only while a click would actually close. -->
-                        <line
-                            v-if="canCloseAtCursor && draftPolygon.length >= 3"
-                            :x1="draftPolygon[0]!.x * natural.w"
-                            :y1="draftPolygon[0]!.y * natural.h"
-                            :x2="draftPolygon[draftPolygon.length - 1]!.x * natural.w"
-                            :y2="draftPolygon[draftPolygon.length - 1]!.y * natural.h"
-                            stroke="#249486"
-                            :stroke-width="px(2)"
-                            :style="{ strokeDasharray: `${px(6)} ${px(4)}` }"
-                        />
+                            <!--
+                                The rubber band: last placed point to the cursor, dashed because it
+                                is a preview rather than an edge. Without it, placing a point is
+                                aiming at nothing - you cannot see the segment you are about to
+                                create until after you have created it.
+                            -->
+                            <line
+                                v-if="cursor"
+                                :x1="draftPolygon[draftPolygon.length - 1]!.x * natural.w"
+                                :y1="draftPolygon[draftPolygon.length - 1]!.y * natural.h"
+                                :x2="(canCloseAtCursor ? draftPolygon[0]!.x : cursor.x) * natural.w"
+                                :y2="(canCloseAtCursor ? draftPolygon[0]!.y : cursor.y) * natural.h"
+                                :style="{ strokeDasharray: `${px(6)} ${px(4)}` }"
+                            />
+                            <!-- The closing edge, previewed only while a click would actually
+                                 close. -->
+                            <line
+                                v-if="canCloseAtCursor && draftPolygon.length >= 3"
+                                :x1="draftPolygon[0]!.x * natural.w"
+                                :y1="draftPolygon[0]!.y * natural.h"
+                                :x2="draftPolygon[draftPolygon.length - 1]!.x * natural.w"
+                                :y2="draftPolygon[draftPolygon.length - 1]!.y * natural.h"
+                                :style="{ strokeDasharray: `${px(6)} ${px(4)}` }"
+                            />
+                        </g>
 
+                        <!-- The points themselves are already white-on-black, so they need no
+                             second pass. The first one still swells when a click would close the
+                             ring: that is the affordance, and it never depended on the colour. -->
                         <circle
                             v-for="(point, index) in draftPolygon"
                             :key="index"
                             :cx="point.x * natural.w"
                             :cy="point.y * natural.h"
                             :r="index === 0 && canCloseAtCursor ? px(7) : px(4)"
-                            :fill="index === 0 && canCloseAtCursor ? '#fff' : '#249486'"
-                            :stroke="index === 0 && canCloseAtCursor ? '#249486' : 'none'"
-                            :stroke-width="px(2)"
+                            :fill="DRAFT_LINE"
+                            :stroke="DRAFT_CASING"
+                            :stroke-width="px(1.5)"
                         />
                     </g>
                 </svg>

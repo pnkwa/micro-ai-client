@@ -28,6 +28,7 @@ describe('resolveHotkey', () => {
         ['v', 'select'],
         ['r', 'rectangle'],
         ['p', 'polygon'],
+        ['e', 'delete'],
     ])('%s picks the %s tool', (key, tool) => {
         expect(press(key)).toEqual({ type: 'tool', tool })
     })
@@ -39,6 +40,15 @@ describe('resolveHotkey', () => {
 
     it('is case-insensitive, so caps lock does not disarm the tools', () => {
         expect(press('P')).toEqual({ type: 'tool', tool: 'polygon' })
+        expect(press('E')).toEqual({ type: 'tool', tool: 'delete' })
+    })
+
+    it('E arms the erase TOOL, while Del acts on the selection', () => {
+        // Two different actions on purpose. The tool removes whatever is pointed at, from any
+        // selection or none; the key removes what is selected, from any tool, which is the only
+        // route for a shape picked in the labels panel.
+        expect(press('e')).toEqual({ type: 'tool', tool: 'delete' })
+        expect(press('Delete')).toEqual({ type: 'delete' })
     })
 
     it.each([1, 5, 9])('%s picks a class', (digit) => {
@@ -123,7 +133,7 @@ describe('HOTKEY_GROUPS', () => {
         const documented = new Set(
             HOTKEY_GROUPS.flatMap((group) => group.keys.flatMap((row) => row.keys)),
         )
-        for (const key of ['V', 'R', 'P', 'J', 'K', 'S', 'M', '0', 'H', 'F', '?', '/']) {
+        for (const key of ['V', 'R', 'P', 'E', 'J', 'K', 'S', 'M', '0', 'H', 'F', '?', '/']) {
             expect(documented.has(key)).toBe(true)
         }
     })

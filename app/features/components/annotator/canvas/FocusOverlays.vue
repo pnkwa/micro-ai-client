@@ -2,6 +2,7 @@
 import { Plus, Save } from '@lucide/vue'
 import type { AnnotationClass } from '~/core/helpers/annotationClasses'
 import type { Shape } from '~/core/helpers/annotationShapes'
+import type { AnnotationLabel } from '~/services/annotationLabelService'
 import { colorForShape } from '~/core/helpers/annotationClasses'
 
 /**
@@ -17,9 +18,9 @@ const props = defineProps<{
     canSave: boolean
     saving: boolean
     classes: AnnotationClass[]
-    activeClass: string | null
+    activeLabelId: number | null
     shapes: Shape[]
-    classLabels: string[]
+    palette: AnnotationLabel[]
     selectedShapeId: string | null
     /** Shape id to model confidence, for the ones seeded and not yet judged. */
     seeded: Record<string, number>
@@ -40,7 +41,7 @@ const metaFor = (shape: Shape): string => {
 
 const emit = defineEmits<{
     save: []
-    'pick-class': [label: string]
+    'pick-class': [labelId: number]
     'select-shape': [id: string]
     'new-class': []
 }>()
@@ -81,12 +82,12 @@ const emit = defineEmits<{
     >
         <button
             v-for="klass in classes.slice(0, 9)"
-            :key="klass.label"
+            :key="klass.id"
             type="button"
             class="tw:flex tw:h-8 tw:items-center tw:gap-[7px] tw:rounded-lg tw:px-2.5 tw:transition-colors"
-            :class="klass.label === activeClass ? '' : 'tw:hover:bg-white/8'"
-            :style="klass.label === activeClass ? { background: `${klass.color}33` } : undefined"
-            @click="emit('pick-class', klass.label)"
+            :class="klass.id === activeLabelId ? '' : 'tw:hover:bg-white/8'"
+            :style="klass.id === activeLabelId ? { background: `${klass.color}33` } : undefined"
+            @click="emit('pick-class', klass.id)"
         >
             <span
                 class="tw:h-[9px] tw:w-[9px] tw:shrink-0 tw:rounded-[3px]"
@@ -94,7 +95,7 @@ const emit = defineEmits<{
             ></span>
             <span
                 class="tw:text-[12px] tw:font-medium"
-                :class="klass.label === activeClass ? 'tw:text-white' : 'tw:text-an-d-soft'"
+                :class="klass.id === activeLabelId ? 'tw:text-white' : 'tw:text-an-d-soft'"
             >
                 {{ klass.label }}
             </span>
@@ -143,9 +144,14 @@ const emit = defineEmits<{
                 :class="shape.id === selectedShapeId ? 'tw:bg-white/6' : 'tw:hover:bg-white/8'"
                 @click="emit('select-shape', shape.id)"
             >
+                <!-- Neutral rather than amber for a shape with no class, matching ShapeRow, and
+                     from the DARK ramp because this list sits on the photograph: the light grey
+                     that reads as "unassigned" on the panel would read as a bright mark here. -->
                 <span
                     class="tw:h-[15px] tw:w-[3px] tw:shrink-0 tw:rounded-[2px]"
-                    :style="{ background: colorForShape(classLabels, shape) ?? '#D97706' }"
+                    :style="{
+                        background: colorForShape(palette, shape) ?? 'var(--color-an-d-rail-icon)',
+                    }"
                 ></span>
                 <span class="tw:truncate tw:text-[11.5px] tw:text-an-d-strong">
                     {{ shape.label || 'Unlabelled' }}

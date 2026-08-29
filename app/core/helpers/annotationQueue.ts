@@ -20,7 +20,12 @@ export type QueueStatus =
     | 'empty'
 
 export interface QueueRowInput {
-    /** `annotation_count` from the image row: what the SERVER has stored. */
+    /**
+     * `annotation_count` from the image row: what the SERVER has stored, FOR YOU.
+     *
+     * Caller-scoped since BE-ADR-038, so a row reading zero means you have not annotated it rather
+     * than that nobody has. The queue is one person's worklist, which is the reading it wants.
+     */
     annotationCount: number
     /** `metadata.reviewed`. */
     reviewed: boolean

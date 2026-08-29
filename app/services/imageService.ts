@@ -41,11 +41,15 @@ const albumRefSchema = z.object({
  * the entire reason they exist - we asked for them on 2026-08-26 because a grid of N tiles otherwise
  * costs N extra requests to answer "is this annotated?" and "may this be annotated?".
  *
- * `in_curated_album` is the SECOND one and the sharper one: it is exactly the EXISTS that
- * `PUT /images/:id/annotations` runs before accepting anything, so the Annotate affordance is
- * offered or withheld from it rather than letting someone find the rule out by being refused.
- * An EXISTS, never an equality on the row - an image can sit in a curated album and someone's
- * personal one at the same time.
+ * *** `annotation_count` IS THE CALLER'S OWN COUNT, NOT THE LIBRARY'S (BE-ADR-038). *** A tile
+ * reading "0 annotations" means YOU have not annotated it, not that nobody has, and `?annotated=`
+ * filters the same way - it is your labelling worklist rather than a view of what exists. Anything
+ * phrased as "unannotated images" in the UI is therefore about the person reading it.
+ *
+ * `in_curated_album` is an EXISTS, never an equality on the row: an image can sit in a curated album
+ * and someone's personal one at the same time. It no longer gates annotating - that guard was
+ * dropped on 2026-08-26 when BE-ADR-030 was amended, and `curated` now gates question authoring
+ * alone - so this is a badge in the library rather than a precondition for the Annotate button.
  */
 export const imageSchema = imageBaseSchema.extend({
     annotation_count: z.number(),
@@ -78,7 +82,13 @@ export interface ImageFilters {
      * "theirs", because the server reads `mine=false` as no filter at all.
      */
     mine?: boolean
-    /** `true` has at least one annotation; `false` has none, which is the labelling worklist. */
+    /**
+     * `true` has at least one of YOUR annotations; `false` has none of yours (BE-ADR-038).
+     *
+     * `false` is the labelling worklist, and it is per-person: an image a colleague has already
+     * covered still appears in yours. That is the useful reading for a shared library, and it is
+     * also the only one available, since the count it filters on is caller-scoped too.
+     */
     annotated?: boolean
     page?: number
     per_page?: number
@@ -215,12 +225,31 @@ export const imageService = {
      * No fallback needed in either direction: a server too old to know `size` ignores the query
      * param and returns the original, and a current one returns the original when the image is
      * already under the cap or cannot be decoded.
+     *
+     * *** PASS `version` (the row's `content_hash`) WHEREVER YOU HAVE IT. *** The response is
+     * `Cache-Control: private, max-age=31536000, immutable`, which tells the browser never to
+     * revalidate - it will not even send `If-None-Match`, so the server's content-keyed ETag never
+     * gets a chance to catch a stale entry. That is only safe if the URL identifies the BYTES, and
+     * `/images/:id/file` identifies a ROW: wipe the database in dev and the identity sequence walks
+     * back to 1, so every browser that ever loaded the old library keeps serving those pictures
+     * under the new ids for a year. Threading the hash through makes the URL content-addressed and
+     * the immutable cache honest. The server ignores the extra param.
+     *
+     * Optional because not every caller has it: a detection row carries `image_id` but no hash
+     * (both left the wire in v0.7), so the detection and submission surfaces still ask by id alone.
+     * They are read-only views of images nobody re-uploads, so the exposure is small, but it is the
+     * same bug and it is worth a per-row hash on those payloads eventually.
      */
-    async blobUrl(imageId: number, size?: 'thumb'): Promise<string> {
+    async blobUrl(imageId: number, size?: 'thumb', version?: string): Promise<string> {
         const { $api } = useNuxtApp()
         const blob = await $api<Blob>(imageRoutes.file(imageId), {
             responseType: 'blob',
-            ...(size && { query: { size } }),
+            query: {
+                ...(size && { size }),
+                // Sixteen chars, matching the prefix the server's own ETag uses. The full 64 would
+                // work identically and only makes the URL harder to read in a network log.
+                ...(version && { v: version.slice(0, 16) }),
+            },
         })
         return URL.createObjectURL(blob)
     },

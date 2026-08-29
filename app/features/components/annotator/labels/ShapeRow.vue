@@ -77,11 +77,17 @@ const eyeColor = computed(() => {
             class="tw:flex tw:h-[42px] tw:items-center tw:gap-[9px] tw:rounded-[8px] tw:px-2 tw:transition-colors"
             :class="[surface, hidden ? 'tw:opacity-45' : '']"
         >
-            <!-- The 3px bar is the only place an unlabelled shape shows its amber, so it is also
-                 the fastest read of "this one still needs a class". -->
+            <!-- The 3px bar is the class colour, and a PALE NEUTRAL when there is no class.
+
+                 It used to be amber, which was wrong twice over: unnamed is now an ordinary saved
+                 state rather than something the save refuses, so warning about it in a colour on
+                 every such row is noise; and that amber was `#D97706`, which is class colour 2, so
+                 an unnamed row was indistinguishable from a row correctly labelled with it. The
+                 grey says "no colour has been assigned here", which is exactly the fact. The
+                 italic "Unlabelled" beside it is what actually names the state. -->
             <span
                 class="tw:h-6 tw:w-[3px] tw:shrink-0 tw:rounded-[2px]"
-                :style="{ background: color ?? '#D97706' }"
+                :style="{ background: color ?? 'var(--color-an-n-250)' }"
             ></span>
 
             <button

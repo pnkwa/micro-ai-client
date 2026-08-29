@@ -40,15 +40,6 @@ const emit = defineEmits<{
     collapse: []
 }>()
 
-/**
- * Save-then-next, off by default.
- *
- * A batch worker wants it; someone fixing one image does not, and having the queue jump after a
- * save they made to correct a mistake is worse than an extra keystroke. Lives here rather than in
- * the page because the queue is what it advances.
- */
-const autoAdvance = defineModel<boolean>('autoAdvance', { required: true })
-
 const scroller = useTemplateRef<HTMLElement>('scroller')
 const searchEl = useTemplateRef<HTMLInputElement>('searchEl')
 const { urls, errors, load } = useImageObjectUrls()
@@ -259,7 +250,7 @@ defineExpose({ focusSearch: () => searchEl.value?.focus() })
                     :thumbnail="urls[image.id]"
                     :error="errors[image.id]"
                     :selected="image.id === selectedId"
-                    @visible="load(image.id, 'thumb')"
+                    @visible="load(image.id, 'thumb', image.content_hash)"
                     @select="emit('select', image.id)"
                 />
             </ul>
@@ -272,7 +263,7 @@ defineExpose({ focusSearch: () => searchEl.value?.focus() })
                         class="tw:relative tw:block tw:aspect-square tw:w-full tw:overflow-hidden tw:rounded-[7px] tw:bg-an-canvas"
                         :class="image.id === selectedId ? 'tw:ring-2 tw:ring-an-accent' : ''"
                         @click="emit('select', image.id)"
-                        @pointerenter="load(image.id, 'thumb')"
+                        @pointerenter="load(image.id, 'thumb', image.content_hash)"
                     >
                         <img
                             v-if="urls[image.id]"
@@ -304,13 +295,5 @@ defineExpose({ focusSearch: () => searchEl.value?.focus() })
 
             <div ref="sentinel" class="tw:h-px"></div>
         </div>
-
-        <div class="tw:h-px tw:shrink-0 tw:bg-an-divider"></div>
-        <label
-            class="tw:flex tw:shrink-0 tw:cursor-pointer tw:items-center tw:gap-2 tw:px-3.5 tw:py-2.5 tw:text-[11.5px] tw:text-an-n-600"
-        >
-            <McSwitch :model-value="autoAdvance" @update:model-value="autoAdvance = $event" />
-            Auto-advance after save
-        </label>
     </div>
 </template>

@@ -5,15 +5,28 @@ import {
     classColorAt,
     classForDigit,
     colorForShape,
-    dominantLabel,
-    mergeClassLabels,
-    mergeLabels,
+    colorOf,
+    dominantLabelId,
+    labelById,
+    labelByName,
+    toColorHex,
 } from './annotationClasses'
 import type { Shape } from './annotationShapes'
+import type { AnnotationLabel } from '~/services/annotationLabelService'
 
-const shape = (label: string, id = label): Shape => ({
+const label = (id: number, text: string, colorHex = 'aabbcc'): AnnotationLabel => ({
     id,
-    label,
+    label: text,
+    color_hex: colorHex,
+    owner_id: 1,
+    created_at: '2026-08-29T00:00:00.000Z',
+    updated_at: '2026-08-29T00:00:00.000Z',
+})
+
+const shape = (labelId: number | null, id = String(labelId), text = ''): Shape => ({
+    id,
+    labelId,
+    label: text,
     x: 0,
     y: 0,
     w: 0.1,
@@ -34,64 +47,109 @@ describe('classColorAt', () => {
     })
 })
 
-describe('mergeClassLabels', () => {
-    it('appends new labels at the end', () => {
-        expect(mergeClassLabels(['clue cell'], [shape('WBC')])).toEqual(['clue cell', 'WBC'])
+describe('toColorHex and colorOf', () => {
+    /** The palette stores bare hex; every render wants the '#'. Getting this backwards is silent. */
+    it('strips the hash and lowercases on the way out', () => {
+        expect(toColorHex('#7C5CE0')).toBe('7c5ce0')
+        expect(toColorHex('7C5CE0')).toBe('7c5ce0')
     })
 
-    /** The contract the colours depend on. */
-    it('never reorders what it already knows, so a class keeps its colour', () => {
-        const known = ['zebra', 'apple']
-        const merged = mergeClassLabels(known, [shape('banana')])
-        expect(merged).toEqual(['zebra', 'apple', 'banana'])
-        expect(classColorAt(merged.indexOf('zebra'))).toBe(classColorAt(0))
+    it('puts the hash back on the way in', () => {
+        expect(colorOf(label(1, 'BV', '7c5ce0'))).toBe('#7c5ce0')
     })
 
-    it('does not duplicate a label already known', () => {
-        expect(mergeClassLabels(['WBC'], [shape('WBC'), shape('WBC', 'b')])).toEqual(['WBC'])
+    it('round-trips', () => {
+        expect(toColorHex(colorOf(label(1, 'BV', 'd97706')))).toBe('d97706')
+    })
+})
+
+describe('labelByName', () => {
+    const palette = [label(1, 'BV'), label(2, 'TV')]
+
+    /** This is how a box's `label_id` is recovered: the read carries the text, not the id. */
+    it('finds a label by its exact text', () => {
+        expect(labelByName(palette, 'TV')?.id).toBe(2)
     })
 
-    it('ignores blank and whitespace labels, which are unfinished shapes not classes', () => {
-        expect(mergeClassLabels([], [shape(''), shape('   ')])).toEqual([])
+    it('trims what it is given, so a padded name still matches', () => {
+        expect(labelByName(palette, ' TV ')?.id).toBe(2)
     })
 
-    it('trims, so " WBC" does not become a second class', () => {
-        expect(mergeClassLabels(['WBC'], [shape(' WBC ')])).toEqual(['WBC'])
+    /**
+     * Exact, not case-insensitive. `UNIQUE(owner_id, label)` is exact too, so folding case here
+     * would claim a row the server is perfectly willing to hold alongside another.
+     */
+    it('does not match on case', () => {
+        expect(labelByName(palette, 'tv')).toBeNull()
+    })
+
+    it('is null for a blank name and for one nothing holds', () => {
+        expect(labelByName(palette, '   ')).toBeNull()
+        expect(labelByName(palette, 'GNB')).toBeNull()
+    })
+})
+
+describe('labelById', () => {
+    const palette = [label(1, 'BV'), label(2, 'TV')]
+
+    it('finds a label by id', () => {
+        expect(labelById(palette, 2)?.label).toBe('TV')
+    })
+
+    it('is null for the unlabeled state rather than throwing', () => {
+        expect(labelById(palette, null)).toBeNull()
+    })
+
+    it('is null for an id the palette does not hold', () => {
+        expect(labelById(palette, 99)).toBeNull()
     })
 })
 
 describe('buildClasses', () => {
+    const palette = [label(1, 'WBC', '111111'), label(2, 'clue cell', '222222')]
+
     it('counts the shapes carrying each class', () => {
-        const classes = buildClasses(['WBC', 'clue cell'], [shape('WBC'), shape('WBC', 'b')])
+        const classes = buildClasses(palette, [shape(1), shape(1, 'b')])
         expect(classes.map((c) => [c.label, c.count])).toEqual([
             ['WBC', 2],
             ['clue cell', 0],
         ])
     })
 
-    it('gives each class its position and colour', () => {
-        const [first, second] = buildClasses(['a', 'b'], [])
-        expect(first).toMatchObject({ index: 0, color: CLASS_COLORS[0] })
-        expect(second).toMatchObject({ index: 1, color: CLASS_COLORS[1] })
+    it('takes each colour from the label rather than from its position', () => {
+        const [first, second] = buildClasses(palette, [])
+        expect(first).toMatchObject({ id: 1, index: 0, color: '#111111' })
+        expect(second).toMatchObject({ id: 2, index: 1, color: '#222222' })
+    })
+
+    /** The old list was derived from the shapes; this one is not, so an unknown id adds nothing. */
+    it('lists the palette even when the image uses none of it, and ignores ids it does not hold', () => {
+        expect(buildClasses(palette, [shape(99)]).map((c) => c.count)).toEqual([0, 0])
+    })
+
+    it('does not count unlabelled shapes', () => {
+        expect(buildClasses(palette, [shape(null, 'a')]).map((c) => c.count)).toEqual([0, 0])
     })
 })
 
 describe('colorForShape', () => {
-    it('is the class colour for a known label', () => {
-        expect(colorForShape(['a', 'b'], shape('b'))).toBe(CLASS_COLORS[1])
+    const palette = [label(1, 'a', '111111'), label(2, 'b', '222222')]
+
+    it('is the class colour for a shape carrying a known label', () => {
+        expect(colorForShape(palette, shape(2))).toBe('#222222')
     })
 
     it('is null for an unlabelled shape, which gets its own treatment', () => {
-        expect(colorForShape(['a'], shape(''))).toBeNull()
+        expect(colorForShape(palette, shape(null, 'a'))).toBeNull()
     })
 
-    it('is null for a label not in the list rather than guessing a colour', () => {
-        expect(colorForShape(['a'], shape('unknown'))).toBeNull()
+    it('is null for a label not in the palette rather than guessing a colour', () => {
+        expect(colorForShape(palette, shape(99))).toBeNull()
     })
 })
 
 describe('classForDigit', () => {
-    const classes = buildClasses(['a', 'b', 'c'], [])
+    const classes = buildClasses([label(1, 'a'), label(2, 'b'), label(3, 'c')], [])
 
     it('maps 1 to the first class', () => {
         expect(classForDigit(classes, 1)?.label).toBe('a')
@@ -107,44 +165,22 @@ describe('classForDigit', () => {
     })
 })
 
-describe('dominantLabel', () => {
+describe('dominantLabelId', () => {
     it('returns the label most of the shapes carry', () => {
-        expect(dominantLabel([shape('BV', 'a'), shape('TV', 'b'), shape('TV', 'c')])).toBe('TV')
+        expect(dominantLabelId([shape(1, 'a'), shape(2, 'b'), shape(2, 'c')])).toBe(2)
     })
 
     it('is null when nothing is labelled, so the caller can keep the current pick', () => {
-        expect(dominantLabel([])).toBeNull()
-        expect(dominantLabel([shape('', 'a'), shape('   ', 'b')])).toBeNull()
+        expect(dominantLabelId([])).toBeNull()
+        expect(dominantLabelId([shape(null, 'a'), shape(null, 'b')])).toBeNull()
     })
 
-    it('ignores blank labels rather than counting them as a class', () => {
-        expect(dominantLabel([shape('', 'a'), shape('', 'b'), shape('BV', 'c')])).toBe('BV')
+    it('ignores unlabelled shapes rather than counting them as a class', () => {
+        expect(dominantLabelId([shape(null, 'a'), shape(null, 'b'), shape(1, 'c')])).toBe(1)
     })
 
     it('keeps the first-seen label on a tie, so a reload does not flip the pick', () => {
-        expect(dominantLabel([shape('BV', 'a'), shape('TV', 'b')])).toBe('BV')
-        expect(dominantLabel([shape('TV', 'a'), shape('BV', 'b')])).toBe('TV')
-    })
-
-    it('trims, so the same class spelled with padding is one class', () => {
-        expect(dominantLabel([shape(' BV ', 'a'), shape('BV', 'b'), shape('TV', 'c')])).toBe('BV')
-    })
-})
-
-describe('mergeLabels', () => {
-    it('appends unknown labels and keeps the known ones in place, so colours never move', () => {
-        expect(mergeLabels(['BV', 'TV'], ['VVC', 'BV'])).toEqual(['BV', 'TV', 'VVC'])
-    })
-
-    it('dedupes within the incoming list, which arrives with one entry per annotation', () => {
-        expect(mergeLabels([], ['BV', 'BV', 'TV', 'BV'])).toEqual(['BV', 'TV'])
-    })
-
-    it('trims and drops blanks, matching what mergeClassLabels does to shapes', () => {
-        expect(mergeLabels([], [' BV ', '', '   ', 'TV'])).toEqual(['BV', 'TV'])
-    })
-
-    it('is a no-op when everything is already known', () => {
-        expect(mergeLabels(['BV'], ['BV'])).toEqual(['BV'])
+        expect(dominantLabelId([shape(1, 'a'), shape(2, 'b')])).toBe(1)
+        expect(dominantLabelId([shape(2, 'a'), shape(1, 'b')])).toBe(2)
     })
 })

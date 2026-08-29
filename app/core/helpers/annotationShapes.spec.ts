@@ -4,6 +4,7 @@ import {
     bboxOfPolygon,
     hasUnsavedAnnotations,
     distanceToSegment,
+    edgeAt,
     insertPointOnEdge,
     isNear,
     nearestEdge,
@@ -28,6 +29,7 @@ import {
 const box = (over: Partial<Shape> = {}): Shape => ({
     id: 'a',
     label: 'clue cell',
+    labelId: 1,
     x: 0.2,
     y: 0.2,
     w: 0.2,
@@ -363,6 +365,65 @@ describe('removePolygonPoint', () => {
     })
 })
 
+describe('edgeAt', () => {
+    const triangle = poly([
+        [0.1, 0.1],
+        [0.5, 0.1],
+        [0.3, 0.5],
+    ])
+
+    it('finds the edge under a point, as the index of the vertex it starts at', () => {
+        expect(edgeAt([triangle], { x: 0.3, y: 0.11 }, 0.03)).toEqual({
+            shapeId: triangle.id,
+            index: 0,
+        })
+    })
+
+    it('finds the CLOSING edge, the one that is easy to forget', () => {
+        // The segment from the last vertex back to the first, midway along it.
+        expect(edgeAt([triangle], { x: 0.2, y: 0.3 }, 0.03)).toEqual({
+            shapeId: triangle.id,
+            index: 2,
+        })
+    })
+
+    it('is null when nothing is close enough', () => {
+        expect(edgeAt([triangle], { x: 0.3, y: 0.3 }, 0.02)).toBeNull()
+    })
+
+    it('ignores rectangles, which have no edge that takes a node', () => {
+        expect(edgeAt([box()], { x: 0.2, y: 0.1 }, 0.5)).toBeNull()
+    })
+
+    it('picks the LAST drawn when two polygons put an edge under the point', () => {
+        const under = poly(
+            [
+                [0.1, 0.1],
+                [0.5, 0.1],
+                [0.3, 0.5],
+            ],
+            { id: 'under' },
+        )
+        const over = poly(
+            [
+                [0.1, 0.1],
+                [0.5, 0.1],
+                [0.3, 0.5],
+            ],
+            { id: 'over' },
+        )
+        expect(edgeAt([under, over], { x: 0.3, y: 0.11 }, 0.03)?.shapeId).toBe('over')
+    })
+
+    it('agrees with insertPointOnEdge about which shape takes the node', () => {
+        // The tool asks this which shape, then asks that one to do it. A disagreement is a click
+        // that highlights an edge and then does nothing.
+        const at = { x: 0.3, y: 0.11 }
+        expect(edgeAt([triangle], at, 0.03)).not.toBeNull()
+        expect(insertPointOnEdge(triangle, at, 0.03)).not.toBeNull()
+    })
+})
+
 describe('vertexAt', () => {
     const triangle = poly([
         [0.1, 0.1],
@@ -407,6 +468,10 @@ describe('vertexAt', () => {
 })
 
 describe('toShapes', () => {
+    // The palette lookup `toShapes` resolves through. Only 'clue cell' is held, so the tests can
+    // also say what happens to a label the palette does not have.
+    const lookup = (name: string) => (name === 'clue cell' ? 5 : null)
+
     const view = {
         id: 7,
         label: 'clue cell',
@@ -419,11 +484,11 @@ describe('toShapes', () => {
     }
 
     it('prefixes the server id rather than reusing it raw', () => {
-        expect(toShapes([view])[0]!.id).toBe('srv-7')
+        expect(toShapes([view], lookup)[0]!.id).toBe('srv-7')
     })
 
     it('carries the label, the box and the curated flag', () => {
-        expect(toShapes([view])[0]).toMatchObject({
+        expect(toShapes([view], lookup)[0]).toMatchObject({
             label: 'clue cell',
             x: 0.1,
             y: 0.2,
@@ -434,16 +499,19 @@ describe('toShapes', () => {
     })
 
     it('turns polygon PAIRS into points', () => {
-        const [shape] = toShapes([
-            {
-                ...view,
-                polygon: [
-                    [0.1, 0.1],
-                    [0.3, 0.1],
-                    [0.2, 0.3],
-                ],
-            },
-        ])
+        const [shape] = toShapes(
+            [
+                {
+                    ...view,
+                    polygon: [
+                        [0.1, 0.1],
+                        [0.3, 0.1],
+                        [0.2, 0.3],
+                    ],
+                },
+            ],
+            lookup,
+        )
         expect(shape!.polygon).toEqual([
             { x: 0.1, y: 0.1 },
             { x: 0.3, y: 0.1 },
@@ -457,7 +525,7 @@ describe('toShapes', () => {
         ['an empty array', []],
     ])('reads %s polygon as a plain box', (_name, polygon) => {
         expect(
-            toShapes([{ ...view, polygon: polygon as number[][] | null }])[0]!.polygon,
+            toShapes([{ ...view, polygon: polygon as number[][] | null }], lookup)[0]!.polygon,
         ).toBeNull()
     })
 
@@ -471,9 +539,9 @@ describe('toShapes', () => {
                 [0.2, 0.3],
             ],
         }
-        const [sent] = toAnnotationPayload(toShapes([original])).annotations
+        const [sent] = toAnnotationPayload(toShapes([original], lookup)).annotations
         expect(sent).toMatchObject({
-            label: original.label,
+            label_id: 5,
             polygon: original.polygon,
             expert_curated: true,
         })
@@ -507,12 +575,24 @@ describe('diffAnnotations', () => {
         expect(diffAnnotations([a], [a, b])).toMatchObject({ removed: 1, total: 1 })
     })
 
-    /** A difference that would never be sent is not an edit. */
+    /**
+     * A difference that would never be sent is not an edit.
+     *
+     * The class goes out as `label_id`, so the TEXT differing is invisible here - which is what
+     * makes renaming a class not look like an edit to every box carrying it.
+     */
     it('ignores a change the payload would not carry', () => {
         expect(diffAnnotations([{ ...a, label: 'x ' }], [{ ...a, label: 'x' }])).toMatchObject({
-            total: 1,
+            total: 0,
         })
         expect(diffAnnotations([a], [a])).toMatchObject({ total: 0 })
+    })
+
+    it('counts a reclassed box, which changes the id and not just the text', () => {
+        expect(diffAnnotations([{ ...a, labelId: 2 }], [a])).toMatchObject({
+            changed: 1,
+            total: 1,
+        })
     })
 })
 
@@ -539,6 +619,9 @@ describe('hasUnsavedAnnotations', () => {
 })
 
 describe('shapesFromDetection', () => {
+    // The caller mints a label per model class before seeding, so every class resolves here.
+    const seedLookup = (name: string) => (name === 'clue cell' ? 5 : 6)
+
     const boxes = [
         { label: 'clue cell', confidence: 0.91, x: 0.1, y: 0.1, w: 0.2, h: 0.2, polygon: null },
         {
@@ -557,7 +640,7 @@ describe('shapesFromDetection', () => {
     ]
 
     it('keeps each box confidence against the shape it made', () => {
-        const { shapes, confidence } = shapesFromDetection(boxes, false)
+        const { shapes, confidence } = shapesFromDetection(boxes, false, seedLookup)
         expect(shapes).toHaveLength(2)
         expect(confidence[shapes[0]!.id]).toBe(0.91)
         expect(confidence[shapes[1]!.id]).toBe(0.42)
@@ -565,22 +648,22 @@ describe('shapesFromDetection', () => {
 
     /** The confidence is session-only; hanging it on the Shape would imply it gets saved. */
     it('does not put confidence on the shape itself', () => {
-        const [shape] = shapesFromDetection(boxes, false).shapes
+        const [shape] = shapesFromDetection(boxes, false, seedLookup).shapes
         expect(shape).not.toHaveProperty('confidence')
     })
 
     it('derives a polygon shape bbox from its outline rather than the zeroes sent', () => {
-        const [, polygonShape] = shapesFromDetection(boxes, false).shapes
+        const [, polygonShape] = shapesFromDetection(boxes, false, seedLookup).shapes
         expect(polygonShape!.w).toBeCloseTo(0.2, 10)
         expect(polygonShape!.h).toBeCloseTo(0.3, 10)
     })
 
     it('applies the caller default for expert_curated', () => {
-        expect(shapesFromDetection(boxes, true).shapes[0]!.expert_curated).toBe(true)
+        expect(shapesFromDetection(boxes, true, seedLookup).shapes[0]!.expert_curated).toBe(true)
     })
 
     it('gives every shape a distinct local id', () => {
-        const { shapes } = shapesFromDetection([...boxes, ...boxes], false)
+        const { shapes } = shapesFromDetection([...boxes, ...boxes], false, seedLookup)
         expect(new Set(shapes.map((s) => s.id)).size).toBe(4)
     })
 })
@@ -589,6 +672,7 @@ describe('shouldCommit', () => {
     const box = (over = {}) => ({
         id: 'a',
         label: 'BV',
+        labelId: 1,
         x: 0.1,
         y: 0.1,
         w: 0.2,
@@ -614,8 +698,17 @@ describe('shouldCommit', () => {
         expect(shouldCommit([box()], [box({ x: 0.5 })])).toBe(true)
     })
 
-    it('commits a relabelled box', () => {
-        expect(shouldCommit([box()], [box({ label: 'TV' })])).toBe(true)
+    it('commits a reclassed box', () => {
+        expect(shouldCommit([box()], [box({ labelId: 2, label: 'TV' })])).toBe(true)
+    })
+
+    /**
+     * A RENAME IS NOT AN EDIT TO THE BOXES. The class is written as an id, so renaming it leaves
+     * every payload identical - which is what stops recolouring or renaming a class from marking
+     * every open image dirty and, with auto-save on, writing them all back.
+     */
+    it('ignores a class renamed underneath a box, since only the id is sent', () => {
+        expect(shouldCommit([box()], [box({ label: 'renamed' })])).toBe(false)
     })
 
     it('commits a newly drawn box that has no class yet', () => {

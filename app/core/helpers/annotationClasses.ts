@@ -1,81 +1,105 @@
+import type { AnnotationLabel } from '~/services/annotationLabelService'
 import type { Shape } from './annotationShapes'
 
 /**
- * The annotator's class list: the labels in play, in a stable order, each with a colour.
+ * The annotator's class list: the caller's own labels, with a per-image tally.
  *
- * THERE IS NO CLASS ENTITY. Labels are free text by decision (BE-ADR-030): the tool exists to
- * describe what the models do NOT detect - clue cells, WBCs and GNDs are none of them model
- * outputs - so a vocabulary frozen to a fixed list would make the dataset useless for the next
- * checkpoint. A "class" here is therefore just a label string that something already uses, and the
- * class list is derived rather than stored.
+ * A CLASS IS A ROW NOW, NOT A STRING (BE-ADR-038). It used to be neither: the list was derived from
+ * whatever text the images happened to carry, and the colour came from a class's POSITION in that
+ * derived list, which forced an append-only ordering rule on everything that touched it. A colour
+ * that moved was worse than an arbitrary one, because people navigate this panel by colour.
  *
- * Colour is assigned BY POSITION, which is why the order has to be append-only. Sorting the list
- * would recolour every class the moment a label sorting before them appeared, and a colour that
- * moves is worse than an arbitrary one: people navigate this panel by colour.
+ * That whole problem is now the server's, and better solved: the palette is stored, per-user, and
+ * the colour is authored rather than computed. This module is left with two jobs - counting a
+ * palette against an image, and resolving a shape to its colour.
+ *
+ * Still free text, deliberately, for the reason BE-ADR-030 gave: the tool exists to describe what
+ * the models do NOT detect, so a vocabulary frozen to the manifest's five classes would make the
+ * dataset useless for the next checkpoint.
  */
 
 /**
- * Five colours, cycled.
+ * The colours offered when minting a label, cycled.
  *
- * Deliberately not `core/helpers/colors.ts`, which is the app-wide deterministic label map shared
- * by the detection overlay and the confidence bars. Reusing it would have meant either restyling
- * /image-detection and grading, or accepting two palettes anyway - so the annotator owns its own
- * and the rest of the app is left alone.
+ * NO LONGER WHAT ANYTHING IS COLOURED WITH. These are a starting suggestion so someone who types a
+ * class name and picks nothing still gets a distinct colour, and the swatches the picker offers
+ * before the full colour input. Once created, a label's colour is its own and lives on the server.
+ *
+ * Deliberately not `core/helpers/colors.ts`, which is the app-wide deterministic label map shared by
+ * the detection overlay and the confidence bars. That one still hashes a name to a colour and is
+ * still correct for model output, where nobody authored anything.
  */
 export const CLASS_COLORS = ['#7C5CE0', '#D97706', '#2E9BD6', '#64748B', '#DB5A7E'] as const
 
-/** The colour for a position in the class list. Cycles past the fifth. */
+/** The colour to offer at a position in the palette. Cycles past the fifth. */
 export function classColorAt(index: number): string {
     return CLASS_COLORS[
         ((index % CLASS_COLORS.length) + CLASS_COLORS.length) % CLASS_COLORS.length
     ]!
 }
 
+/** Bare six-digit hex, which is what the palette stores. `#7C5CE0` goes out as `7c5ce0`. */
+export function toColorHex(color: string): string {
+    return color.replace('#', '').toLowerCase()
+}
+
+/** A palette colour as CSS. The wire holds `color_hex` bare; every render wants the `#`. */
+export function colorOf(label: AnnotationLabel): string {
+    return `#${label.color_hex}`
+}
+
 export interface AnnotationClass {
+    /** The label row's server id. This is what a write sends and what a pick emits. */
+    id: number
     label: string
     color: string
-    /** 0-based. The 1-9 keycap is this plus one, and only the first nine get one. */
+    /** 0-based position in the palette. The 1-9 keycap is this plus one, and only the first nine. */
     index: number
     /** How many shapes on the current image carry it. */
     count: number
 }
 
-/**
- * Fold any labels the shapes use into the known list, preserving existing order.
- *
- * APPEND-ONLY, which is the whole contract: an existing label keeps its position and therefore its
- * colour, and anything new lands at the end. Called when an image loads and whenever a label is
- * typed, so the list grows across a session without ever reshuffling.
- *
- * Blank labels are not classes - an unlabelled shape is unfinished work, and giving it a row would
- * put a nameless entry at the top of the picker.
- */
-export function mergeClassLabels(known: string[], shapes: Shape[]): string[] {
-    return mergeLabels(
-        known,
-        shapes.map((shape) => shape.label),
-    )
+/** The label a shape carries, or null when it is unnamed or names something not in the palette. */
+export function labelById(palette: AnnotationLabel[], id: number | null): AnnotationLabel | null {
+    if (id === null) return null
+    return palette.find((entry) => entry.id === id) ?? null
 }
 
 /**
- * The same fold, over bare label strings.
+ * The label with this exact text, or null.
  *
- * Exists for the page-load seed, which reads every label the library already uses from the dataset
- * export and so has no shapes to fold - only names. Same append-only contract, same trimming, same
- * blank rule, because the two have to agree about what counts as a class or the picker's colours
- * would depend on which route filled it.
+ * How a box's `label_id` is recovered: the annotation read resolves the label's TEXT and colour but
+ * does not carry its id, and `UNIQUE(owner_id, label)` makes the text a key within one palette. The
+ * match is exact after trimming rather than case-insensitive, because the uniqueness constraint the
+ * lookup leans on is exact too - treating "BV" and "bv" as one here would find a row the server is
+ * perfectly willing to hold twice.
  */
-export function mergeLabels(known: string[], labels: string[]): string[] {
-    const seen = new Set(known)
-    const merged = [...known]
-    for (const raw of labels) {
-        const label = raw.trim()
-        if (label && !seen.has(label)) {
-            seen.add(label)
-            merged.push(label)
-        }
+export function labelByName(palette: AnnotationLabel[], name: string): AnnotationLabel | null {
+    const wanted = name.trim()
+    if (!wanted) return null
+    return palette.find((entry) => entry.label === wanted) ?? null
+}
+
+/** The class list to render, in palette order, with per-image counts. */
+export function buildClasses(palette: AnnotationLabel[], shapes: Shape[]): AnnotationClass[] {
+    const counts = new Map<number, number>()
+    for (const shape of shapes) {
+        if (shape.labelId === null) continue
+        counts.set(shape.labelId, (counts.get(shape.labelId) ?? 0) + 1)
     }
-    return merged
+    return palette.map((entry, index) => ({
+        id: entry.id,
+        label: entry.label,
+        color: colorOf(entry),
+        index,
+        count: counts.get(entry.id) ?? 0,
+    }))
+}
+
+/** The colour a shape draws in, or null for an unlabelled one, which has its own treatment. */
+export function colorForShape(palette: AnnotationLabel[], shape: Shape): string | null {
+    const label = labelById(palette, shape.labelId)
+    return label ? colorOf(label) : null
 }
 
 /**
@@ -92,44 +116,21 @@ export function mergeLabels(known: string[], labels: string[]): string[] {
  * Null for an unlabelled image is deliberate and the caller relies on it: a blank image must not
  * clear the pick, because labelling a run of empty images with one class is the ordinary flow.
  */
-export function dominantLabel(shapes: Shape[]): string | null {
-    const counts = new Map<string, number>()
+export function dominantLabelId(shapes: Shape[]): number | null {
+    const counts = new Map<number, number>()
     for (const shape of shapes) {
-        const label = shape.label.trim()
-        if (label) counts.set(label, (counts.get(label) ?? 0) + 1)
+        if (shape.labelId === null) continue
+        counts.set(shape.labelId, (counts.get(shape.labelId) ?? 0) + 1)
     }
-    let best: string | null = null
+    let best: number | null = null
     let bestCount = 0
-    for (const [label, count] of counts) {
+    for (const [id, count] of counts) {
         if (count > bestCount) {
-            best = label
+            best = id
             bestCount = count
         }
     }
     return best
-}
-
-/** The class list to render, with per-image counts. */
-export function buildClasses(known: string[], shapes: Shape[]): AnnotationClass[] {
-    const counts = new Map<string, number>()
-    for (const shape of shapes) {
-        const label = shape.label.trim()
-        if (label) counts.set(label, (counts.get(label) ?? 0) + 1)
-    }
-    return known.map((label, index) => ({
-        label,
-        color: classColorAt(index),
-        index,
-        count: counts.get(label) ?? 0,
-    }))
-}
-
-/** The colour a shape draws in, or null for an unlabelled one, which has its own treatment. */
-export function colorForShape(known: string[], shape: Shape): string | null {
-    const label = shape.label.trim()
-    if (!label) return null
-    const index = known.indexOf(label)
-    return index === -1 ? null : classColorAt(index)
 }
 
 /**

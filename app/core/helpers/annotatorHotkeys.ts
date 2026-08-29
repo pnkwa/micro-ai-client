@@ -10,7 +10,7 @@
  */
 
 export type HotkeyAction =
-    | { type: 'tool'; tool: 'select' | 'rectangle' | 'polygon' }
+    | { type: 'tool'; tool: 'select' | 'rectangle' | 'polygon' | 'delete' }
     /** 1-9. Picks the class, or reclasses the selection - the caller decides which. */
     | { type: 'class'; digit: number }
     | { type: 'next-image' }
@@ -39,10 +39,14 @@ export interface HotkeyEvent {
     targetEditable?: boolean
 }
 
-const TOOLS: Record<string, 'select' | 'rectangle' | 'polygon'> = {
+const TOOLS: Record<string, 'select' | 'rectangle' | 'polygon' | 'delete'> = {
     v: 'select',
     r: 'rectangle',
     p: 'polygon',
+    // Erase is a TOOL, not a button acting on a selection: point at a shape to remove it, or at a
+    // polygon's node to remove just that node. `e` rather than `d`, which is a hair from the Del
+    // key's neighbourhood on the mental map and would read as a second binding for the same thing.
+    e: 'delete',
 }
 
 /**
@@ -137,6 +141,7 @@ export const HOTKEY_GROUPS: { title: string; keys: { keys: string[]; label: stri
             { keys: ['V'], label: 'Select and pan' },
             { keys: ['R'], label: 'Rectangle' },
             { keys: ['P'], label: 'Polygon' },
+            { keys: ['E'], label: 'Erase a shape or a polygon point' },
             { keys: ['Space'], label: 'Hold to pan' },
         ],
     },
@@ -165,6 +170,9 @@ export const HOTKEY_GROUPS: { title: string; keys: { keys: string[]; label: stri
         title: 'View',
         keys: [
             { keys: ['0'], label: 'Fit to viewport' },
+            // Not a key binding, but the sheet is where someone looks for it, and the wheel alone
+            // now scrolls rather than zooms - a change worth saying out loud somewhere.
+            { keys: ['Ctrl', 'scroll'], label: 'Zoom (the wheel alone scrolls)' },
             { keys: ['H'], label: 'Hide or show all shapes' },
             { keys: ['F'], label: 'Focus mode' },
             { keys: ['?'], label: 'This sheet' },

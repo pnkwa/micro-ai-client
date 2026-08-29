@@ -31,7 +31,7 @@ const container = useTemplateRef<HTMLElement>('container')
 // Always the server's cached 256px downscale. A tile is ~200px and the originals are multi-MB
 // microscopy frames; fetching those whole and shrinking them with CSS is how the detection history
 // used to do it, and it cost the whole library to show one screen.
-const onVisible = (image: LibraryImage) => load(image.id, 'thumb')
+const onVisible = (image: LibraryImage) => load(image.id, 'thumb', image.content_hash)
 
 const pageCount = computed(() => Math.max(1, Math.ceil(props.total / props.perPage)))
 </script>

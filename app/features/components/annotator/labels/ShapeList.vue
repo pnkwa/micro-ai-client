@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { AlignLeft, Eye, EyeOff, Pentagon, Sparkles } from '@lucide/vue'
 import type { Shape } from '~/core/helpers/annotationShapes'
+import type { AnnotationLabel } from '~/services/annotationLabelService'
 import { colorForShape } from '~/core/helpers/annotationClasses'
 import ShapeRow from './ShapeRow.vue'
 
 const props = defineProps<{
     shapes: Shape[]
-    classLabels: string[]
+    palette: AnnotationLabel[]
     selectedId: string | null
     hiddenIds: Set<string>
     /** Shape id to model confidence, for the ones seeded and not yet judged. */
@@ -79,7 +80,7 @@ const sorted = computed(() => {
                 v-for="shape in sorted"
                 :key="shape.id"
                 :shape="shape"
-                :color="colorForShape(classLabels, shape)"
+                :color="colorForShape(palette, shape)"
                 :selected="shape.id === selectedId"
                 :hidden="hiddenIds.has(shape.id)"
                 :confidence="seeded[shape.id] ?? null"
@@ -90,8 +91,9 @@ const sorted = computed(() => {
             />
 
             <!-- Under the list rather than in the empty state, because it is the answer to "what
-                 now" once there is already something here. Naming the class requirement is the
-                 point: drawing without one produces an unlabelled shape nobody can grade. -->
+                 now" once there is already something here. It says the class can wait rather than
+                 that it is required: an unnamed shape saves, and outlining a slide in one pass and
+                 naming afterwards is how people actually work through a batch. -->
             <li
                 class="tw:flex tw:items-center tw:gap-[7px] tw:px-2.5 tw:pt-2 tw:text-[10.5px] tw:text-an-n-300"
             >
@@ -108,7 +110,7 @@ const sorted = computed(() => {
                 >
                     R
                 </kbd>
-                · pick a class first
+                then name it whenever
             </li>
         </ul>
 

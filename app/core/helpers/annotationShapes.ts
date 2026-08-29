@@ -25,6 +25,16 @@ export type Point = { x: number; y: number }
  */
 export interface Shape {
     id: string
+    /**
+     * The class, as a row in the caller's palette (BE-ADR-038). Null means unnamed, which is a real
+     * state: a box is drawn before it is named, and this is what gets written.
+     */
+    labelId: number | null
+    /**
+     * The class's text, carried alongside the id purely so this module never has to know about the
+     * palette. It is what a save's fingerprint should NOT key on - a rename changes the text without
+     * changing which class the box is in - so `toAnnotationPayload` sends the id and ignores this.
+     */
     label: string
     x: number
     y: number
@@ -259,6 +269,31 @@ export function vertexAt(
 }
 
 /**
+ * The topmost polygon EDGE under a point, across every shape.
+ *
+ * `insertPointOnEdge` answers "does THIS shape take a node here?", which is the question a tool
+ * acting on an already-selected shape asks. This answers "which shape would?", which is what a tool
+ * that acts on whatever is under the cursor needs, and without it a node can only be added to a
+ * polygon that was selected first - a step that is invisible from the tool that places nodes.
+ *
+ * Last drawn wins, same as `topmostAt` and `vertexAt`, so a small polygon lying over a large one
+ * takes the node rather than the one underneath.
+ */
+export function edgeAt(
+    shapes: Shape[],
+    point: Point,
+    tolerance: number,
+): { shapeId: string; index: number } | null {
+    for (let i = shapes.length - 1; i >= 0; i--) {
+        const shape = shapes[i]!
+        if (!shape.polygon) continue
+        const edge = nearestEdge(shape.polygon, point)
+        if (edge && edge.distance <= tolerance) return { shapeId: shape.id, index: edge.index }
+    }
+    return null
+}
+
+/**
  * The topmost shape under a point.
  *
  * Last drawn wins, because that is the one on top and the one someone just made. Searching from the
@@ -280,7 +315,8 @@ export function topmostAt(shapes: Shape[], point: Point): Shape | null {
  */
 export interface AnnotationView {
     id: number
-    label: string
+    /** Resolved from the joined label row, and null when the box is unlabeled (BE-ADR-038). */
+    label: string | null
     x: number
     y: number
     w: number
@@ -288,6 +324,15 @@ export interface AnnotationView {
     polygon?: number[][] | null
     expert_curated: boolean
 }
+
+/**
+ * Recovers a label's id from its text.
+ *
+ * A function rather than the palette itself, so this module keeps knowing nothing about labels
+ * beyond an opaque id. The lookup exists at all because the annotation read resolves a label's text
+ * and colour but does NOT carry its id; the caller closes over its own palette to answer.
+ */
+export type LabelIdLookup = (name: string) => number | null
 
 /**
  * Server annotations to editable shapes.
@@ -299,15 +344,22 @@ export interface AnnotationView {
  * `polygon` arrives as `[[x, y], ...]` pairs and becomes points. A pair missing a member would be a
  * server bug rather than a case to handle, but 0 is the honest reading of absent here: it keeps the
  * outline closed instead of producing NaN that propagates silently into the next bounding box.
+ *
+ * A LABEL THE PALETTE DOES NOT HOLD LANDS AS `labelId: null` while keeping its text. The read is
+ * owner-filtered, so that should be unreachable; if it happens the box reads as unnamed, which is a
+ * state the save accepts (`label_id` is nullable), so the text is what survives to say something
+ * was there. It does not cost a 400 that would take the whole write with it.
  */
-export function toShapes(views: AnnotationView[]): Shape[] {
+export function toShapes(views: AnnotationView[], labelIdFor: LabelIdLookup): Shape[] {
     return views.map((view) => {
         const polygon = view.polygon?.length
             ? view.polygon.map(([x, y]) => ({ x: x ?? 0, y: y ?? 0 }))
             : null
+        const label = view.label ?? ''
         return {
             id: `srv-${view.id}`,
-            label: view.label,
+            label,
+            labelId: label ? labelIdFor(label) : null,
             x: view.x,
             y: view.y,
             w: view.w,
@@ -435,6 +487,7 @@ export interface DetectionBoxView {
 export function shapesFromDetection(
     boxes: DetectionBoxView[],
     expertCurated: boolean,
+    labelIdFor: LabelIdLookup,
 ): { shapes: Shape[]; confidence: Record<string, number> } {
     const shapes: Shape[] = []
     const confidence: Record<string, number> = {}
@@ -445,6 +498,9 @@ export function shapesFromDetection(
         const shape: Shape = {
             id: localId('seed'),
             label: box.label,
+            // The caller mints a palette label per model class before seeding, so this resolves;
+            // null only if that failed, and then the save refuses the box rather than unnaming it.
+            labelId: labelIdFor(box.label),
             x: box.x,
             y: box.y,
             w: box.w,
@@ -462,7 +518,7 @@ export function shapesFromDetection(
 export const MAX_ANNOTATIONS = 1000
 
 export interface AnnotationPayloadItem {
-    label: string
+    label_id: number | null
     x: number
     y: number
     w: number
@@ -481,12 +537,17 @@ export interface AnnotationPayloadItem {
  * `polygon` goes out as `[[x, y], ...]` - the wire format is pairs, not objects, matching
  * `detection_boxes.polygon` - and is OMITTED entirely for a plain box, because the column is
  * nullable and sending an empty array is not the same as sending nothing.
+ *
+ * THE CLASS GOES OUT AS `label_id`, NEVER AS TEXT (BE-ADR-038). Sending the old `label` would not
+ * error - the server strips unknown fields - it would write every box unlabeled and report success.
+ * Keying on the id also makes a rename invisible here, which is right: renaming a class does not
+ * change which class a box is in, and a fingerprint built on this should not call that an edit.
  */
 export function toAnnotationPayload(shapes: Shape[]): { annotations: AnnotationPayloadItem[] } {
     const annotations = shapes
         .filter((shape) => !isDegenerate(shape))
         .map((shape) => ({
-            label: shape.label,
+            label_id: shape.labelId,
             x: shape.x,
             y: shape.y,
             w: shape.w,

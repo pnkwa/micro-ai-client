@@ -30,11 +30,22 @@ export const useImageObjectUrls = () => {
     // In flight as well as done: see the note above about a tile scrolling out and back.
     const pending = new Set<number>()
 
+    /**
+     * What each cached entry was fetched FOR, so an id that changes meaning is refetched.
+     *
+     * The cache is keyed by id, and an id is not a stable name for a picture: recreate the dev
+     * database and the sequence walks back to 1 while this map still holds the previous library's
+     * blobs. Remembering the version an entry was built from turns "id 1" into "id 1 as it was",
+     * which is the only reading that makes an id-keyed cache safe.
+     */
+    const versions = new Map<number, string>()
+
     const revokeAll = () => {
         for (const url of Object.values(urls.value)) URL.revokeObjectURL(url)
         urls.value = {}
         errors.value = {}
         pending.clear()
+        versions.clear()
     }
 
     /**
@@ -42,12 +53,26 @@ export const useImageObjectUrls = () => {
      *
      * A failure is remembered, so a tile that scrolls past a forbidden image repeatedly does not
      * re-request it every time.
+     *
+     * `version` is the row's `content_hash`. Pass it wherever the caller has one: it goes into the
+     * URL so the browser's immutable cache is content-addressed rather than id-addressed, and it
+     * invalidates this cache here for the same reason. See `imageService.blobUrl`.
      */
-    const load = async (imageId: number, size?: 'thumb'): Promise<void> => {
+    const load = async (imageId: number, size?: 'thumb', version?: string): Promise<void> => {
+        // A version that does not match what is held means this id now names different bytes, so
+        // the entry is dropped rather than served. Checked before the early return below, which
+        // would otherwise report the stale blob as a cache hit.
+        if (
+            version &&
+            versions.get(imageId) !== version &&
+            (urls.value[imageId] || errors.value[imageId])
+        )
+            forget(imageId)
         if (urls.value[imageId] || errors.value[imageId] || pending.has(imageId)) return
         pending.add(imageId)
         try {
-            urls.value[imageId] = await imageService.blobUrl(imageId, size)
+            urls.value[imageId] = await imageService.blobUrl(imageId, size, version)
+            if (version) versions.set(imageId, version)
         } catch (error) {
             // BE-ADR-031's permission union on GET /images/:id/file is still a recorded deferral,
             // and that route deliberately carries no @Roles, so a 403 is a realistic answer where
@@ -60,11 +85,12 @@ export const useImageObjectUrls = () => {
     }
 
     /** Drop one image from the cache, e.g. after it is deleted, so a re-add re-fetches. */
-    const forget = (imageId: number) => {
+    function forget(imageId: number) {
         const url = urls.value[imageId]
         if (url) URL.revokeObjectURL(url)
         delete urls.value[imageId]
         delete errors.value[imageId]
+        versions.delete(imageId)
     }
 
     // onScopeDispose rather than onUnmounted so this is safe to call from anywhere with an effect

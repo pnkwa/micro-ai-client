@@ -26,3 +26,12 @@ export const apiErrorStatus = (err: unknown): number | undefined => {
  * "broken", which is wrong half the time.
  */
 export const isForbidden = (err: unknown): boolean => apiErrorStatus(err) === 403
+
+/**
+ * A uniqueness conflict, which several surfaces treat as an ordinary outcome rather than a failure.
+ *
+ * Minting an annotation label is the case that needs it: `UNIQUE(owner_id, label)` means asking for
+ * a class you already hold comes back 409, and the annotator reaches that constantly because typing
+ * a name onto a chip cannot know what the palette already has. The caller reuses the existing row.
+ */
+export const isConflict = (err: unknown): boolean => apiErrorStatus(err) === 409

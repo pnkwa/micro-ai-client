@@ -16,14 +16,20 @@ import {
 } from '~/core/helpers/annotationShapes'
 import { imageService, type LibraryImage } from '~/services/imageService'
 import { annotationService } from '~/services/annotationService'
+import { annotationLabelService, type AnnotationLabel } from '~/services/annotationLabelService'
 import {
     buildClasses,
+    classColorAt,
     classForDigit,
     colorForShape,
-    dominantLabel,
-    mergeClassLabels,
-    mergeLabels,
+    dominantLabelId,
+    labelById,
+    labelByName,
+    toColorHex,
 } from '~/core/helpers/annotationClasses'
+// Imported explicitly rather than left to `imports.dirs: ['core/**']`, because auto-import resolves
+// at BUILD time: a helper added while the dev server is running is typed but undefined at runtime.
+import { isConflict } from '~/core/helpers/error'
 import { queueRowView, type QueueFilter } from '~/core/helpers/annotationQueue'
 import { metadataTitle } from '~/core/helpers/imageMetadata'
 import AnnotationCanvas, {
@@ -131,49 +137,145 @@ const imagesLoading = ref(false)
 
 const leftOpen = ref(true)
 const rightOpen = ref(true)
-const autoAdvance = ref(false)
 const autoSave = ref(false)
 const search = ref('')
 const queueFilter = ref<QueueFilter>('all')
 
 /**
- * The class list: append-only, because position decides colour and a colour that moves is worse
- * than an arbitrary one. Seeded from every image that gets opened and from anything typed.
+ * The class list: the caller's own label rows, straight from the server (BE-ADR-038).
+ *
+ * This used to be derived from whatever text the open images carried, with the colour taken from a
+ * class's POSITION in that derived list - which is why the list had to be append-only and why the
+ * old comment here argued about it. None of that survives: the palette is stored, the colour is
+ * authored, and both follow the person rather than the batch.
  */
-const classLabels = ref<string[]>([])
-const activeClass = ref<string | null>(null)
+const palette = ref<AnnotationLabel[]>([])
+const activeLabelId = ref<number | null>(null)
 
-const classes = computed(() => buildClasses(classLabels.value, shapes.value))
+const classes = computed(() => buildClasses(palette.value, shapes.value))
 
-const rememberClasses = (from: Shape[]) => {
-    classLabels.value = mergeClassLabels(classLabels.value, from)
-    activeClass.value ??= classLabels.value[0] ?? null
+/** The lookup `toShapes` and `shapesFromDetection` use to turn a label's text back into its id. */
+const labelIdFor = (name: string) => labelByName(palette.value, name)?.id ?? null
+
+/**
+ * A label with this name, minted if the palette does not already hold one.
+ *
+ * The single place a class comes into existence: typed on a chip, typed into "New class", or named
+ * by a model when a run is seeded. Minted EAGERLY, at the moment the name is given, rather than
+ * deferred to the save, which is what lets a shape carry a real `label_id` from the instant it is
+ * named and keeps the save a pure write. The server does the same thing in `seed-from-detection`.
+ *
+ * *** A 409 IS THE ORDINARY RACE, NOT AN ERROR. *** `UNIQUE(owner_id, label)` means two chips named
+ * in quick succession, or a name minted in another tab, come back conflicted; the palette is
+ * re-read and the existing row used. Anything else is surfaced and the caller leaves the shape
+ * unnamed rather than pretending it was labelled.
+ */
+const ensureLabel = async (name: string, colorHex?: string): Promise<AnnotationLabel | null> => {
+    const wanted = name.trim()
+    if (!wanted) return null
+    const held = labelByName(palette.value, wanted)
+    if (held) return held
+    try {
+        // The colour offered when nobody picked one: the next one along the cycle, so two classes
+        // made back to back do not arrive the same shade.
+        const created = await annotationLabelService.create({
+            label: wanted,
+            color_hex: colorHex ?? toColorHex(classColorAt(palette.value.length)),
+        })
+        await adoptIntoPalette(created)
+        return created
+    } catch (error) {
+        if (isConflict(error)) {
+            // The name is already ours, minted in another tab or by a seed. Read the FULL palette
+            // to find it: it may well be an orphan, and the opening read filtered those out.
+            const full = await annotationLabelService.list()
+            const existing = full.find((entry) => entry.label === wanted)
+            if (existing) {
+                palette.value = keepFrom(full, existing)
+                return existing
+            }
+        }
+        toast.error(apiErrorMessage(error, 'Could not create that class'))
+        return null
+    }
 }
 
-const pickClass = (label: string) => {
+/**
+ * The subset of a freshly read palette that belongs on screen, in the server's order.
+ *
+ * Two rules have to hold at once. The order must be the SERVER'S, because a locally appended row
+ * sits at the end and the 1-9 keycaps would renumber on the next reload - seen live: "clue cell"
+ * then "WBC" listed as 1 and 2, and a reload swapped them, the database sorting by byte order. And
+ * nothing already on screen may disappear, because the opening read hides orphans and a class stays
+ * an orphan until a box carrying it is SAVED.
+ *
+ * Filtering a server-ordered array satisfies both: order survives, and the kept set is whatever was
+ * already shown plus whatever this call is adopting.
+ */
+const keepFrom = (full: AnnotationLabel[], ...adopting: AnnotationLabel[]): AnnotationLabel[] => {
+    const keep = new Set([...palette.value, ...adopting].map((entry) => entry.id))
+    return full.filter((entry) => keep.has(entry.id))
+}
+
+/** Put a just-created label into the palette, in the server's order. See `keepFrom`. */
+const adoptIntoPalette = async (label: AnnotationLabel) => {
+    // Falls back to appending if the read fails: a wrongly ordered palette is a far smaller problem
+    // than a class the person just made not appearing at all.
+    const full = await annotationLabelService.list().catch(() => null)
+    palette.value = full ? keepFrom(full, label) : [...palette.value, label]
+}
+
+const pickClass = (labelId: number) => {
+    const label = labelById(palette.value, labelId)
+    if (!label) return
     // With a shape selected the same gesture RECLASSES it, which is the point of the number keys:
     // draw, then press 2, without the pointer ever leaving the canvas.
-    if (selectedShapeId.value) updateShape(selectedShapeId.value, { label })
-    else activeClass.value = label
+    if (selectedShapeId.value)
+        updateShape(selectedShapeId.value, { labelId: label.id, label: label.label })
+    else activeLabelId.value = label.id
 }
 
 /**
  * A class typed straight onto a shape's chip on the canvas.
  *
- * Both halves, in one gesture: the shape takes the label, and the class joins the list so it gets a
- * colour and a number key. Deliberately does NOT move the active class - you named one shape, and
- * silently re-arming the next draw with it is a decision the person did not make.
+ * Both halves, in one gesture: the class is minted if it is new, and the shape takes it. Deliberately
+ * does NOT move the active class - you named one shape, and silently re-arming the next draw with it
+ * is a decision the person did not make.
  */
-const labelShape = (id: string, label: string) => {
-    classLabels.value = mergeLabels(classLabels.value, [label])
-    updateShape(id, { label })
+const labelShape = async (id: string, name: string) => {
+    const label = await ensureLabel(name)
+    if (!label) return
+    updateShape(id, { labelId: label.id, label: label.label })
 }
 
-const createClass = (label: string) => {
-    classLabels.value = mergeClassLabels(classLabels.value, [
-        { id: 'new', label, x: 0, y: 0, w: 0, h: 0, polygon: null, expert_curated: false },
-    ])
-    pickClass(label)
+const createClass = async (name: string, colorHex?: string) => {
+    const label = await ensureLabel(name, colorHex)
+    if (label) pickClass(label.id)
+}
+
+/**
+ * Recolour a class from its own swatch.
+ *
+ * There is no separate management screen by decision: the swatch beside a class IS its colour, so
+ * that is where the colour is changed. The write is the whole of it - every box carrying the class
+ * is coloured by lookup, so replacing the row repaints the canvas, the shape list and the queue dots
+ * at once, and it is library-wide and permanent rather than a view setting.
+ */
+const recolorClass = async (labelId: number, color: string) => {
+    const previous = palette.value
+    const hex = toColorHex(color)
+    // Optimistic, because a colour picker that lags behind the pointer feels broken. Rolled back on
+    // failure rather than left showing a colour the server did not accept.
+    palette.value = palette.value.map((entry) =>
+        entry.id === labelId ? { ...entry, color_hex: hex } : entry,
+    )
+    try {
+        const updated = await annotationLabelService.update(labelId, { color_hex: hex })
+        palette.value = palette.value.map((entry) => (entry.id === labelId ? updated : entry))
+    } catch (error) {
+        palette.value = previous
+        toast.error(apiErrorMessage(error, 'Could not recolour that class'))
+    }
 }
 
 /** Hidden shapes, by id. Cleared when the image changes; hiding is a per-image reading aid. */
@@ -260,7 +362,7 @@ const retryImage = async () => {
     revokeImage()
     imageError.value = null
     try {
-        imageUrl.value = await imageService.blobUrl(image.id)
+        imageUrl.value = await imageService.blobUrl(image.id, undefined, image.content_hash)
     } catch (error) {
         imageError.value = isForbidden(error)
             ? 'You are not allowed to view this image.'
@@ -454,7 +556,7 @@ const openImage = async (image: LibraryImage) => {
     try {
         // FULL RESOLUTION, never `?size=thumb`. Annotating a 256px downscale would bake the
         // downscale into the exported dataset.
-        imageUrl.value = await imageService.blobUrl(image.id)
+        imageUrl.value = await imageService.blobUrl(image.id, undefined, image.content_hash)
     } catch (error) {
         imageError.value = isForbidden(error)
             ? 'You are not allowed to view this image.'
@@ -462,12 +564,11 @@ const openImage = async (image: LibraryImage) => {
     }
 
     try {
-        const loaded = toShapes(await annotationService.list(image.id))
+        const loaded = toShapes(await annotationService.list(image.id), labelIdFor)
         resetHistory(loaded)
-        rememberClasses(loaded)
         // The pick follows the image. Only when the image opened with labels of its own: a blank
         // one keeps whatever was picked, which is what makes labelling a run of empty images work.
-        activeClass.value = dominantLabel(loaded) ?? activeClass.value
+        activeLabelId.value = dominantLabelId(loaded) ?? activeLabelId.value
         rememberDots(image.id, loaded)
     } catch (error) {
         toast.error(apiErrorMessage(error, 'Could not load the annotations'))
@@ -493,23 +594,32 @@ const linkedImageId = computed(() => {
 await loadImages()
 
 /*
- * The class picker starts full, not empty.
+ * The palette, before anything is drawn.
  *
- * Every label the library already uses is read once here, so the classes this batch was labelled
- * with are pickable before the first image is opened. Without it the picker filled in one class at
- * a time as you happened to open images that used them, which meant the number keys meant different
- * things at the start of a pass than at the end.
+ * AWAITED, unlike the export-scraping seed it replaces. Every shape resolves its class by looking
+ * its text up in this list, so an image opened against an empty palette would read back as a set of
+ * unnamed boxes and the save would then refuse them. Cheap enough to wait for: one person's palette
+ * is a bounded list, where the old approach downloaded the entire labelled dataset to guess at the
+ * same thing.
  *
- * NOT awaited and never fatal: it is a convenience over a list that still fills itself from each
- * image as before, so a slow or refused export must not hold up the queue or blank the page.
+ * `hide_orphan` keeps the picker to classes actually in use, rather than everything ever typed. It
+ * is asked ONCE, here, and nowhere else: a label is an orphan until a box carrying it has been
+ * SAVED, so a class created a moment ago is an orphan and so is one already applied to three
+ * unsaved boxes. Re-reading with the flag mid-session would drop exactly the class being used, which
+ * is why every later read is unfiltered and narrowed locally. See `keepFrom`.
+ *
+ * Nothing is lost by filtering here: the flag hides a label only when no annotation points at it, so
+ * every label that can appear on an image this session is guaranteed to be in this list.
+ *
+ * Not fatal, though. A palette that fails to load leaves the classes empty and the drawing tools
+ * working, which is a worse pass but not a broken page.
  */
-void annotationService
-    .usedLabels()
-    .then((labels) => {
-        classLabels.value = mergeLabels(classLabels.value, labels)
-        activeClass.value ??= classLabels.value[0] ?? null
-    })
-    .catch(() => {})
+try {
+    palette.value = await annotationLabelService.list({ hideOrphan: true })
+    activeLabelId.value ??= palette.value[0]?.id ?? null
+} catch (error) {
+    toast.error(apiErrorMessage(error, 'Could not load your classes'))
+}
 
 if (linkedImageId.value) {
     const inStrip = images.value.find((row) => row.id === linkedImageId.value)
@@ -599,9 +709,7 @@ const imageClassColors = ref<Record<number, string[]>>({})
 
 const rememberDots = (imageId: number, forShapes: Shape[]) => {
     const colors = [
-        ...new Set(
-            forShapes.map((shape) => colorForShape(classLabels.value, shape)).filter(Boolean),
-        ),
+        ...new Set(forShapes.map((shape) => colorForShape(palette.value, shape)).filter(Boolean)),
     ] as string[]
     imageClassColors.value = { ...imageClassColors.value, [imageId]: colors.slice(0, 4) }
 }
@@ -633,21 +741,20 @@ const queueDots = computed(() => {
  * the guard from both annotation writers. `curated` now gates question authoring and nothing else,
  * so `in_curated_album` is a badge in the library rather than a gate here.
  */
-/**
- * Shapes that would be written with no class at all.
- *
- * `toAnnotationPayload` passes a blank label straight through - it only drops degenerate shapes -
- * so a box drawn before a class was picked reaches the server unnamed and lands in the dataset
- * export, which is the entire point of BE-ADR-030. Counted off the payload so this and the write
- * cannot disagree about which shapes are even going.
- */
-const unlabelledCount = computed(
-    () => toAnnotationPayload(shapes.value).annotations.filter((a) => !a.label.trim()).length,
-)
-
 const canSave = computed(() => Boolean(selectedImage.value) && isDirty.value && !isSaving.value)
 
-const save = async () => {
+/**
+ * `auto` marks the debounced writer, and the only thing it changes is the success toast.
+ *
+ * A person who pressed Save asked a question and is owed an answer. Auto-save asked nothing: it
+ * fires every time the drawing pauses, so the same toast becomes a notification every few seconds
+ * for something nobody requested. The header's "N unsaved" counter dropping to zero is the ambient
+ * version of the same fact, and it is already on screen.
+ *
+ * FAILURES STILL TOAST EITHER WAY. A silent auto-save that silently fails is the one combination
+ * that loses work.
+ */
+const save = async ({ auto = false }: { auto?: boolean } = {}) => {
     const image = selectedImage.value
     if (!image || isSaving.value) return
 
@@ -656,21 +763,18 @@ const save = async () => {
         toast.error(`An image is limited to ${MAX_ANNOTATIONS} annotations.`)
         return
     }
-    // Refused rather than quietly filtered: dropping them would throw away a region someone drew
-    // deliberately and just has not named yet.
-    if (unlabelledCount.value > 0) {
-        toast.error(`${unlabelledCount.value} shape(s) still need a class. Name them, then save.`)
-        return
-    }
-
+    // *** AN UNNAMED SHAPE IS SAVED, NOT REFUSED. *** `label_id` is nullable on
+    // `image_annotations` (BE-ADR-038), so a box with no class is a valid stored row rather than a
+    // malformed one. This used to bounce the whole write over one, which cost more than it
+    // protected: twenty outlines drawn and nineteen named meant none of them persisted. Naming is
+    // now a step that can follow the geometry, and the toast below says how many are still owed.
     isSaving.value = true
     try {
         // Re-read the response rather than trusting local state: a polygon's extent is recomputed
         // server-side, so the stored box can differ from the one that was sent.
         const saved = await annotationService.replace(image.id, payload.annotations)
-        const reloaded = toShapes(saved)
+        const reloaded = toShapes(saved, labelIdFor)
         adoptSaved(reloaded)
-        rememberClasses(reloaded)
         rememberDots(image.id, reloaded)
         // Saving ends the review: the ids the confidences were keyed to are gone, and a persisted
         // set is no longer "model output nobody has read".
@@ -681,11 +785,17 @@ const save = async () => {
         const updated = { ...image, annotation_count: saved.length }
         if (index !== -1) images.value[index] = updated
         selectedImage.value = updated
-        toast.success(`Saved ${saved.length} annotation(s).`)
-
-        // Save-then-next, off by default. A batch worker wants it; someone fixing one image does
-        // not, and having the queue jump after a corrective save is worse than an extra keystroke.
-        if (autoAdvance.value) step(1)
+        // The unnamed ones are named in the toast rather than refused before it. They are saved
+        // either way; what this buys is that someone who meant to name one finds out now, while
+        // the image is still open, instead of at export.
+        if (!auto) {
+            const unnamed = saved.filter((row) => row.label === null).length
+            toast.success(
+                unnamed > 0
+                    ? `Saved ${saved.length} annotation(s), ${unnamed} without a class.`
+                    : `Saved ${saved.length} annotation(s).`,
+            )
+        }
     } catch (error) {
         toast.error(apiErrorMessage(error, 'Could not save the annotations'))
     } finally {
@@ -715,12 +825,9 @@ watchDebounced(
             // that lands in one is exactly how a class got rewritten during testing; persisting
             // that a second later turns a slip into stored data.
             Boolean(canvas.value?.editingLabel),
-            // Never with something unnamed. Auto-save waits silently rather than refusing out
-            // loud once a second - the manual Save says why.
-            unlabelledCount.value,
         ] as const,
-    ([on, can, total, editing, unlabelled]) => {
-        if (on && can && total > 0 && !editing && unlabelled === 0) void save()
+    ([on, can, total, editing]) => {
+        if (on && can && total > 0 && !editing) void save({ auto: true })
     },
     { debounce: 1500, maxWait: 6000 },
 )
@@ -769,9 +876,16 @@ const runAndSeed = async ({
         // Seeded from the run's OWN boxes rather than through the seed endpoint, because those
         // carry the confidence and annotations do not. See shapesFromDetection.
         const all = detection.steps.flatMap((step) => step.boxes)
-        const { shapes: seededShapes, confidence } = shapesFromDetection(all, defaultCurated.value)
+        // Each model class becomes a real label first, so a seeded box carries a `label_id` and is
+        // saveable the moment it is accepted. Sequential rather than parallel: two boxes of the same
+        // class would otherwise race to mint it and one would take the 409 path for nothing.
+        for (const name of new Set(all.map((box) => box.label))) await ensureLabel(name)
+        const { shapes: seededShapes, confidence } = shapesFromDetection(
+            all,
+            defaultCurated.value,
+            labelIdFor,
+        )
         resetHistory(seededShapes)
-        rememberClasses(seededShapes)
         seeded.value = confidence
         seededImages.value = new Set(seededImages.value).add(image.id)
         lastRun.value = model
@@ -802,7 +916,7 @@ const onHotkey = (action: HotkeyAction) => {
             return
         case 'class': {
             const picked = classForDigit(classes.value, action.digit)
-            if (picked) pickClass(picked.label)
+            if (picked) pickClass(picked.id)
             return
         }
         case 'next-image':
@@ -919,7 +1033,7 @@ const step = (delta: number) => {
                 :last-run="lastRun"
                 @toggle-nav="toggleNav"
                 @seed="seedOpen = true"
-                @save="save"
+                @save="save()"
                 @shortcuts="shortcutsOpen = true"
             />
         </template>
@@ -980,7 +1094,7 @@ const step = (delta: number) => {
         <template #bottom-classes>
             <ClassStrip
                 :classes="classes"
-                :active="activeClass"
+                :active="activeLabelId"
                 @pick="pickClass"
                 @create="toast.info('Add a class from the labels panel on a wider screen.')"
             />
@@ -990,7 +1104,6 @@ const step = (delta: number) => {
             <McSheet v-model:open="queueSheetOpen">
                 <McSheetContent side="left" class="tw:w-[320px] tw:p-0">
                     <ImageQueue
-                        v-model:auto-advance="autoAdvance"
                         :images="images"
                         :views="queueViews"
                         :dots="queueDots"
@@ -1016,7 +1129,7 @@ const step = (delta: number) => {
                 <McSheetContent side="right" class="tw:flex tw:w-[320px] tw:flex-col tw:p-0">
                     <ShapeList
                         :shapes="shapes"
-                        :class-labels="classLabels"
+                        :palette="palette"
                         :selected-id="selectedShapeId"
                         :hidden-ids="hiddenIds"
                         :seeded="seeded"
@@ -1047,7 +1160,6 @@ const step = (delta: number) => {
         <template #queue>
             <ImageQueue
                 ref="queue"
-                v-model:auto-advance="autoAdvance"
                 :images="images"
                 :views="queueViews"
                 :dots="queueDots"
@@ -1157,7 +1269,7 @@ const step = (delta: number) => {
                 :touch-layout="isTouchLayout"
                 :tool="tool"
                 :default-curated="defaultCurated"
-                :class-labels="classLabels"
+                :palette="palette"
                 :hidden-ids="hiddenIds"
                 :space-panning="spacePanning"
                 :inset-right="0"
@@ -1188,12 +1300,12 @@ const step = (delta: number) => {
                 :can-save="canSave"
                 :saving="isSaving"
                 :classes="classes"
-                :active-class="activeClass"
+                :active-label-id="activeLabelId"
                 :shapes="shapes"
-                :class-labels="classLabels"
+                :palette="palette"
                 :selected-shape-id="selectedShapeId"
                 :seeded="seeded"
-                @save="save"
+                @save="save()"
                 @pick-class="pickClass"
                 @select-shape="selectedShapeId = $event"
                 @new-class="toast.info('Pick a class with 1-9, or leave focus mode to add one.')"
@@ -1264,14 +1376,15 @@ const step = (delta: number) => {
         <template #labels>
             <ClassPicker
                 :classes="classes"
-                :active="activeClass"
+                :active="activeLabelId"
                 @pick="pickClass"
                 @create="createClass"
+                @recolor="recolorClass"
             />
             <div class="tw:h-px tw:shrink-0 tw:bg-an-divider"></div>
             <ShapeList
                 :shapes="shapes"
-                :class-labels="classLabels"
+                :palette="palette"
                 :selected-id="selectedShapeId"
                 :hidden-ids="hiddenIds"
                 :seeded="seeded"

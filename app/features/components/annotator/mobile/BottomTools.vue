@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MousePointer2, Pentagon, Redo2, Square, Trash2, Undo2 } from '@lucide/vue'
+import { Eraser, MousePointer2, Pentagon, Redo2, Square, Trash2, Undo2 } from '@lucide/vue'
 import type { Tool } from '../canvas/AnnotationCanvas.vue'
 
 /**
@@ -22,6 +22,9 @@ const tools = [
     { id: 'select', label: 'Select and pan', icon: MousePointer2 },
     { id: 'rectangle', label: 'Rectangle', icon: Square },
     { id: 'polygon', label: 'Polygon', icon: Pentagon },
+    // A mode, and the only delete a finger has: the trash beside it needs a selection, and
+    // selecting on a touchscreen is the step this tool removes.
+    { id: 'delete', label: 'Erase a shape or a point', icon: Eraser },
 ] as const
 </script>
 
@@ -34,7 +37,13 @@ const tools = [
             :key="option.id"
             type="button"
             class="tw:flex tw:h-11 tw:w-11 tw:items-center tw:justify-center tw:rounded-xl tw:transition-colors"
-            :class="tool === option.id ? 'tw:bg-an-accent tw:text-white' : 'tw:text-an-n-600'"
+            :class="
+                tool !== option.id
+                    ? 'tw:text-an-n-600'
+                    : option.id === 'delete'
+                      ? 'tw:bg-danger tw:text-white'
+                      : 'tw:bg-an-accent tw:text-white'
+            "
             :aria-label="option.label"
             :aria-pressed="tool === option.id"
             @click="emit('update:tool', option.id as Tool)"

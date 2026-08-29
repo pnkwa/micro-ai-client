@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MousePointer2, Pentagon, Redo2, Square, Trash2, Undo2 } from '@lucide/vue'
+import { Eraser, MousePointer2, Pentagon, Redo2, Square, Trash2, Undo2 } from '@lucide/vue'
 import type { Tool } from './AnnotationCanvas.vue'
 
 /**
@@ -34,6 +34,11 @@ const tools = [
     { id: 'select', label: 'Select and pan', key: 'V', icon: MousePointer2 },
     { id: 'rectangle', label: 'Rectangle', key: 'R', icon: Square },
     { id: 'polygon', label: 'Polygon', key: 'P', icon: Pentagon },
+    // Erase is a MODE, not the trash button below it. Point at a shape to remove it, or at a
+    // polygon's node to remove just that node, and what is about to go turns red first. The trash
+    // is the other half of the same idea and not a duplicate of it: it acts on the SELECTION, which
+    // is the only route for a shape picked in the labels panel rather than found on the picture.
+    { id: 'delete', label: 'Erase a shape or a point', key: 'E', icon: Eraser },
 ] as const
 </script>
 
@@ -50,9 +55,11 @@ const tools = [
                 type="button"
                 class="tw:flex tw:h-8 tw:w-8 tw:items-center tw:justify-center tw:rounded-lg tw:transition-colors"
                 :class="
-                    tool === option.id
-                        ? 'tw:bg-an-accent tw:text-white'
-                        : 'tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white'
+                    tool !== option.id
+                        ? 'tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white'
+                        : option.id === 'delete'
+                          ? 'tw:bg-danger tw:text-white'
+                          : 'tw:bg-an-accent tw:text-white'
                 "
                 :aria-label="option.label"
                 :aria-pressed="tool === option.id"

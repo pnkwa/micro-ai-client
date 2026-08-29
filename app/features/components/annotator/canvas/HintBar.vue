@@ -20,7 +20,7 @@ const props = defineProps<{ tool: Tool; selectedCount: number; drafting: boolean
 type Part = { text: string } | { key: string }
 
 const parts = computed<Part[]>(() => {
-    if (props.drafting || props.tool === 'polygon') {
+    if (props.drafting) {
         return [
             { text: 'Click to add points ·' },
             { key: 'Enter' },
@@ -28,6 +28,11 @@ const parts = computed<Part[]>(() => {
             { key: 'Esc' },
             { text: 'cancels' },
         ]
+    }
+    // Armed but not yet drawing. The edge gesture is only reachable in this moment - once a ring is
+    // open every click places a point - so this is the only place it can be said.
+    if (props.tool === 'polygon') {
+        return [{ text: 'Click to start a polygon, or click an edge to add a point to it' }]
     }
     switch (props.tool) {
         case 'rectangle':
@@ -43,7 +48,13 @@ const parts = computed<Part[]>(() => {
                       { key: 'Del' },
                       { text: 'removes' },
                   ]
-                : [{ text: 'Drag to pan · click a shape to select it, or an edge to add a point' }]
+                : [
+                      { text: 'Drag or scroll to pan ·' },
+                      { key: 'Ctrl' },
+                      {
+                          text: 'scroll zooms · click a shape to select it, or an edge to add a point',
+                      },
+                  ]
     }
 })
 </script>

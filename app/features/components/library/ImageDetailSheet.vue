@@ -56,11 +56,11 @@ const revoke = () => {
  * The panel is where someone checks whether a picture is worth curating, and a 256px downscale of a
  * microscopy field cannot answer that. The grid's thumbs are a separate cache and stay small.
  */
-const loadImage = async (id: number) => {
+const loadImage = async (id: number, version: string) => {
     revoke()
     imageError.value = null
     try {
-        imageUrl.value = await imageService.blobUrl(id)
+        imageUrl.value = await imageService.blobUrl(id, undefined, version)
     } catch (error) {
         imageError.value = isForbidden(error) ? 'forbidden' : 'unavailable'
     }
@@ -72,7 +72,7 @@ const load = async (row: LibraryImage) => {
     runs.value = []
     confirmDelete.value = false
     albumToAdd.value = null
-    await loadImage(row.id)
+    await loadImage(row.id, row.content_hash)
     try {
         // The single read is what carries `albums[]`; the grid row does not.
         const full = await imageService.get(row.id)
