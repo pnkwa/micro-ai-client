@@ -70,7 +70,7 @@ const views: { id: LibraryView; label: string; icon: typeof LayoutGrid }[] = [
     -->
     <header
         v-if="compact && selecting"
-        class="tw:flex tw:h-[52px] tw:shrink-0 tw:items-center tw:gap-2 tw:border-b tw:border-an-border tw:bg-an-panel tw:px-2"
+        class="tw:flex tw:h-13 tw:shrink-0 tw:items-center tw:gap-2 tw:border-b tw:border-an-border tw:bg-an-panel tw:px-2"
     >
         <button
             type="button"

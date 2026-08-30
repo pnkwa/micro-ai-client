@@ -541,6 +541,31 @@ const removeShape = (id: string) => {
 const confirmDiscard = () =>
     !isDirty.value || window.confirm('You have unsaved annotations on this image. Discard them?')
 
+/**
+ * Class colours seen on each image, cached the moment the image is opened.
+ *
+ * The listing carries `annotation_count` but NOT the labels, so a closed row cannot know its
+ * classes without a request of its own. What it CAN know is any image visited this session: opening
+ * one loads its shapes, and this remembers the colours so the row keeps them after moving on. A
+ * per-row label summary on `GET /images` would colour the rest, but that is a server change and
+ * this is not; until then a never-opened annotated row shows one neutral dot, which says "has work"
+ * without inventing a class it does not know.
+ *
+ * *** DECLARED HERE, ABOVE `openImage`, AND THAT PLACEMENT IS LOAD-BEARING. *** `openImage` runs
+ * during SETUP when the library links in with `?image=`, so everything it touches has to exist by
+ * then. Both of these sat with the queue's other dot logic 180 lines below, which was fine for a
+ * click on a queue row and threw a temporal-dead-zone error on every arrival from the library - and
+ * the throw surfaced as "Could not load the annotations", about a request that had succeeded.
+ */
+const imageClassColors = ref<Record<number, string[]>>({})
+
+const rememberDots = (imageId: number, forShapes: Shape[]) => {
+    const colors = [
+        ...new Set(forShapes.map((shape) => colorForShape(palette.value, shape)).filter(Boolean)),
+    ] as string[]
+    imageClassColors.value = { ...imageClassColors.value, [imageId]: colors.slice(0, 4) }
+}
+
 const openImage = async (image: LibraryImage) => {
     selectedImageId.value = image.id
     selectedImage.value = image
@@ -571,7 +596,23 @@ const openImage = async (image: LibraryImage) => {
         activeLabelId.value = dominantLabelId(loaded) ?? activeLabelId.value
         rememberDots(image.id, loaded)
     } catch (error) {
-        toast.error(apiErrorMessage(error, 'Could not load the annotations'))
+        /*
+         * A CLIENT BUG IS NOT A FAILED REQUEST, and this block used to report it as one: a
+         * dead-zone `ReferenceError` came out as "Could not load the annotations" on every arrival
+         * from the library, about a request that had in fact succeeded.
+         *
+         * Rethrowing was the first fix and the wrong one. `openImage` is awaited at the top level
+         * of setup on the deep-link path, so a throw here does not surface an error - it stops the
+         * page rendering at all. So the page survives and the toast carries the REAL message
+         * instead, which is what points whoever sees it at this file rather than at the server.
+         * (`no-console` is an error in this repo, so the toast is the only channel there is.)
+         */
+        const bug = error instanceof ReferenceError || error instanceof TypeError
+        toast.error(
+            bug
+                ? `Something went wrong opening this image: ${(error as Error).message}`
+                : apiErrorMessage(error, 'Could not load the annotations'),
+        )
     } finally {
         annotationsLoading.value = false
     }
@@ -715,25 +756,6 @@ const queueViews = computed(() =>
  *
  * A per-row label summary on the image listing is the backend ask that would fix this properly.
  */
-
-/**
- * Class colours seen on each image, cached the moment the image is opened.
- *
- * The listing carries `annotation_count` but NOT the labels, so a closed row cannot know its
- * classes without a request of its own. What it CAN know is any image visited this session: opening
- * one loads its shapes, and this remembers the colours so the row keeps them after moving on. A
- * per-row label summary on `GET /images` would colour the rest, but that is a server change and
- * this is not; until then a never-opened annotated row shows one neutral dot, which says "has work"
- * without inventing a class it does not know.
- */
-const imageClassColors = ref<Record<number, string[]>>({})
-
-const rememberDots = (imageId: number, forShapes: Shape[]) => {
-    const colors = [
-        ...new Set(forShapes.map((shape) => colorForShape(palette.value, shape)).filter(Boolean)),
-    ] as string[]
-    imageClassColors.value = { ...imageClassColors.value, [imageId]: colors.slice(0, 4) }
-}
 
 const queueDots = computed(() => {
     const dots: Record<number, string[]> = {}

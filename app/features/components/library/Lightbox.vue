@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, Eye, EyeOff, ImageOff, Pencil, X } from '@lucide/vue'
+import { ChevronLeft, ChevronRight, Eye, EyeOff, ImageOff, Loader2, Pencil, X } from '@lucide/vue'
 import { imageService, type LibraryImage } from '~/services/imageService'
 import { annotationService } from '~/services/annotationService'
 import type { AnnotationLabel } from '~/services/annotationLabelService'
@@ -228,6 +228,16 @@ const onPointerUp = () => (panning.value = null)
                 >
                     <ImageOff class="tw:h-6 tw:w-6" />
                     <span class="tw:text-[12px]">Image unavailable</span>
+                </div>
+
+                <!--
+                    Until now this showed NOTHING while it fetched: a full-screen black rectangle,
+                    which on a phone is indistinguishable from a viewer that opened onto an image
+                    that does not exist. The wait is real - this is the original file, not a
+                    thumbnail - so it has to be visible.
+                -->
+                <div v-else class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center">
+                    <Loader2 class="tw:h-7 tw:w-7 tw:animate-spin tw:text-an-d-disabled" />
                 </div>
 
                 <button

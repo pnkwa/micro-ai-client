@@ -129,14 +129,21 @@ const metaClass = computed(() =>
                 </span>
             </span>
 
-            <!-- Always a badge, even with nothing to count: an em dash keeps the column aligned
-                 down the list, and a missing badge reads as a row that failed to render rather than
-                 as an image with no shapes. -->
+            <!--
+                NO BADGE WHEN THERE IS NOTHING TO COUNT.
+
+                It used to render a dash to keep the column aligned, on the reasoning that a missing
+                badge reads as a row that failed to render. In a queue that is mostly unlabelled
+                work it reads as neither: it is a mark on almost every row saying the same nothing,
+                and the meta line beside it already says "no shapes yet" in words. The rows that DO
+                carry a count now stand out down the column, which is what the badge is for.
+            -->
             <span
+                v-if="view.badge !== null"
                 class="tw:flex tw:h-[19px] tw:min-w-[19px] tw:shrink-0 tw:items-center tw:justify-center tw:rounded-[5px] tw:px-1.5 tw:font-mono tw:text-[10.5px] tw:font-semibold tw:tabular-nums"
                 :class="badgeClass"
             >
-                {{ view.badge ?? '–' }}
+                {{ view.badge }}
             </span>
         </button>
     </li>

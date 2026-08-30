@@ -1,24 +1,13 @@
 <script setup lang="ts">
 import { useIntersectionObserver } from '@vueuse/core'
-import {
-    AlertCircle,
-    Check,
-    CircleDot,
-    ImageOff,
-    Loader2,
-    Search,
-    Shapes,
-    Star,
-    Upload,
-} from '@lucide/vue'
+import { AlertCircle, Check, CircleDot, ImageOff, Loader2, Search, Upload } from '@lucide/vue'
 import type { LibraryImage } from '~/services/imageService'
 import type { QueueRowView } from '~/core/helpers/annotationQueue'
 import { useImageObjectUrls } from '~/core/composables/useImageObjectUrls'
 import { carriesFiles } from '~/core/composables/useAlbumDrag'
 import type { UploadItem } from '~/core/composables/useImageUpload'
-import { imageDisplayName } from '~/core/helpers/imageName'
-import { formatDay } from '~/core/helpers/dateFormat'
 import ImageGridTile from './ImageGridTile.vue'
+import ImageListRow from './ImageListRow.vue'
 import type { GridMetrics } from '~/core/helpers/libraryGrid'
 import type { LibraryView } from './LibraryHeader.vue'
 
@@ -205,8 +194,6 @@ const gridStyle = computed(() => ({
     gridTemplateColumns: `repeat(auto-fill, ${props.metrics.col}px)`,
     gap: `${props.metrics.gap}px`,
 }))
-
-const captionFor = (image: LibraryImage) => imageDisplayName(image.metadata, image.id)
 </script>
 
 <template>
@@ -294,62 +281,21 @@ const captionFor = (image: LibraryImage) => imageDisplayName(image.metadata, ima
             />
         </ul>
 
-        <!-- The list is the same rows, the same filters and the same lazy loading. It exists for a
-             batch someone is reading by date and shape count rather than by picture. -->
+        <!-- The list is the same rows, the same filters and the same lazy loading - including the
+             per-row thumbnail fetch, which it did not have while it was written inline here. -->
         <ul v-else-if="images.length" class="tw:flex tw:flex-col">
-            <li
+            <ImageListRow
                 v-for="image in images"
                 :key="image.id"
-                class="tw:border-b tw:border-an-divider tw:last:border-b-0"
-            >
-                <button
-                    type="button"
-                    class="tw:flex tw:h-11 tw:w-full tw:items-center tw:gap-3 tw:rounded-md tw:px-2 tw:text-left tw:transition-colors"
-                    :class="
-                        selectedIds.has(image.id) ? 'tw:bg-an-accent-tint' : 'tw:hover:bg-an-n-50'
-                    "
-                    @click="
-                        emit('select', image, {
-                            shift: $event.shiftKey,
-                            meta: $event.metaKey || $event.ctrlKey,
-                        })
-                    "
-                >
-                    <span
-                        class="tw:h-8 tw:w-10 tw:shrink-0 tw:overflow-hidden tw:rounded tw:bg-an-canvas"
-                    >
-                        <img
-                            v-if="urls[image.id]"
-                            :src="urls[image.id]"
-                            alt=""
-                            class="tw:h-full tw:w-full tw:object-cover"
-                        />
-                    </span>
-                    <span
-                        class="tw:min-w-0 tw:flex-1 tw:truncate tw:font-mono tw:text-[12px] tw:text-an-n-700"
-                    >
-                        {{ captionFor(image) }}
-                    </span>
-                    <Star
-                        v-if="image.in_curated_album"
-                        class="tw:h-3.5 tw:w-3.5 tw:shrink-0 tw:text-an-n-400"
-                    />
-                    <span class="tw:w-28 tw:shrink-0 tw:truncate tw:text-[11.5px] tw:text-an-n-500">
-                        {{ views[image.id]?.meta ?? 'no shapes yet' }}
-                    </span>
-                    <span
-                        class="tw:flex tw:w-12 tw:shrink-0 tw:items-center tw:gap-1 tw:font-mono tw:text-[11.5px] tw:tabular-nums tw:text-an-n-500"
-                    >
-                        <Shapes v-if="image.annotation_count" class="tw:h-3 tw:w-3" />
-                        {{ image.annotation_count || '' }}
-                    </span>
-                    <span
-                        class="tw:w-24 tw:shrink-0 tw:text-right tw:font-mono tw:text-[11px] tw:tabular-nums tw:text-an-faint"
-                    >
-                        {{ formatDay(image.created_at) }}
-                    </span>
-                </button>
-            </li>
+                :image="image"
+                :view="views[image.id] ?? { status: 'empty', badge: null, meta: 'no shapes yet' }"
+                :root="container"
+                :thumbnail="urls[image.id]"
+                :error="errors[image.id]"
+                :selected="selectedIds.has(image.id)"
+                @visible="onVisible(image)"
+                @select="emit('select', image, $event)"
+            />
         </ul>
 
         <!-- Skeletons, never a spinner: the shape of what is coming is itself information, and a

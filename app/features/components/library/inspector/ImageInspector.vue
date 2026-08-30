@@ -7,6 +7,7 @@ import {
     EyeOff,
     FolderPlus,
     ImageOff,
+    Loader2,
     MoreHorizontal,
     Pencil,
     Play,
@@ -603,7 +604,15 @@ const applyToAll = () => {
                         }}
                     </span>
                 </div>
-                <McSkeleton v-else class="tw:h-full tw:w-full tw:rounded-none" />
+                <!--
+                    A SPINNER on the dark ground, not a skeleton. This is the FULL-RESOLUTION
+                    picture - multi-megabyte microscopy frames - so the wait is seconds rather than
+                    a flicker, and a shimmer over black reads as a panel that has failed rather than
+                    one that is working.
+                -->
+                <div v-else class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center">
+                    <Loader2 class="tw:h-6 tw:w-6 tw:animate-spin tw:text-an-d-disabled" />
+                </div>
 
                 <!--
                     `preserveAspectRatio` matches `object-contain`, so the overlay letterboxes

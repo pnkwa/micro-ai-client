@@ -1,6 +1,18 @@
 <script setup lang="ts">
 import type { Tool } from './AnnotationCanvas.vue'
 
+/*
+ * THE WIDTH CAP IS ABOUT THE ZOOM PILL, not about taste.
+ *
+ * Both sit on the bottom edge of the canvas: this one pinned left, the pill centred. At the old 52%
+ * cap they ALWAYS collided, at any canvas width - this bar reaches 0.52W while the pill starts at
+ * (W - 220) / 2, and 0.52W is past that for every W. It only looked fine on a wide canvas because
+ * the text happened to be short enough never to reach the cap.
+ *
+ * `calc(50% - 132px)` stops short of the pill's half-width plus a gap, so the two cannot meet at
+ * any size and the text truncates instead of sliding underneath. If the pill grows a control, this
+ * number grows with it.
+ */
 /**
  * The contextual hint, bottom-left. What the current tool does, in one line.
  *
@@ -61,7 +73,7 @@ const parts = computed<Part[]>(() => {
 
 <template>
     <div
-        class="tw:pointer-events-none tw:absolute tw:bottom-3 tw:left-3 tw:z-10 tw:flex tw:max-w-[52%] tw:items-center tw:gap-1.5 tw:rounded-[10px] tw:border tw:border-white/[0.09] tw:bg-an-overlay/95 tw:backdrop-blur tw:px-2.5 tw:py-1.5 tw:text-[11.5px] tw:text-an-d-text"
+        class="tw:pointer-events-none tw:absolute tw:bottom-3 tw:left-3 tw:z-10 tw:flex tw:max-w-[calc(50%-132px)] tw:items-center tw:gap-1.5 tw:overflow-hidden tw:rounded-[10px] tw:border tw:border-white/[0.09] tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[11.5px] tw:text-an-d-text tw:backdrop-blur"
     >
         <!-- A live dot: the bar changes with the tool, and the dot is what says it is reacting to
              you rather than sitting there as a legend. -->
@@ -73,7 +85,7 @@ const parts = computed<Part[]>(() => {
             >
                 {{ part.key }}
             </kbd>
-            <span v-else class="tw:whitespace-nowrap">{{ part.text }}</span>
+            <span v-else class="tw:truncate tw:whitespace-nowrap">{{ part.text }}</span>
         </template>
     </div>
 </template>
