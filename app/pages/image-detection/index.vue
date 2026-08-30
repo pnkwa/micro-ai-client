@@ -783,51 +783,66 @@ onUnmounted(() => {
                         "
                     >
                         <!--
+                            THE LABEL BELONGS TO THE PANEL, so it has to share its left edge.
+
+                            It could not while the two were siblings in this column: the panel is
+                            square and centred, so it is narrower than the column, and the label row
+                            spanned the full width and started an inch to the left of the thing it
+                            names. This wrapper is what they now share - `aspect-square` sizes IT
+                            from the column's height, and both children take its width.
+
+                            `contents` below lg, so the stacked phone layout is untouched: the
+                            wrapper disappears from the box tree entirely there.
+                        -->
+                        <div
+                            class="tw:contents tw:lg:flex tw:lg:aspect-square tw:lg:min-h-0 tw:lg:flex-1 tw:lg:flex-col tw:lg:self-center"
+                        >
+                            <!--
                         min-h so the row keeps its height whether or not a status badge is in it.
                         The badge (text-[11px] + py-1 + border, ~23px) is taller than the label
                         beside it (~16px), so without this the whole viewer and everything under it
                         shifts down the moment a detection finishes.
                     -->
-                        <div
-                            class="tw:mb-3 tw:hidden tw:min-h-7 tw:items-center tw:justify-between tw:lg:flex"
-                        >
-                            <div class="tw:flex tw:items-center tw:gap-2">
-                                <span
-                                    class="tw:w-1.5 tw:h-1.5 tw:rounded-full"
-                                    :class="{
-                                        'tw:bg-slate-300': mode === 'empty',
-                                        'tw:bg-primary':
-                                            mode === 'preview' && !hasResults && !isAnalyzing,
-                                        'tw:bg-emerald-400 tw:animate-pulse': hasResults,
-                                        'tw:bg-blue-400 tw:animate-pulse': isAnalyzing,
-                                    }"
-                                ></span>
-                                <span
-                                    class="tw:text-xs tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest"
+                            <div
+                                class="tw:mb-3 tw:hidden tw:min-h-7 tw:items-center tw:justify-between tw:lg:flex"
+                            >
+                                <div class="tw:flex tw:items-center tw:gap-2">
+                                    <span
+                                        class="tw:w-1.5 tw:h-1.5 tw:rounded-full"
+                                        :class="{
+                                            'tw:bg-slate-300': mode === 'empty',
+                                            'tw:bg-primary':
+                                                mode === 'preview' && !hasResults && !isAnalyzing,
+                                            'tw:bg-emerald-400 tw:animate-pulse': hasResults,
+                                            'tw:bg-blue-400 tw:animate-pulse': isAnalyzing,
+                                        }"
+                                    ></span>
+                                    <span
+                                        class="tw:text-xs tw:font-semibold tw:text-slate-400 tw:uppercase tw:tracking-widest"
+                                    >
+                                        {{ mode === 'preview' ? 'Image Preview' : 'Viewer' }}
+                                    </span>
+                                </div>
+
+                                <div
+                                    v-if="hasResults"
+                                    class="tw:flex tw:items-center tw:gap-1.5 tw:bg-emerald-50 tw:border tw:border-emerald-200 tw:text-emerald-700 tw:text-[11px] tw:font-semibold tw:px-2.5 tw:py-1 tw:rounded-full"
                                 >
-                                    {{ mode === 'preview' ? 'Image Preview' : 'Viewer' }}
-                                </span>
+                                    <span
+                                        class="tw:w-1.5 tw:h-1.5 tw:rounded-full tw:bg-emerald-500 tw:inline-block"
+                                    ></span>
+                                    Detection complete
+                                </div>
+                                <div
+                                    v-else-if="isAnalyzing"
+                                    class="tw:flex tw:items-center tw:gap-1.5 tw:bg-primary/8 tw:border tw:border-primary/20 tw:text-primary tw:text-[11px] tw:font-semibold tw:px-2.5 tw:py-1 tw:rounded-full"
+                                >
+                                    <Loader2 class="tw:w-3 tw:h-3 tw:animate-spin" />
+                                    Analyzing…
+                                </div>
                             </div>
 
-                            <div
-                                v-if="hasResults"
-                                class="tw:flex tw:items-center tw:gap-1.5 tw:bg-emerald-50 tw:border tw:border-emerald-200 tw:text-emerald-700 tw:text-[11px] tw:font-semibold tw:px-2.5 tw:py-1 tw:rounded-full"
-                            >
-                                <span
-                                    class="tw:w-1.5 tw:h-1.5 tw:rounded-full tw:bg-emerald-500 tw:inline-block"
-                                ></span>
-                                Detection complete
-                            </div>
-                            <div
-                                v-else-if="isAnalyzing"
-                                class="tw:flex tw:items-center tw:gap-1.5 tw:bg-primary/8 tw:border tw:border-primary/20 tw:text-primary tw:text-[11px] tw:font-semibold tw:px-2.5 tw:py-1 tw:rounded-full"
-                            >
-                                <Loader2 class="tw:w-3 tw:h-3 tw:animate-spin" />
-                                Analyzing…
-                            </div>
-                        </div>
-
-                        <!--
+                            <!--
                         Its content is absolutely positioned (0 intrinsic height), so it needs a
                         height source: an explicit one when stacked, flex-1 to fill the row on lg.
 
@@ -844,7 +859,7 @@ onUnmounted(() => {
                         Results card's header and first line - because a result you have to scroll to
                         find is not a result you have been shown.
                     -->
-                        <!--
+                            <!--
                             my-auto on a staged phone screen: the spare height splits above and below
                             the picture instead of piling into one gap. A single spacer before the
                             controls put every spare pixel in one place - on a 932pt screen that was a
@@ -852,7 +867,7 @@ onUnmounted(() => {
                             rather than as space. Auto margins collapse to nothing on a short screen,
                             so the layout there is unchanged.
                         -->
-                        <!--
+                            <!--
                             Square on lg, and only there: the picture inside it is a square in every
                             state (the viewfinder must be, because that is what the shutter keeps),
                             so a panel wider than the picture is a panel with black down both sides.
@@ -861,25 +876,27 @@ onUnmounted(() => {
                             which keeps the picture as large as the column allows and leaves the
                             slack as page background beside it rather than as bands inside it.
                         -->
-                        <div
-                            class="tw:relative tw:w-full tw:overflow-hidden tw:rounded-none tw:bg-black tw:transition-[height] tw:duration-300 tw:lg:aspect-square tw:lg:h-auto tw:lg:w-auto tw:lg:flex-1 tw:lg:self-center tw:lg:rounded-md tw:lg:bg-linear-to-br tw:lg:from-slate-100 tw:lg:to-slate-50 tw:lg:ring-1 tw:lg:ring-slate-200/80"
-                            :class="[
-                                hasResults
-                                    ? 'tw:h-auto'
-                                    : mode === 'empty' && !cameraOpen
-                                      ? 'tw:h-[calc(100dvh-3rem-9rem)]'
-                                      : mode === 'preview'
+                            <div
+                                class="tw:relative tw:w-full tw:overflow-hidden tw:rounded-none tw:bg-black tw:transition-[height] tw:duration-300 tw:lg:h-auto tw:lg:min-h-0 tw:lg:w-full tw:lg:flex-1 tw:lg:rounded-md tw:lg:bg-linear-to-br tw:lg:from-slate-100 tw:lg:to-slate-50 tw:lg:ring-1 tw:lg:ring-slate-200/80"
+                                :class="[
+                                    hasResults
                                         ? 'tw:h-auto'
-                                        : 'tw:h-[calc(100dvh-3rem)]',
-                                // Flex items shrink by default. When the staged screen is taller than
-                                // the column, that compressed the stage and the cropper's own
-                                // contents spilled past its box - the zoom scrubber ended up
-                                // overlapping the block below it by 11px on a 700pt screen. Nothing
-                                // here may be squeezed; the page scrolls instead.
-                                isCompact && mode === 'preview' && !hasResults ? 'tw:shrink-0' : '',
-                            ]"
-                        >
-                            <!--
+                                        : mode === 'empty' && !cameraOpen
+                                          ? 'tw:h-[calc(100dvh-3rem-9rem)]'
+                                          : mode === 'preview'
+                                            ? 'tw:h-auto'
+                                            : 'tw:h-[calc(100dvh-3rem)]',
+                                    // Flex items shrink by default. When the staged screen is taller than
+                                    // the column, that compressed the stage and the cropper's own
+                                    // contents spilled past its box - the zoom scrubber ended up
+                                    // overlapping the block below it by 11px on a 700pt screen. Nothing
+                                    // here may be squeezed; the page scrolls instead.
+                                    isCompact && mode === 'preview' && !hasResults
+                                        ? 'tw:shrink-0'
+                                        : '',
+                                ]"
+                            >
+                                <!--
                                 One step back, in the app bar's leading slot rather than on the
                                 picture - and worded, because a bare chevron beside a sidebar trigger
                                 is two navigation-ish marks in a row and neither of these means "go
@@ -902,18 +919,18 @@ onUnmounted(() => {
                                 button in the controls column - and during the camera the viewfinder
                                 carries its own close button in-frame.
                             -->
-                            <Teleport v-if="pageOwnsBar" to="#mc-header-lead">
-                                <button
-                                    type="button"
-                                    class="tw:-ml-1 tw:mr-1 tw:flex tw:h-9 tw:cursor-pointer tw:items-center tw:gap-0.5 tw:rounded-lg tw:pr-2 tw:pl-1 tw:text-sm tw:font-semibold tw:text-primary tw:transition-colors hover:tw:bg-primary/10"
-                                    @click="hasResults ? backToStaged() : backToCapture()"
-                                >
-                                    <ChevronLeft class="tw:size-5" />
-                                    {{ hasResults ? 'Back' : 'Retake' }}
-                                </button>
-                            </Teleport>
+                                <Teleport v-if="pageOwnsBar" to="#mc-header-lead">
+                                    <button
+                                        type="button"
+                                        class="tw:-ml-1 tw:mr-1 tw:flex tw:h-9 tw:cursor-pointer tw:items-center tw:gap-0.5 tw:rounded-lg tw:pr-2 tw:pl-1 tw:text-sm tw:font-semibold tw:text-primary tw:transition-colors hover:tw:bg-primary/10"
+                                        @click="hasResults ? backToStaged() : backToCapture()"
+                                    >
+                                        <ChevronLeft class="tw:size-5" />
+                                        {{ hasResults ? 'Back' : 'Retake' }}
+                                    </button>
+                                </Teleport>
 
-                            <!-- Opposite the back button, stacked downwards as more of them apply.
+                                <!-- Opposite the back button, stacked downwards as more of them apply.
 
                                  Always top-3, never nudged to clear the camera's own controls: the
                                  viewfinder reserves a band above itself (see McCameraCapture's
@@ -926,7 +943,7 @@ onUnmounted(() => {
                                  Not hidden during the camera: it opens by itself on arrival, so
                                  hiding this would put history behind "close the camera first" in
                                  exactly the state it is most wanted. -->
-                            <!--
+                                <!--
                                 History lives in the app bar, not on the picture: it is the one
                                 control here that is not about THIS photo, so it belongs in the
                                 chrome. On the stage it also shared a corner with the camera's own
@@ -935,115 +952,117 @@ onUnmounted(() => {
                                 Teleported rather than duplicated - one button, one badge count, and
                                 the same one in every state including while the viewfinder is live.
                             -->
-                            <Teleport to="#mc-header-actions">
-                                <button
-                                    type="button"
-                                    class="tw:relative tw:flex tw:size-9 tw:cursor-pointer tw:items-center tw:justify-center tw:rounded-full tw:transition-colors tw:text-slate-500 hover:tw:bg-slate-100 hover:tw:text-slate-700"
-                                    aria-label="Recent analyses"
-                                    @click="historyOpen = true"
-                                >
-                                    <History class="tw:size-5" />
-                                    <!-- Says the feature exists AND that it has something in it,
+                                <Teleport to="#mc-header-actions">
+                                    <button
+                                        type="button"
+                                        class="tw:relative tw:flex tw:size-9 tw:cursor-pointer tw:items-center tw:justify-center tw:rounded-full tw:transition-colors tw:text-slate-500 hover:tw:bg-slate-100 hover:tw:text-slate-700"
+                                        aria-label="Recent analyses"
+                                        @click="historyOpen = true"
+                                    >
+                                        <History class="tw:size-5" />
+                                        <!-- Says the feature exists AND that it has something in it,
                                          which a bare icon does not. Hidden at zero: a badge reading
                                          "0" advertises an empty drawer. -->
-                                    <span
-                                        v-if="historyCount > 0"
-                                        class="tw:absolute tw:-top-0.5 tw:-right-0.5 tw:flex tw:min-w-4 tw:items-center tw:justify-center tw:rounded-full tw:bg-primary tw:px-1 tw:text-[10px] tw:font-bold tw:text-white tw:tabular-nums"
-                                    >
-                                        {{ historyCount > 99 ? '99+' : historyCount }}
-                                    </span>
-                                </button>
-                            </Teleport>
+                                        <span
+                                            v-if="historyCount > 0"
+                                            class="tw:absolute tw:-top-0.5 tw:-right-0.5 tw:flex tw:min-w-4 tw:items-center tw:justify-center tw:rounded-full tw:bg-primary tw:px-1 tw:text-[10px] tw:font-bold tw:text-white tw:tabular-nums"
+                                        >
+                                            {{ historyCount > 99 ? '99+' : historyCount }}
+                                        </span>
+                                    </button>
+                                </Teleport>
 
-                            <!-- The camera renders IN the stage rather than over the app: on this
+                                <!-- The camera renders IN the stage rather than over the app: on this
                              page the viewfinder is the content, so it sits in the frame with the
                              nav bar still above it. The exam flow keeps the full-screen takeover,
                              which is right there - it interrupts a form for one photo. -->
-                            <McCameraCapture
-                                ref="cameraRef"
-                                v-model:open="cameraOpen"
-                                inline
-                                :full-bleed="isCompact"
-                                title="Capture a slide"
-                                file-name="detection"
-                                :bare="!isCompact"
-                                :gallery="isCompact"
-                                @capture="onCapture"
-                                @fail="onCameraFail"
-                                @gallery="triggerUpload"
-                            />
+                                <McCameraCapture
+                                    ref="cameraRef"
+                                    v-model:open="cameraOpen"
+                                    inline
+                                    :full-bleed="isCompact"
+                                    title="Capture a slide"
+                                    file-name="detection"
+                                    :bare="!isCompact"
+                                    :gallery="isCompact"
+                                    @capture="onCapture"
+                                    @fail="onCameraFail"
+                                    @gallery="triggerUpload"
+                                />
 
-                            <div
-                                v-if="mode === 'empty' && !cameraOpen"
-                                class="tw:absolute tw:inset-0 tw:flex tw:flex-col tw:items-center tw:justify-center tw:gap-4"
-                            >
                                 <div
-                                    class="tw:relative tw:flex tw:h-16 tw:w-16 tw:items-center tw:justify-center tw:rounded-md tw:bg-white/10 tw:lg:bg-white tw:lg:shadow-md tw:lg:shadow-slate-200/80"
+                                    v-if="mode === 'empty' && !cameraOpen"
+                                    class="tw:absolute tw:inset-0 tw:flex tw:flex-col tw:items-center tw:justify-center tw:gap-4"
                                 >
-                                    <ScanSearch
-                                        class="tw:h-7 tw:w-7 tw:text-white/50 tw:lg:text-primary/50"
-                                    />
-                                </div>
-                                <div class="tw:text-center">
-                                    <p
-                                        class="tw:text-sm tw:font-semibold tw:text-white/80 tw:lg:text-slate-500"
+                                    <div
+                                        class="tw:relative tw:flex tw:h-16 tw:w-16 tw:items-center tw:justify-center tw:rounded-md tw:bg-white/10 tw:lg:bg-white tw:lg:shadow-md tw:lg:shadow-slate-200/80"
                                     >
-                                        No image selected
-                                    </p>
-                                    <p
-                                        class="tw:mt-0.5 tw:text-xs tw:text-white/50 tw:lg:text-slate-400"
-                                    >
-                                        Use camera or upload to get started
-                                    </p>
-                                    <!-- Said out loud rather than left as a silent difference: on an
+                                        <ScanSearch
+                                            class="tw:h-7 tw:w-7 tw:text-white/50 tw:lg:text-primary/50"
+                                        />
+                                    </div>
+                                    <div class="tw:text-center">
+                                        <p
+                                            class="tw:text-sm tw:font-semibold tw:text-white/80 tw:lg:text-slate-500"
+                                        >
+                                            No image selected
+                                        </p>
+                                        <p
+                                            class="tw:mt-0.5 tw:text-xs tw:text-white/50 tw:lg:text-slate-400"
+                                        >
+                                            Use camera or upload to get started
+                                        </p>
+                                        <!-- Said out loud rather than left as a silent difference: on an
                                      insecure origin this build offers strictly less than the same
                                      one on localhost, with nothing on screen to explain why. -->
-                                    <p
-                                        v-if="inAppCameraUnavailable"
-                                        class="tw:mx-auto tw:mt-2 tw:max-w-[16rem] tw:text-[11px] tw:leading-relaxed tw:text-amber-300/80 tw:lg:text-amber-600"
-                                    >
-                                        Live preview and zoom need a secure page (https, or
-                                        localhost). Camera will open your phone's camera app
-                                        instead.
-                                    </p>
+                                        <p
+                                            v-if="inAppCameraUnavailable"
+                                            class="tw:mx-auto tw:mt-2 tw:max-w-[16rem] tw:text-[11px] tw:leading-relaxed tw:text-amber-300/80 tw:lg:text-amber-600"
+                                        >
+                                            Live preview and zoom need a secure page (https, or
+                                            localhost). Camera will open your phone's camera app
+                                            instead.
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <template v-else-if="mode === 'preview' && hasResults">
-                                <!-- `fill` on a phone only: there the viewer is a fixed band across
+                                <template v-else-if="mode === 'preview' && hasResults">
+                                    <!-- `fill` on a phone only: there the viewer is a fixed band across
                                      the screen, and a capture small enough to sit at natural size
                                      reads as a stamp floating in black. Desktop has room, so it
                                      keeps 1:1 and stays sharp. -->
-                                <!-- Desktop: the same square the viewfinder and the staged image
+                                    <!-- Desktop: the same square the viewfinder and the staged image
                                      use, so the answer arrives without the picture moving. `upscale`
                                      is what makes a small capture fill it rather than sit at natural
                                      size inside it - and the overlay follows the same number, so the
                                      boxes land on the picture either way. -->
-                                <McAnnotatedImage
-                                    :src="imageUrl!"
-                                    :fill="isCompact"
-                                    :upscale="!isCompact"
-                                    :class="
-                                        isCompact
-                                            ? 'tw:relative tw:w-full'
-                                            : 'tw:absolute tw:inset-y-0 tw:left-1/2 tw:aspect-square tw:h-full tw:w-auto tw:-translate-x-1/2'
-                                    "
-                                />
-                            </template>
+                                    <McAnnotatedImage
+                                        :src="imageUrl!"
+                                        :fill="isCompact"
+                                        :upscale="!isCompact"
+                                        :class="
+                                            isCompact
+                                                ? 'tw:relative tw:w-full'
+                                                : 'tw:absolute tw:inset-y-0 tw:left-1/2 tw:aspect-square tw:h-full tw:w-auto tw:-translate-x-1/2'
+                                        "
+                                    />
+                                </template>
 
-                            <!--
+                                <!--
                             object-scale-down, not object-contain: contain scales a small image up
                             to fill, scale-down leaves it at natural size. McAnnotatedImage uses
                             scale-down because its box overlay is positioned against the drawn rect,
                             so the preview has to agree or an image smaller than the viewer jumps
                             size the moment results land.
                         -->
-                            <template v-else-if="mode === 'preview'">
-                                <div
-                                    class="tw:flex tw:flex-col tw:justify-start"
-                                    :class="isCompact ? 'tw:relative' : 'tw:absolute tw:inset-0'"
-                                >
-                                    <!-- Full width, and as tall as the image itself makes it: no
+                                <template v-else-if="mode === 'preview'">
+                                    <div
+                                        class="tw:flex tw:flex-col tw:justify-start"
+                                        :class="
+                                            isCompact ? 'tw:relative' : 'tw:absolute tw:inset-0'
+                                        "
+                                    >
+                                        <!-- Full width, and as tall as the image itself makes it: no
                                          forced height, so the box takes the shape of what is in it.
                                          A capture is cropped square and lands as a square the width
                                          of the screen - the size it was framed at; an upload keeps
@@ -1055,22 +1074,22 @@ onUnmounted(() => {
                                          sent.
 
                                          Desktop keeps the box filling its column. -->
-                                    <!-- Phone: the preview IS the cropper, so what is framed is what
+                                        <!-- Phone: the preview IS the cropper, so what is framed is what
                                          gets analysed. Desktop keeps the plain picture - the model
                                          column is the work there, and a mouse has no pinch. -->
-                                    <McImageCropper
-                                        v-if="isCompact"
-                                        ref="cropper"
-                                        :src="imageUrl!"
-                                        :disabled="isAnalyzing"
-                                        class="tw:shrink-0"
-                                    />
+                                        <McImageCropper
+                                            v-if="isCompact"
+                                            ref="cropper"
+                                            :src="imageUrl!"
+                                            :disabled="isAnalyzing"
+                                            class="tw:shrink-0"
+                                        />
 
-                                    <div
-                                        v-else
-                                        class="tw:relative tw:w-full tw:shrink-0 tw:bg-black tw:lg:flex tw:lg:min-h-0 tw:lg:flex-1 tw:lg:items-center tw:lg:justify-center tw:lg:rounded-md"
-                                    >
-                                        <!--
+                                        <div
+                                            v-else
+                                            class="tw:relative tw:w-full tw:shrink-0 tw:bg-black tw:lg:flex tw:lg:min-h-0 tw:lg:flex-1 tw:lg:items-center tw:lg:justify-center tw:lg:rounded-md"
+                                        >
+                                            <!--
                                             The same square the viewfinder is, sized by the stage's
                                             height - so pressing the shutter changes what is in the
                                             box and nothing about the box. It used to be the full
@@ -1083,47 +1102,48 @@ onUnmounted(() => {
                                             worth it to keep the composition still. What gets SENT is
                                             untouched either way.
                                         -->
-                                        <img
-                                            :src="imageUrl!"
-                                            alt="Microscope Image"
-                                            class="tw:block tw:aspect-square tw:h-full tw:w-auto tw:select-none tw:object-contain"
-                                        />
+                                            <img
+                                                :src="imageUrl!"
+                                                alt="Microscope Image"
+                                                class="tw:block tw:aspect-square tw:h-full tw:w-auto tw:select-none tw:object-contain"
+                                            />
 
-                                        <!-- Analyzing overlay -->
-                                        <Transition
-                                            enter-active-class="tw:transition-opacity tw:duration-300"
-                                            enter-from-class="tw:opacity-0"
-                                            leave-active-class="tw:transition-opacity tw:duration-300"
-                                            leave-to-class="tw:opacity-0"
-                                        >
-                                            <div
-                                                v-if="isAnalyzing"
-                                                class="tw:absolute tw:inset-0 tw:bg-slate-900/60 tw:backdrop-blur-sm tw:flex tw:flex-col tw:items-center tw:justify-center tw:gap-3"
+                                            <!-- Analyzing overlay -->
+                                            <Transition
+                                                enter-active-class="tw:transition-opacity tw:duration-300"
+                                                enter-from-class="tw:opacity-0"
+                                                leave-active-class="tw:transition-opacity tw:duration-300"
+                                                leave-to-class="tw:opacity-0"
                                             >
-                                                <div class="tw:relative tw:w-16 tw:h-16">
-                                                    <div
-                                                        class="tw:absolute tw:inset-0 tw:rounded-full tw:border-2 tw:border-white/20"
-                                                    ></div>
-                                                    <div
-                                                        class="tw:absolute tw:inset-0 tw:rounded-full tw:border-t-2 tw:border-primary tw:animate-spin"
-                                                    ></div>
-                                                    <ScanSearch
-                                                        class="tw:absolute tw:inset-0 tw:m-auto tw:w-6 tw:h-6 tw:text-white/70"
-                                                    />
-                                                </div>
-                                                <span
-                                                    class="tw:text-white tw:text-sm tw:font-semibold tw:tracking-wide"
+                                                <div
+                                                    v-if="isAnalyzing"
+                                                    class="tw:absolute tw:inset-0 tw:bg-slate-900/60 tw:backdrop-blur-sm tw:flex tw:flex-col tw:items-center tw:justify-center tw:gap-3"
                                                 >
-                                                    Running AI Detection…
-                                                </span>
-                                                <span class="tw:text-white/50 tw:text-xs">
-                                                    This may take a moment
-                                                </span>
-                                            </div>
-                                        </Transition>
+                                                    <div class="tw:relative tw:w-16 tw:h-16">
+                                                        <div
+                                                            class="tw:absolute tw:inset-0 tw:rounded-full tw:border-2 tw:border-white/20"
+                                                        ></div>
+                                                        <div
+                                                            class="tw:absolute tw:inset-0 tw:rounded-full tw:border-t-2 tw:border-primary tw:animate-spin"
+                                                        ></div>
+                                                        <ScanSearch
+                                                            class="tw:absolute tw:inset-0 tw:m-auto tw:w-6 tw:h-6 tw:text-white/70"
+                                                        />
+                                                    </div>
+                                                    <span
+                                                        class="tw:text-white tw:text-sm tw:font-semibold tw:tracking-wide"
+                                                    >
+                                                        Running AI Detection…
+                                                    </span>
+                                                    <span class="tw:text-white/50 tw:text-xs">
+                                                        This may take a moment
+                                                    </span>
+                                                </div>
+                                            </Transition>
+                                        </div>
                                     </div>
-                                </div>
-                            </template>
+                                </template>
+                            </div>
                         </div>
 
                         <!--
