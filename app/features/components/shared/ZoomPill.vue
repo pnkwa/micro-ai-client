@@ -2,7 +2,11 @@
 import { Eye, EyeOff, Maximize2, ZoomIn, ZoomOut } from '@lucide/vue'
 
 /**
- * The zoom controls, bottom-centre.
+ * The zoom controls, bottom-centre. SHARED: the annotator's canvas and the library's lightbox.
+ *
+ * Presentational, which is what makes it shareable at all - it takes a percentage and a few flags
+ * and emits four intents, so both callers keep their own `useCanvasViewport` and neither has to
+ * know the other exists.
  *
  * The readout says `Fit 13%` while the zoom equals fit and plain `140%` once it does not, which is
  * the fix for the complaint that started this rebuild: fit for a 4000px camera photo in a 700px

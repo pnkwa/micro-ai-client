@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronUp } from '@lucide/vue'
 import type { LibraryImage } from '~/services/imageService'
-import { metadataEntries, metadataTitle } from '~/core/helpers/imageMetadata'
+import { metadataEntries } from '~/core/helpers/imageMetadata'
+import { imageDisplayName } from '~/core/helpers/imageName'
 
 /**
  * The pinned footer: what this image is, and the one control that says it is done.
@@ -28,7 +29,7 @@ const emit = defineEmits<{ 'update:reviewed': [value: boolean] }>()
 const open = ref(true)
 
 const name = computed(() =>
-    props.image ? (metadataTitle(props.image.metadata) ?? `IMG_${props.image.id}`) : '',
+    props.image ? imageDisplayName(props.image.metadata, props.image.id) : '',
 )
 
 /**

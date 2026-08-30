@@ -21,16 +21,7 @@ import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 const leftOpen = defineModel<boolean>('leftOpen', { required: true })
 const rightOpen = defineModel<boolean>('rightOpen', { required: true })
 
-const { layout, canDockLabels } = useAnnotatorLayout()
-
-/**
- * One pane, or three.
- *
- * Below 1280 the columns stop being affordable: a 280px queue and a 320px labels panel leave the
- * picture less than half a tablet. So the panels become surfaces you summon - a drawer and a sheet -
- * and the canvas keeps the screen, with tools and classes on bottom bars where a thumb reaches.
- */
-const stacked = computed(() => layout.value === 'compact' || !canDockLabels.value)
+const { layout, stacked } = useAnnotatorLayout()
 
 const RAIL = '52px'
 const QUEUE = '280px'

@@ -2,7 +2,7 @@
 import { toast } from 'vue-sonner'
 import { CircleCheck, PanelLeft, PanelLeftOpen, PanelRight, Shapes, Sparkles } from '@lucide/vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { watchDebounced } from '@vueuse/core'
+import { until, watchDebounced } from '@vueuse/core'
 import { zoomPercent as toPercent } from '~/core/helpers/viewportTransform'
 import {
     MAX_ANNOTATIONS,
@@ -31,7 +31,7 @@ import {
 // at BUILD time: a helper added while the dev server is running is typed but undefined at runtime.
 import { isConflict } from '~/core/helpers/error'
 import { queueRowView, type QueueFilter } from '~/core/helpers/annotationQueue'
-import { metadataTitle } from '~/core/helpers/imageMetadata'
+import { imageDisplayName } from '~/core/helpers/imageName'
 import AnnotationCanvas, {
     type Tool,
 } from '~/features/components/annotator/canvas/AnnotationCanvas.vue'
@@ -43,7 +43,7 @@ import FocusOverlays from '~/features/components/annotator/canvas/FocusOverlays.
 import ToolDock from '~/features/components/annotator/canvas/ToolDock.vue'
 import PagerPill from '~/features/components/annotator/canvas/PagerPill.vue'
 import HintBar from '~/features/components/annotator/canvas/HintBar.vue'
-import ZoomPill from '~/features/components/annotator/canvas/ZoomPill.vue'
+import ZoomPill from '~/features/components/shared/ZoomPill.vue'
 import BottomTools from '~/features/components/annotator/mobile/BottomTools.vue'
 import ClassStrip from '~/features/components/annotator/mobile/ClassStrip.vue'
 import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
@@ -498,7 +498,7 @@ watchEffect(() => {
 
 // The shell decides its own columns from the same composable; the page needs only the one flag
 // the canvas keys on.
-const { isTouchLayout } = useAnnotatorLayout()
+const { isTouchLayout, stacked } = useAnnotatorLayout()
 
 /** The queue as a drawer, and the shape list as a sheet, for the stacked layouts. */
 const queueSheetOpen = ref(false)
@@ -577,9 +577,30 @@ const openImage = async (image: LibraryImage) => {
     }
 }
 
+/**
+ * Changing image SAVES first. It does not ask, and it does not discard.
+ *
+ * The confirm that used to live here was the wrong question. Walking the queue is the ordinary
+ * motion of this page - down the list, one image at a time - and a dialog on every step is a
+ * dialog people learn to dismiss without reading, which is exactly how work gets thrown away. There
+ * is nothing to decide: the edits are wanted, or they would not have been drawn.
+ *
+ * A FAILED SAVE KEEPS YOU HERE. `save()` has already said why in a toast, and moving on would leave
+ * the edits behind on an image nobody is looking at any more.
+ *
+ * `confirmDiscard` still guards leaving the ROUTE, where there is no next image to save into and
+ * the browser is about to take the tab.
+ */
 const selectImage = async (id: number) => {
     if (id === selectedImageId.value) return
-    if (!confirmDiscard()) return
+    // A save already in flight - the auto-save fires 1.5s after the drawing stops, so a step lands
+    // inside one often. `save()` refuses to re-enter, so without this wait the step would see a
+    // still-dirty image and refuse to move at all.
+    if (isSaving.value) await until(isSaving).toBe(false)
+    if (isDirty.value) {
+        await save()
+        if (isDirty.value) return
+    }
     const image = images.value.find((row) => row.id === id)
     if (image) await openImage(image)
 }
@@ -919,10 +940,16 @@ const onHotkey = (action: HotkeyAction) => {
             if (picked) pickClass(picked.id)
             return
         }
+        // A row, which is one image in list mode and a whole line of three in grid mode.
         case 'next-image':
-            return step(1)
+            return step(queueColumns.value)
         case 'previous-image':
-            return step(-1)
+            return step(-queueColumns.value)
+        // Sideways, which only exists in grid mode: in a list it would be a step of zero.
+        case 'next-column':
+            return queueColumns.value > 1 ? step(1) : undefined
+        case 'previous-column':
+            return queueColumns.value > 1 ? step(-1) : undefined
         case 'save':
             return void save()
         case 'review':
@@ -1001,20 +1028,43 @@ const canZoom = computed(() => Boolean(canvas.value?.ready))
 const atFit = computed(() => Boolean(canvas.value?.atFit))
 
 /** Where the open image sits in the queue, for the pager. 1-based; 0 when nothing is open. */
+/**
+ * THE ORDER EVERYTHING ON THIS PAGE AGREES ON: oldest first, by id.
+ *
+ * `images` arrives in the server's order, which is newest first. The queue was quietly sorting it
+ * back to ascending for display while the pager, `J`/`K` and the arrow keys stepped through the
+ * server's order - so "next image" moved to the row ABOVE the one highlighted, and `23 / 24` counted
+ * from the wrong end. One order, defined here, used by the list, the rail, the pager and the keys.
+ */
+const orderedImages = computed(() => [...images.value].sort((a, b) => a.id - b.id))
+
 const position = computed(() =>
     selectedImageId.value === null
         ? 0
-        : images.value.findIndex((row) => row.id === selectedImageId.value) + 1,
+        : orderedImages.value.findIndex((row) => row.id === selectedImageId.value) + 1,
 )
 
 const currentName = computed(() =>
     selectedImage.value
-        ? (metadataTitle(selectedImage.value.metadata) ?? `IMG_${selectedImage.value.id}`)
+        ? imageDisplayName(selectedImage.value.metadata, selectedImage.value.id)
         : '',
 )
 
+/**
+ * How many images a row holds, straight from the queue rather than assumed here.
+ *
+ * The page owns the keyboard and holds no DOM, so the shape of the list is the queue's to report.
+ * One when it is a list, three when it is a grid, and the arrow arithmetic is the same either way.
+ *
+ * Falls back to 1 wherever the docked queue is not mounted: focus mode, which has a rail instead,
+ * and the stacked layouts, where the queue is a drawer with its own instance and its own mode. Both
+ * are places a keyboard is unlikely to be the input anyway, and stepping by one is the safe reading
+ * when the shape of the list is unknown.
+ */
+const queueColumns = computed(() => queue.value?.columns ?? 1)
+
 const step = (delta: number) => {
-    const next = images.value[position.value - 1 + delta]
+    const next = orderedImages.value[position.value - 1 + delta]
     if (next) void selectImage(next.id)
 }
 </script>
@@ -1102,9 +1152,14 @@ const step = (delta: number) => {
 
         <template #sheets>
             <McSheet v-model:open="queueSheetOpen">
-                <McSheetContent side="left" class="tw:w-[320px] tw:p-0">
+                <!--
+                    `hide-close`, because the queue header already carries one: the sheet's own X
+                    is pinned to the same top-right corner as the list/grid toggle, so the two sat
+                    on top of each other, and the panel's collapse button is the dismiss anyway.
+                -->
+                <McSheetContent side="left" class="tw:w-[320px] tw:p-0" hide-close>
                     <ImageQueue
-                        :images="images"
+                        :images="orderedImages"
                         :views="queueViews"
                         :dots="queueDots"
                         :selected-id="selectedImageId"
@@ -1121,6 +1176,7 @@ const step = (delta: number) => {
                         @update:search="search = $event"
                         @update:filter="queueFilter = $event"
                         @more="loadMore"
+                        @collapse="queueSheetOpen = false"
                     />
                 </McSheetContent>
             </McSheet>
@@ -1160,7 +1216,7 @@ const step = (delta: number) => {
         <template #queue>
             <ImageQueue
                 ref="queue"
-                :images="images"
+                :images="orderedImages"
                 :views="queueViews"
                 :dots="queueDots"
                 :selected-id="selectedImageId"
@@ -1178,7 +1234,7 @@ const step = (delta: number) => {
 
         <template #focus-rail>
             <FocusRail
-                :images="images"
+                :images="orderedImages"
                 :selected-id="selectedImageId"
                 :position="position"
                 @select="selectImage"
@@ -1312,7 +1368,14 @@ const step = (delta: number) => {
             />
 
             <template v-if="selectedImage">
+                <!--
+                    THE DOCK AND THE BOTTOM BAR ARE THE SAME FOUR TOOLS, so only one of them ever
+                    renders. `stacked` is the shell's own question about which layout it laid out,
+                    which is why it comes from the composable rather than being asked twice: asked
+                    twice, a phone showed both, a vertical dock over the picture and a bar under it.
+                -->
                 <ToolDock
+                    v-if="!stacked"
                     :centered="focus"
                     :tool="tool"
                     :can-undo="canUndoAny"
@@ -1331,8 +1394,13 @@ const step = (delta: number) => {
                     @previous="step(-1)"
                     @next="step(1)"
                 />
+                <!--
+                    Not on a stacked layout. It names keys and mouse gestures a finger does not
+                    have, and at that width it sits directly under the zoom pill: two overlays on
+                    the same bottom edge, one of them describing a keyboard nobody is holding.
+                -->
                 <HintBar
-                    v-if="!focus"
+                    v-if="!focus && !stacked"
                     :tool="tool"
                     :selected-count="selectedShapeId ? 1 : 0"
                     :drafting="Boolean(canvas?.hasDraft)"

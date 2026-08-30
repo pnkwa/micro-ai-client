@@ -15,6 +15,9 @@ export type HotkeyAction =
     | { type: 'class'; digit: number }
     | { type: 'next-image' }
     | { type: 'previous-image' }
+    /** One image sideways, which only means anything while the queue is a grid. */
+    | { type: 'next-column' }
+    | { type: 'previous-column' }
     | { type: 'save' }
     | { type: 'review' }
     | { type: 'fit' }
@@ -87,6 +90,26 @@ export function resolveHotkey(event: HotkeyEvent): HotkeyAction | null {
     if (key >= '1' && key <= '9') return { type: 'class', digit: Number(key) }
     if (key === '0') return { type: 'fit' }
 
+    /*
+     * THE ARROWS WALK THE QUEUE, which is the list they are pointing at.
+     *
+     * They scrolled it before, which is the browser's default for a focused scroll container and
+     * exactly the wrong thing here: the queue is a worklist, and the reason to look down it is to
+     * open the next thing. `J`/`K` stay for anyone who reaches for them, but nobody guesses those.
+     *
+     * Down and up move by a ROW, which is one image in the list and three in the grid, and left and
+     * right move by one image. In list mode the horizontal pair does nothing, because a list is a
+     * grid one column wide and stepping sideways in it would be stepping nowhere. The page holds
+     * the arithmetic, since only it knows which mode the queue is in.
+     *
+     * A field with focus keeps all four: `isTypingTarget` returns above, so the caret in a label
+     * input is never fighting the queue for an arrow key.
+     */
+    if (key === 'ArrowDown') return { type: 'next-image' }
+    if (key === 'ArrowUp') return { type: 'previous-image' }
+    if (key === 'ArrowRight') return { type: 'next-column' }
+    if (key === 'ArrowLeft') return { type: 'previous-column' }
+
     switch (lower) {
         case 'j':
             return { type: 'next-image' }
@@ -114,19 +137,29 @@ export function resolveHotkey(event: HotkeyEvent): HotkeyAction | null {
     return null
 }
 
+/** A finger, rather than a pencil or a mouse. Coarse, and it covers what it is over. */
+export function isTouchPointer(pointerType: string | undefined): boolean {
+    return pointerType === 'touch'
+}
+
 /**
- * What a pointer is allowed to do, by the kind of pointer it is.
+ * What a pointer is allowed to do, by the kind of pointer AND the tool it is holding.
  *
- * THE FINGER NEVER DRAWS. It pans, at any zoom, with any tool active, even mid-polygon - and a tap
- * selects or places a point. Drawing is the pencil's job, and the mouse's.
+ * A finger used to be barred from drawing outright. That was too broad: it made the RECTANGLE tool
+ * unusable on a tablet, since a rectangle has no other gesture - polygon has its tap, delete has
+ * its tap, but a box is a drag or it is nothing. So the rule narrowed to the case it was really
+ * about.
  *
- * This is the rule that makes an iPad usable: a finger is a blunt instrument that covers what it is
- * placing, and a drag that draws means every attempt to move the picture adds geometry instead.
- * Separating navigation from drawing by INPUT rather than by a modifier is what lets someone work
- * one-handed without a mode to remember.
+ * *** A FINGER DRAGS A RECTANGLE. IT PANS UNDER EVERY OTHER TOOL. *** Panning has to stay on the
+ * one-finger drag for select, for polygon (where a ring is placed tap by tap and the picture still
+ * has to move under it) and for delete (where the drag is how you reach the shape you are aiming
+ * at). Under the rectangle tool there is no competing meaning: someone armed it to draw a box.
+ *
+ * Two fingers always navigate, whatever is armed, which is the escape hatch that makes this safe.
  */
-export function pointerDraws(pointerType: string | undefined): boolean {
-    return pointerType !== 'touch'
+export function pointerDraws(pointerType: string | undefined, tool?: string): boolean {
+    if (!isTouchPointer(pointerType)) return true
+    return tool === 'rectangle'
 }
 
 /** Touch needs a bigger target than it needs a drawn handle: 12px drawn, 44px to hit. */
@@ -159,8 +192,9 @@ export const HOTKEY_GROUPS: { title: string; keys: { keys: string[]; label: stri
     {
         title: 'The batch',
         keys: [
-            { keys: ['J'], label: 'Next image' },
-            { keys: ['K'], label: 'Previous image' },
+            { keys: ['↓', 'J'], label: 'Next image, or next row in grid mode (saves first)' },
+            { keys: ['↑', 'K'], label: 'Previous image, or previous row in grid mode' },
+            { keys: ['←', '→'], label: 'Across the queue, in grid mode' },
             { keys: ['S'], label: 'Save' },
             { keys: ['M'], label: 'Mark reviewed' },
             { keys: ['/'], label: 'Search the queue' },

@@ -1,7 +1,12 @@
 import { useMediaQuery } from '@vueuse/core'
+import { useAppLayout, type AppLayout } from './useAppLayout'
 
 /**
  * Which of the annotator's three layouts applies.
+ *
+ * The BREAKPOINTS come from `useAppLayout`, shared with the library, so there is one resize
+ * listener and one place to force a mode. What stays here is the part that is genuinely the
+ * annotator's: orientation, which matters to a drawing surface and not to a grid.
  *
  * The breakpoints are the mockup's, and the names say what changes rather than what size it is:
  *
@@ -13,19 +18,14 @@ import { useMediaQuery } from '@vueuse/core'
  * Orientation matters only in the middle band, where a landscape tablet has the width for a docked
  * labels panel and a portrait one does not.
  */
-export type AnnotatorLayout = 'compact' | 'medium' | 'full'
+export type AnnotatorLayout = AppLayout
 
 export function useAnnotatorLayout() {
-    const isFull = useMediaQuery('(min-width: 1280px)')
-    const isCompact = useMediaQuery('(max-width: 767px)')
+    const { layout, isFull } = useAppLayout()
     const isPortrait = useMediaQuery('(orientation: portrait)')
 
-    const layout = computed<AnnotatorLayout>(() =>
-        isFull.value ? 'full' : isCompact.value ? 'compact' : 'medium',
-    )
-
     /** Panels dock rather than float only where there is width for both the picture and them. */
-    const canDockLabels = computed(() => layout.value === 'full' || !isPortrait.value)
+    const canDockLabels = computed(() => isFull.value || !isPortrait.value)
 
     /**
      * Touch-first surfaces: the loupe, finger-sized targets, bottom bars.
@@ -35,5 +35,14 @@ export function useAnnotatorLayout() {
      */
     const isTouchLayout = computed(() => layout.value !== 'full')
 
-    return { layout, isPortrait, canDockLabels, isTouchLayout }
+    /**
+     * One pane, with the tools on BOTTOM BARS rather than in the floating dock.
+     *
+     * The shell lays the bars out and the page decides what floats over the canvas, so both have to
+     * agree about this exact question: when they disagreed, a phone got the dock AND the bottom bar,
+     * two copies of the same four tools on a 390px screen.
+     */
+    const stacked = computed(() => layout.value === 'compact' || !canDockLabels.value)
+
+    return { layout, isPortrait, canDockLabels, isTouchLayout, stacked }
 }

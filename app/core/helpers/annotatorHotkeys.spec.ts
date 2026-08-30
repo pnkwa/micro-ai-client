@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     HOTKEY_GROUPS,
     isTypingTarget,
+    isTouchPointer,
     pointerDraws,
     resolveHotkey,
     type HotkeyEvent,
@@ -133,22 +134,87 @@ describe('HOTKEY_GROUPS', () => {
         const documented = new Set(
             HOTKEY_GROUPS.flatMap((group) => group.keys.flatMap((row) => row.keys)),
         )
-        for (const key of ['V', 'R', 'P', 'E', 'J', 'K', 'S', 'M', '0', 'H', 'F', '?', '/']) {
+        for (const key of [
+            'V',
+            'R',
+            'P',
+            'E',
+            'J',
+            'K',
+            'S',
+            'M',
+            '0',
+            'H',
+            'F',
+            '?',
+            '/',
+            '↓',
+            '↑',
+        ]) {
             expect(documented.has(key)).toBe(true)
         }
     })
 })
 
-describe('pointerDraws', () => {
-    /**
-     * The rule an iPad depends on: a finger covers what it is placing, and a drag that draws means
-     * every attempt to move the picture adds geometry instead.
-     */
-    it('is false for touch, so a finger pans rather than draws', () => {
-        expect(pointerDraws('touch')).toBe(false)
+describe('arrow keys walk the queue', () => {
+    /** They scrolled the list before, which is the browser default and the wrong thing here. */
+    it('maps down and up to the next and previous image', () => {
+        expect(press('ArrowDown')).toEqual({ type: 'next-image' })
+        expect(press('ArrowUp')).toEqual({ type: 'previous-image' })
     })
 
-    it.each(['pen', 'mouse', undefined])('is true for %s', (type) => {
-        expect(pointerDraws(type)).toBe(true)
+    it('keeps J and K, which do the same thing', () => {
+        expect(press('j')).toEqual({ type: 'next-image' })
+        expect(press('k')).toEqual({ type: 'previous-image' })
     })
+
+    /**
+     * Sideways is a separate action rather than the same one: down is a ROW, which is one image in
+     * the list and three in the grid, and only the page knows which mode the queue is in.
+     */
+    it('maps left and right to a column step', () => {
+        expect(press('ArrowRight')).toEqual({ type: 'next-column' })
+        expect(press('ArrowLeft')).toEqual({ type: 'previous-column' })
+    })
+
+    it('does not fire while a field has focus, so the caret keeps its arrows', () => {
+        expect(press('ArrowDown', { targetTag: 'INPUT' })).toBeNull()
+        expect(press('ArrowLeft', { targetTag: 'INPUT' })).toBeNull()
+    })
+})
+
+describe('isTouchPointer', () => {
+    it('is a finger and nothing else', () => {
+        expect(isTouchPointer('touch')).toBe(true)
+        expect(isTouchPointer('pen')).toBe(false)
+        expect(isTouchPointer('mouse')).toBe(false)
+        expect(isTouchPointer(undefined)).toBe(false)
+    })
+})
+
+describe('pointerDraws', () => {
+    it.each(['pen', 'mouse', undefined])('lets %s draw with any tool', (type) => {
+        expect(pointerDraws(type, 'select')).toBe(true)
+        expect(pointerDraws(type, 'rectangle')).toBe(true)
+        expect(pointerDraws(type, 'polygon')).toBe(true)
+    })
+
+    /**
+     * A rectangle is a drag or it is nothing: barring the finger outright left the tool unusable on
+     * a tablet, with no second gesture to fall back on the way polygon and delete have taps.
+     */
+    it('lets a finger drag a rectangle', () => {
+        expect(pointerDraws('touch', 'rectangle')).toBe(true)
+    })
+
+    /**
+     * Everything else keeps the one-finger drag for PANNING: the picture has to move under a
+     * half-placed polygon, and under a delete tool aiming at a shape off screen.
+     */
+    it.each(['select', 'polygon', 'delete', undefined])(
+        'leaves a finger panning under %s',
+        (tool) => {
+            expect(pointerDraws('touch', tool)).toBe(false)
+        },
+    )
 })

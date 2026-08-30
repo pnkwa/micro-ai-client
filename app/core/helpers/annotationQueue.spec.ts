@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
     chipFor,
+    matchesChip,
     matchesFilter,
     queueCounts,
     queueProgress,
@@ -119,6 +120,43 @@ describe('queueCounts', () => {
 
     it('is all zeroes for an empty queue', () => {
         expect(queueCounts([])).toEqual({ all: 0, todo: 0, progress: 0, done: 0 })
+    })
+})
+
+describe('matchesChip', () => {
+    const statuses: QueueStatus[] = ['reviewed', 'seeded', 'editing', 'labelled', 'empty']
+
+    it('passes everything under all', () => {
+        expect(statuses.every((s) => matchesChip(s, 'all'))).toBe(true)
+    })
+
+    /**
+     * The library's four chips, where Unlabelled means EXACTLY empty.
+     *
+     * `matchesFilter` folds in-progress into "To label" for the annotator's three-chip worklist.
+     * Fold here and a library of 22 would report All 22 / Unlabelled 19 / In progress 3 /
+     * Reviewed 3, which is the same "counts that cannot all be true" bug in a new place.
+     */
+    it('does not fold in-progress into Unlabelled, so the counted chips partition', () => {
+        expect(matchesChip('labelled', 'todo')).toBe(false)
+        expect(matchesChip('empty', 'todo')).toBe(true)
+        expect(matchesFilter('labelled', 'todo')).toBe(true)
+    })
+
+    it('catches each status exactly once across the three chips', () => {
+        for (const status of statuses) {
+            const hits = (['todo', 'progress', 'done'] as const).filter((chip) =>
+                matchesChip(status, chip),
+            )
+            expect(hits).toHaveLength(1)
+        }
+    })
+
+    it('agrees with queueCounts, which is what the chips display', () => {
+        const counts = queueCounts(statuses)
+        expect(statuses.filter((s) => matchesChip(s, 'done'))).toHaveLength(counts.done)
+        expect(statuses.filter((s) => matchesChip(s, 'progress'))).toHaveLength(counts.progress)
+        expect(statuses.filter((s) => matchesChip(s, 'todo'))).toHaveLength(counts.todo)
     })
 })
 

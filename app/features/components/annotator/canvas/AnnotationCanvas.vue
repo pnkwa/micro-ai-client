@@ -3,6 +3,7 @@ import { useMediaQuery } from '@vueuse/core'
 import { Images, ImageOff, Loader2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { colorForShape } from '~/core/helpers/annotationClasses'
+import AnnotationOverlay from '~/features/components/shared/AnnotationOverlay.vue'
 import { useCanvasViewport } from '~/core/composables/useCanvasViewport'
 import {
     CORNERS,
@@ -25,12 +26,18 @@ import {
     type Shape,
 } from '~/core/helpers/annotationShapes'
 import { localId } from '~/core/helpers/localId'
+import { simplifyPath } from '~/core/helpers/pathSimplify'
 import type { AnnotationLabel } from '~/services/annotationLabelService'
 // Imported explicitly rather than left to `imports.dirs: ['core/**']`, like every other helper this
 // file uses. Auto-import resolves at BUILD time: a helper added while the dev server is running is
 // typed (so typecheck passes) but undefined at runtime, which is exactly how the whole pointer
 // pipeline came to throw `pointerDraws is not defined` on every press while every check stayed green.
-import { HANDLE_DRAWN, TOUCH_TARGET, pointerDraws } from '~/core/helpers/annotatorHotkeys'
+import {
+    HANDLE_DRAWN,
+    TOUCH_TARGET,
+    isTouchPointer,
+    pointerDraws,
+} from '~/core/helpers/annotatorHotkeys'
 
 /**
  * The zoomable, pannable, drawable image surface.
@@ -230,7 +237,9 @@ const loupeStyle = computed(() => {
 const failureLabel = computed(() => `Could not load ${props.name || 'this image'}`)
 
 /** Pointer position in the normalized [0,1] space every shape is stored in. */
-const normalized = (event: PointerEvent): Point => view.toNormalized(event)
+// Takes a bare pair rather than the event, because a trace has to start from where the finger went
+// DOWN, and by the time it is known to be a trace that event is gone.
+const normalized = (event: { clientX: number; clientY: number }): Point => view.toNormalized(event)
 
 /**
  * The wheel SCROLLS the picture, on both axes. Zoom is the modified gesture.
@@ -312,6 +321,8 @@ let pinchStart: { dist: number; scale: number } | null = null
 let twoFingerStart = 0
 /** Greatest change in finger separation during a pinch, so a tap is not read as a zoom. */
 let pinchTravel = 0
+/** Where the two fingers were centred last frame, which is what a two-finger pan moves by. */
+let lastMid: { x: number; y: number } | null = null
 /** The last single-finger tap, for double-tap-to-fit. */
 let lastTapAt = 0
 
@@ -340,9 +351,89 @@ const pinchMidpoint = () => {
 let tapOrigin: { x: number; y: number } | null = null
 const TAP_SLOP = 10
 
+/**
+ * AIMING: press, hold, then drag to place a polygon point exactly.
+ *
+ * A tap places a point wherever the finger lifts, which is fine for a rough outline and hopeless
+ * for a cell wall: the fingertip covers the very thing it is aiming at. Holding for a third of a
+ * second switches the finger from panning to aiming - the loupe opens, a crosshair follows, and the
+ * point lands when the finger lifts, so you can see what you are doing before committing to it.
+ *
+ * A HOLD rather than making every drag aim, because the one-finger drag has to stay panning: a ring
+ * is placed tap by tap and the picture must be able to move under a half-finished one. Below the
+ * hold, nothing changes; past it, panning is suspended until release.
+ */
+const AIM_HOLD_MS = 350
+const aiming = ref<Point | null>(null)
+let aimTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * TRACING: drag a finger around the thing and let go.
+ *
+ * Tap by tap is precise and slow, and a cell wall is not a polygon anyone wants to tap out twelve
+ * times on a phone. Dragging draws the outline directly, which is the gesture this domain actually
+ * wants: the shapes are organic, and a finger following a membrane is doing exactly what the eye
+ * is doing.
+ *
+ * It takes the one-finger drag ONLY when no ring is in progress. Once points have been placed by
+ * hand the drag goes back to panning, because a half-built ring has to be able to move under the
+ * finger. Two fingers pan either way, which is the escape hatch that makes taking the drag safe.
+ *
+ * The raw path is thinned on release (`simplifyPath`): a drag emits hundreds of points, and a
+ * polygon with hundreds of vertices is one nobody can adjust afterwards.
+ */
+/**
+ * ERASING BY DRAG, on touch.
+ *
+ * The erase tool paints its target red before removing it, which is the whole safety of the tool -
+ * and on a phone that guarantee was hollow: with no hover, the first time anything turned red was
+ * the frame it was deleted in, under a fingertip that was covering it.
+ *
+ * So a press on a target starts an erase rather than committing one. The target follows the finger,
+ * the loupe opens over it, and the release removes whatever is red at that moment. Sliding off
+ * every shape and letting go deletes nothing, which is the way out.
+ */
+const erasing = ref(false)
+
+const tracing = ref<Point[] | null>(null)
+/** Screen pixels between recorded points. Below this a slow finger records the same spot twice. */
+const TRACE_STEP = 3
+
+const cancelAim = () => {
+    if (aimTimer) clearTimeout(aimTimer)
+    aimTimer = null
+}
+
+/**
+ * One point, from a tap or from the end of an aim.
+ *
+ * Tapping the first dot closes the ring, the gesture every other polygon tool uses. Three points
+ * minimum, because that is the least the server accepts.
+ */
+const placePolygonPoint = (at: Point) => {
+    const draft = draftPolygon.value
+    if (draft && draft.length >= 3 && isNear(at, draft[0]!, closeTolerance.value)) closePolygon()
+    else draftPolygon.value = [...(draft ?? []), clampPoint(at)]
+}
+
 const abandonPinch = () => {
     // A second finger during any other gesture cancels it rather than blending with it: a box being
     // resized while the canvas zooms under it ends up somewhere nobody asked for.
+    //
+    // A box being DRAWN has to be taken back with it. Now that a finger draws rectangles, the first
+    // finger has already pushed a shape by the time the second lands, and the pinch path returns
+    // before the release ever reaches the degenerate-shape sweep - so without this a two-finger
+    // zoom that started on the canvas leaves a phantom row in the shape list and in undo.
+    const g = gesture.value
+    if (g.kind === 'draw') {
+        shapes.value = shapes.value.filter((shape) => shape.id !== g.id)
+        if (selectedId.value === g.id) selectedId.value = null
+    }
+    // A trace, an aim and an erase all belong to one finger, so a second one abandons them.
+    tracing.value = null
+    aiming.value = null
+    erasing.value = false
+    cancelAim()
     gesture.value = { kind: 'pinch' }
     tapOrigin = null
 }
@@ -356,6 +447,7 @@ const onPointerDown = (event: PointerEvent) => {
         pinchStart = { dist: pointerDistance(), scale: transform.value.scale }
         twoFingerStart = performance.now()
         pinchTravel = 0
+        lastMid = pinchMidpoint()
         abandonPinch()
         return
     }
@@ -363,6 +455,9 @@ const onPointerDown = (event: PointerEvent) => {
 
     const at = normalized(event)
     tapOrigin = { x: event.clientX, y: event.clientY }
+    // A finger has no hover, so nothing has moved the cursor yet: without this the erase tool asks
+    // "what is under the cursor" and gets wherever the LAST pointer event happened to be.
+    cursor.value = at
 
     // Ahead of every tool: a held Space means "move the picture", whatever is armed.
     if (props.spacePanning) {
@@ -371,15 +466,31 @@ const onPointerDown = (event: PointerEvent) => {
     }
 
     /*
-     * A FINGER NEVER DRAWS. It pans, whatever tool is armed, even mid-polygon.
+     * A FINGER PANS, unless the rectangle tool is armed.
      *
-     * A finger covers the thing it is placing, and a drag that draws means every attempt to move
-     * the picture adds geometry instead. Drawing belongs to the pencil and the mouse. A tap is
-     * still meaningful - it selects, or places a polygon point - and that is handled on release,
-     * where a tap can be told from the start of a pan.
+     * A finger covers the thing it is placing, so a drag that draws means every attempt to move the
+     * picture adds geometry instead - which is why panning keeps the one-finger drag for select,
+     * for polygon (a ring is placed tap by tap and the picture still has to move under it) and for
+     * delete. A rectangle has no second gesture: it is a drag or it is nothing, so under that tool
+     * the finger draws and two fingers navigate.
+     *
+     * A tap is meaningful either way - it selects, or places a polygon point - and that is handled
+     * on release, where a tap can be told from the start of a pan.
      */
-    if (!pointerDraws(event.pointerType)) {
+    if (!pointerDraws(event.pointerType, props.tool)) {
         gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
+        // Only the polygon tool aims: it is the one that places a point at an exact spot, and the
+        // one where the finger is directly on top of the thing being aimed at.
+        if (props.tool === 'polygon' && isTouchPointer(event.pointerType)) {
+            cancelAim()
+            aimTimer = setTimeout(() => {
+                aimTimer = null
+                aiming.value = at
+                // Aiming replaces the pan it grew out of, so the picture holds still while the
+                // crosshair is being placed.
+                gesture.value = { kind: 'none' }
+            }, AIM_HOLD_MS)
+        }
         return
     }
 
@@ -394,9 +505,8 @@ const onPointerDown = (event: PointerEvent) => {
     // Delete acts on release too, so a tap can be told from a drag. Empty space still pans, which
     // is what keeps the canvas navigable without leaving the tool.
     if (props.tool === 'delete') {
-        if (!deleteHover.value) {
-            gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
-        }
+        if (deleteHover.value) erasing.value = isTouchPointer(event.pointerType)
+        else gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
         return
     }
 
@@ -466,8 +576,15 @@ const onPointerMove = (event: PointerEvent) => {
     // Off in the full layout, where there is a cursor rather than a fingertip covering the work.
     loupe.value =
         (props.touchLayout ?? isCoarsePointer.value) &&
-        !pointerDraws(event.pointerType) &&
-        (g0.kind === 'vertex' || g0.kind === 'move' || draftPolygon.value?.length)
+        isTouchPointer(event.pointerType) &&
+        // Aiming included, which is what makes the FIRST point of a ring placeable: before this the
+        // loupe only opened once a draft existed, so the one point with nothing to line up against
+        // was also the one point placed blind.
+        (aiming.value ||
+            erasing.value ||
+            g0.kind === 'vertex' ||
+            g0.kind === 'move' ||
+            draftPolygon.value?.length)
             ? view.toNormalized(event)
             : null
     if (active.has(event.pointerId)) {
@@ -477,6 +594,19 @@ const onPointerMove = (event: PointerEvent) => {
     // Zoom only while two fingers are down. Panning as well would make the image lurch on the frame
     // a pinch usually ends with, when one finger lifts a moment before the other.
     if (active.size >= 2) {
+        /*
+         * TWO FINGERS PAN AS WELL AS ZOOM.
+         *
+         * They only zoomed before, and that was defensible while one finger always panned. It is
+         * not now: with the polygon tool the one-finger drag traces, so without this there is no
+         * way to move the picture while outlining, and the lurch this was avoiding - one finger
+         * lifting a frame before the other - cannot happen, because the branch stops the moment
+         * fewer than two are down.
+         */
+        const mid = pinchMidpoint()
+        if (lastMid) view.pan({ x: mid.x - lastMid.x, y: mid.y - lastMid.y })
+        lastMid = mid
+
         if (pinchStart && pinchStart.dist > 0) {
             // How far the fingers travelled relative to each other, so a two-finger TAP (no
             // travel) can be told from a pinch when they lift.
@@ -495,6 +625,37 @@ const onPointerMove = (event: PointerEvent) => {
     const at = normalized(event)
     cursor.value = at
     const g = gesture.value
+
+    // Past the hold: the crosshair follows the finger and nothing else moves.
+    if (aiming.value) {
+        aiming.value = at
+        return
+    }
+    // Before it: travel means this was a drag rather than a hold, so the aim is called off - and
+    // with the polygon tool on an empty canvas, that drag becomes a trace.
+    if (aimTimer && tapOrigin) {
+        const travelled = Math.hypot(event.clientX - tapOrigin.x, event.clientY - tapOrigin.y)
+        if (travelled > TAP_SLOP) {
+            cancelAim()
+            if (!draftPolygon.value?.length) {
+                tracing.value = [normalized({ clientX: tapOrigin.x, clientY: tapOrigin.y }), at]
+                // The trace owns the gesture from here, so the picture stops panning under it.
+                gesture.value = { kind: 'none' }
+            }
+        }
+    }
+
+    if (tracing.value) {
+        const path = tracing.value
+        const previous = view.toScreen(path[path.length - 1]!)
+        const local = view.localPoint(event)
+        // One point every few pixels: a finger held still would otherwise record the same spot
+        // hundreds of times and hand the simplifier a pile of duplicates.
+        if (Math.hypot(local.x - previous.x, local.y - previous.y) >= TRACE_STEP) {
+            path.push(clampPoint(at))
+        }
+        return
+    }
 
     if (g.kind === 'pan') {
         const delta = { x: event.clientX - g.last.x, y: event.clientY - g.last.y }
@@ -527,7 +688,40 @@ const wasTap = (event: PointerEvent): boolean =>
 const onPointerUp = (event: PointerEvent) => {
     const wasPinching = active.size >= 2
     active.delete(event.pointerId)
-    if (active.size < 2) pinchStart = null
+    cancelAim()
+
+    // A trace becomes a ring, thinned to the points that carry its shape.
+    if (tracing.value) {
+        const path = tracing.value
+        tracing.value = null
+        gesture.value = { kind: 'none' }
+        tapOrigin = null
+        // Tolerance in normalised units, from a screen distance, so a trace at 400% zoom keeps the
+        // detail the zoom was for and one at fit is not left with a hundred points nobody can edit.
+        const thinned = simplifyPath(path, screenTolerance(2.5))
+        // Under three points there is no polygon: a stray flick lands here and is dropped rather
+        // than leaving a sliver on the picture.
+        if (thinned.length >= 3) {
+            draftPolygon.value = thinned
+            closePolygon()
+        }
+        return
+    }
+
+    // An aim ends where the crosshair is, not where the finger is: the two are the same point, but
+    // only one of them was visible while it was being chosen.
+    if (aiming.value) {
+        placePolygonPoint(aiming.value)
+        aiming.value = null
+        gesture.value = { kind: 'none' }
+        tapOrigin = null
+        emit('commit')
+        return
+    }
+    if (active.size < 2) {
+        pinchStart = null
+        lastMid = null
+    }
 
     // The gesture stays dead until every finger is up, so the second lift of a pinch does not get
     // read as a tap and drop a stray polygon point.
@@ -549,7 +743,7 @@ const onPointerUp = (event: PointerEvent) => {
 
     // Double tap fits. Checked before the tool's own tap handling, so the second tap cannot also
     // place a point.
-    if (!pointerDraws(event.pointerType) && wasTap(event)) {
+    if (isTouchPointer(event.pointerType) && wasTap(event)) {
         const now = performance.now()
         if (now - lastTapAt < 300) {
             lastTapAt = 0
@@ -561,7 +755,8 @@ const onPointerUp = (event: PointerEvent) => {
         lastTapAt = now
     }
 
-    if (props.tool === 'delete' && natural.value && wasTap(event)) {
+    if (props.tool === 'delete' && natural.value && (wasTap(event) || erasing.value)) {
+        erasing.value = false
         deleteAtCursor()
         tapOrigin = null
         endGesture()
@@ -578,7 +773,6 @@ const onPointerUp = (event: PointerEvent) => {
         gesture.value.kind !== 'vertex'
     ) {
         const at = normalized(event)
-        const draft = draftPolygon.value
 
         // No ring in progress and the tap landed on a polygon's edge: add a vertex there. Starting
         // a second polygon on top of an existing one is almost never what was meant, and it is the
@@ -600,13 +794,7 @@ const onPointerUp = (event: PointerEvent) => {
                 return
             }
         }
-        // Tapping the first dot closes the ring, the gesture every other polygon tool uses. Three
-        // points minimum, because that is the least the server accepts.
-        if (draft && draft.length >= 3 && isNear(at, draft[0]!, closeTolerance.value)) {
-            closePolygon()
-        } else {
-            draftPolygon.value = [...(draft ?? []), clampPoint(at)]
-        }
+        placePolygonPoint(at)
     }
 
     tapOrigin = null
@@ -665,7 +853,11 @@ const closePolygon = () => {
     emit('commit')
 }
 
-const cancelPolygon = () => (draftPolygon.value = null)
+const cancelPolygon = () => {
+    draftPolygon.value = null
+    aiming.value = null
+    cancelAim()
+}
 
 /**
  * Right-click: take back the last draft point, or remove a vertex from the selected polygon.
@@ -991,13 +1183,6 @@ const polygonPoints = (points: Point[]) =>
         })
         .join(' ')
 
-const shapeRect = (shape: Shape) => ({
-    x: shape.x * (natural.value?.w ?? 1),
-    y: shape.y * (natural.value?.h ?? 1),
-    width: shape.w * (natural.value?.w ?? 1),
-    height: shape.h * (natural.value?.h ?? 1),
-})
-
 /**
  * The colour a shape paints in, as a CSS value rather than a class.
  *
@@ -1179,55 +1364,33 @@ defineExpose({
                     :viewBox="`0 0 ${natural.w} ${natural.h}`"
                     preserveAspectRatio="none"
                 >
+                    <!--
+                        THE SHAPES THEMSELVES ARE PAINTED BY THE SHARED OVERLAY, which the library's
+                        inspector uses too. One renderer, so a box cannot look like one thing here
+                        and another thing there.
+
+                        What stays below is INTERACTION rather than display - the vertex a click
+                        would add, the handles that resize and move. The callbacks carry this page's
+                        own states across: a selection is thicker, a delete target is red, an
+                        unnamed shape takes the casing.
+
+                        THE CASING is a wider stroke drawn under a shape's own. These fields are
+                        roughly half bright and half dark, measured across the batch, so no single
+                        outline colour reads everywhere; the halo separates the line from whichever
+                        it landed on without costing the shape the colour that says which class it
+                        is.
+                    -->
+                    <AnnotationOverlay
+                        :shapes="visibleShapes"
+                        :natural="natural"
+                        :stroke-for="strokeFor"
+                        :width-for="(shape) => px(shape.id === selectedId ? 3 : 2)"
+                        :cased="isCased"
+                        :casing="CASING"
+                        :casing-width-for="(shape) => px(shape.id === selectedId ? 6 : 5)"
+                    />
+
                     <g v-for="shape in visibleShapes" :key="shape.id">
-                        <!--
-                            THE CASING: a wider white stroke drawn UNDER the selected shape's own.
-
-                            The selection keeps its class colour - losing it was the real cost of
-                            painting the selection one fixed accent, since the class is exactly what
-                            you are checking when you select something. That leaves legibility to
-                            solve, and these fields are roughly half bright and half dark (measured
-                            across the batch), so no single outline colour reads everywhere. A white
-                            casing does: it disappears into the pale cytoplasm, where the mid-dark
-                            class colour already reads on its own, and separates the line from the
-                            dark rim, where it would otherwise be lost.
-                        -->
-                        <template v-if="isCased(shape)">
-                            <polygon
-                                v-if="shape.polygon"
-                                :points="polygonPoints(shape.polygon)"
-                                fill="none"
-                                :stroke="CASING"
-                                :stroke-width="px(shape.id === selectedId ? 6 : 5)"
-                                stroke-linejoin="round"
-                            />
-                            <rect
-                                v-else
-                                v-bind="shapeRect(shape)"
-                                fill="none"
-                                :stroke="CASING"
-                                :stroke-width="px(shape.id === selectedId ? 6 : 5)"
-                            />
-                        </template>
-
-                        <polygon
-                            v-if="shape.polygon"
-                            :points="polygonPoints(shape.polygon)"
-                            :fill="strokeFor(shape)"
-                            fill-opacity="0.18"
-                            :stroke="strokeFor(shape)"
-                            :stroke-width="px(shape.id === selectedId ? 3 : 2)"
-                            stroke-linejoin="round"
-                        />
-                        <rect
-                            v-else
-                            v-bind="shapeRect(shape)"
-                            :fill="strokeFor(shape)"
-                            fill-opacity="0.18"
-                            :stroke="strokeFor(shape)"
-                            :stroke-width="px(shape.id === selectedId ? 3 : 2)"
-                        />
-
                         <!-- The vertex a click would create. The cursor says a node can be
                              added; this says exactly where, which matters on a curve where the
                              nearest edge is not always the one you assumed. -->
@@ -1328,6 +1491,52 @@ defineExpose({
                                 "
                             />
                         </template>
+                    </g>
+
+                    <!-- The trace, while a finger is drawing it. Same white-on-black as the ring
+                         it is about to become, so nothing changes appearance on release. -->
+                    <g v-if="tracing && tracing.length > 1">
+                        <polyline
+                            v-for="layer in DRAFT_LAYERS"
+                            :key="layer.color"
+                            :points="polygonPoints(tracing)"
+                            fill="none"
+                            :stroke="layer.color"
+                            :stroke-width="px(layer.width)"
+                            stroke-linejoin="round"
+                            stroke-linecap="round"
+                        />
+                    </g>
+
+                    <!--
+                        THE PENDING POINT, while a finger is aiming. Drawn on the picture as well as
+                        magnified in the loupe: the loupe says what is under the fingertip, this
+                        says where the point will land, and at a glance those are different
+                        questions.
+                    -->
+                    <g v-if="aiming">
+                        <circle
+                            :cx="aiming.x * natural.w"
+                            :cy="aiming.y * natural.h"
+                            :r="px(9)"
+                            fill="none"
+                            :stroke="DRAFT_CASING"
+                            :stroke-width="px(3)"
+                        />
+                        <circle
+                            :cx="aiming.x * natural.w"
+                            :cy="aiming.y * natural.h"
+                            :r="px(9)"
+                            fill="none"
+                            :stroke="DRAFT_LINE"
+                            :stroke-width="px(1.5)"
+                        />
+                        <circle
+                            :cx="aiming.x * natural.w"
+                            :cy="aiming.y * natural.h"
+                            :r="px(1.5)"
+                            :fill="DRAFT_LINE"
+                        />
                     </g>
 
                     <!-- The polygon in progress: an open path plus its vertices, so it is obvious
@@ -1483,6 +1692,31 @@ defineExpose({
             </div>
 
             <!--
+                The one line that says the fast gesture exists.
+
+                Only before a ring is started, because that is the only moment the drag traces: once
+                points are placed by hand the drag pans again, and a hint naming a gesture that is
+                no longer live is worse than none.
+            -->
+            <div
+                v-if="isTouchCapable && tool === 'polygon' && !draftPolygon?.length && !tracing"
+                class="tw:pointer-events-none tw:absolute tw:top-2 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-1.5 tw:rounded-lg tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[12px] tw:text-an-d-text"
+                :style="{ left: `${viewport.w / 2}px` }"
+            >
+                Drag to trace, or tap to place points
+            </div>
+
+            <!-- The erase tool's own line. Same place, same reason: there is no hint bar on a
+                 stacked layout and no tooltip a finger can reach. -->
+            <div
+                v-if="isTouchCapable && tool === 'delete' && !erasing"
+                class="tw:pointer-events-none tw:absolute tw:top-2 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-1.5 tw:rounded-lg tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[12px] tw:text-an-d-text"
+                :style="{ left: `${viewport.w / 2}px` }"
+            >
+                Press a shape or a point, then lift to erase it
+            </div>
+
+            <!--
                 The draft controls, and they are not a convenience: on a touch device there is no
                 right-click and no Escape key, so without these a polygon can be started and then
                 neither corrected nor abandoned. The keyboard and mouse gestures still work and are
@@ -1490,13 +1724,22 @@ defineExpose({
             -->
             <div
                 v-if="draftPolygon?.length"
-                class="tw:absolute tw:top-2 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-2 tw:rounded tw:bg-an-overlay/95 tw:px-2 tw:py-1.5 tw:text-xs tw:text-white"
+                class="tw:absolute tw:top-2 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-2 tw:rounded-lg tw:bg-an-overlay/95 tw:text-white"
+                :class="
+                    isTouchCapable
+                        ? 'tw:px-2 tw:py-1 tw:text-[13px]'
+                        : 'tw:px-2 tw:py-1.5 tw:text-xs'
+                "
                 :style="{ left: `${viewport.w / 2}px` }"
             >
                 <span>{{ draftPolygon.length }} point(s)</span>
+                <!-- Hold-to-aim is invisible otherwise: there is no hint bar on a stacked layout
+                     and no tooltip a finger can reach, so the one place it can be said is here. -->
+                <span v-if="isTouchCapable" class="tw:text-white/55">hold to aim</span>
                 <button
                     type="button"
-                    class="tw:rounded tw:bg-white/15 tw:px-2 tw:py-0.5 tw:hover:bg-white/25 tw:disabled:opacity-40"
+                    class="tw:rounded-md tw:bg-white/15 tw:hover:bg-white/25 tw:disabled:opacity-40"
+                    :class="isTouchCapable ? 'tw:h-9 tw:px-3' : 'tw:px-2 tw:py-0.5'"
                     :disabled="draftPolygon.length < 3"
                     title="Close the ring (or tap the first dot, double-click, or press Enter)"
                     @pointerdown.stop
@@ -1506,7 +1749,8 @@ defineExpose({
                 </button>
                 <button
                     type="button"
-                    class="tw:rounded tw:bg-white/15 tw:px-2 tw:py-0.5 tw:hover:bg-white/25"
+                    class="tw:rounded-md tw:bg-white/15 tw:hover:bg-white/25"
+                    :class="isTouchCapable ? 'tw:h-9 tw:px-3' : 'tw:px-2 tw:py-0.5'"
                     title="Remove the last point (or right-click). Right-click a vertex of a finished polygon to remove that one."
                     @pointerdown.stop
                     @click.stop="undoDraftPoint"
@@ -1515,7 +1759,8 @@ defineExpose({
                 </button>
                 <button
                     type="button"
-                    class="tw:rounded tw:bg-white/15 tw:px-2 tw:py-0.5 tw:hover:bg-white/25"
+                    class="tw:rounded-md tw:bg-white/15 tw:hover:bg-white/25"
+                    :class="isTouchCapable ? 'tw:h-9 tw:px-3' : 'tw:px-2 tw:py-0.5'"
                     title="Discard this polygon (or press Escape)"
                     @pointerdown.stop
                     @click.stop="cancelPolygon"

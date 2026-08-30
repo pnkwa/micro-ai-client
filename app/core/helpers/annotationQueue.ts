@@ -111,6 +111,20 @@ export function chipFor(status: QueueStatus): Exclude<QueueFilter, 'all'> {
     return 'progress'
 }
 
+/**
+ * The STRICT reading: one chip catches each status, and the chips partition.
+ *
+ * The library shows four chips rather than the annotator's three, so "Unlabelled" there means
+ * exactly `empty` and the three counts add up to All. `matchesFilter` below folds in-progress into
+ * "To label" instead, which is right for a worklist and wrong for a set of counted chips: fold, and
+ * a library of 22 reports All 22 / Unlabelled 19 / In progress 3 / Reviewed 3.
+ *
+ * Both readings share `chipFor`, so a status can never land in different chips on the two pages.
+ */
+export function matchesChip(status: QueueStatus, filter: QueueFilter): boolean {
+    return filter === 'all' || chipFor(status) === filter
+}
+
 export function matchesFilter(status: QueueStatus, filter: QueueFilter): boolean {
     if (filter === 'all') return true
     // "To label" catches everything not done, in-progress included: the chips are three, and three

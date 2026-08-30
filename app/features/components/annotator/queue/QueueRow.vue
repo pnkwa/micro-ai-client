@@ -4,7 +4,7 @@ import { EyeOff, ImageOff } from '@lucide/vue'
 import type { LibraryImage } from '~/services/imageService'
 import type { ImageLoadError } from '~/core/composables/useImageObjectUrls'
 import type { QueueRowView } from '~/core/helpers/annotationQueue'
-import { metadataTitle } from '~/core/helpers/imageMetadata'
+import { imageDisplayName } from '~/core/helpers/imageName'
 
 /**
  * One 56px row of the queue.
@@ -36,7 +36,26 @@ useIntersectionObserver(
     { root: () => props.root, rootMargin: '200px' },
 )
 
-const name = computed(() => metadataTitle(props.image.metadata) ?? `IMG_${props.image.id}`)
+/**
+ * Follow the selection, so stepping with the arrows walks the list rather than losing it.
+ *
+ * The row scrolls ITSELF, because it is the only thing that knows where it is: the queue holds no
+ * element refs (a per-row component is what fixed the stale-observer bug above) and the page holds
+ * no DOM at all.
+ *
+ * `nearest` rather than `center`: a selection already on screen must not move, or every step down a
+ * visible list would jerk the whole column to re-centre it. Only a row that has gone off the edge
+ * gets scrolled, and then only far enough to come back on.
+ */
+watch(
+    () => props.selected,
+    (selected) => {
+        if (selected) el.value?.scrollIntoView({ block: 'nearest' })
+    },
+    { immediate: true },
+)
+
+const name = computed(() => imageDisplayName(props.image.metadata, props.image.id))
 
 // Kept as whole literal strings: Tailwind extracts class names from templates, so a class built by
 // concatenation in script is never emitted. StatePanel.vue records the same bug from a real build.
@@ -64,7 +83,7 @@ const metaClass = computed(() =>
     <li ref="row">
         <button
             type="button"
-            class="tw:relative tw:flex tw:h-14 tw:w-full tw:items-center tw:gap-2.5 tw:rounded-lg tw:py-0 tw:pr-2 tw:pl-[7px] tw:text-left tw:transition-colors"
+            class="tw:flex tw:h-14 tw:w-full tw:items-center tw:gap-2.5 tw:rounded-lg tw:py-0 tw:pr-2 tw:pl-[7px] tw:text-left tw:transition-colors"
             :class="
                 selected
                     ? 'tw:bg-an-accent-tint tw:ring-1 tw:ring-an-accent'
@@ -72,13 +91,6 @@ const metaClass = computed(() =>
             "
             @click="emit('select')"
         >
-            <!-- The 2px left bar reads as "you are here" at a glance down a long list, where a
-                 tint alone does not. -->
-            <span
-                v-if="selected"
-                class="tw:absolute tw:top-2 tw:bottom-2 tw:left-0 tw:w-0.5 tw:rounded-full tw:bg-an-accent"
-            ></span>
-
             <span
                 class="tw:h-[42px] tw:w-[42px] tw:shrink-0 tw:overflow-hidden tw:rounded-md tw:bg-an-canvas"
             >

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { refDebounced, useIntersectionObserver } from '@vueuse/core'
+import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 import { LayoutGrid, List, PanelLeftClose, Search, X } from '@lucide/vue'
 import type { LibraryImage } from '~/services/imageService'
 import { useImageObjectUrls } from '~/core/composables/useImageObjectUrls'
@@ -10,6 +11,7 @@ import {
     type QueueRowView,
 } from '~/core/helpers/annotationQueue'
 import QueueRow from './QueueRow.vue'
+import QueueTile from './QueueTile.vue'
 
 /**
  * The left column: search, filters, progress, and the list someone works through.
@@ -46,6 +48,26 @@ const { urls, errors, load } = useImageObjectUrls()
 
 const mode = ref<'list' | 'grid'>('list')
 
+/**
+ * How many images sit on one row, which is what an arrow key has to step by.
+ *
+ * *** THE GRID IS `grid-cols-3`, AND THIS IS THE SAME 3. *** Told to the page rather than assumed
+ * by it: the page owns the keyboard but has no DOM, and a column count guessed there would go
+ * wrong the first time this list changes shape. One in list mode, because a list IS a grid one
+ * column wide, which lets the caller use the same arithmetic for both.
+ */
+const GRID_COLUMNS = 3
+const columns = computed(() => (mode.value === 'grid' ? GRID_COLUMNS : 1))
+
+/**
+ * In a drawer, the header's controls are for a THUMB.
+ *
+ * Same markup, two sizes: 24px is right beside a mouse in a docked column and under the 44px floor
+ * everything touchable holds to. `stacked` is the same question the shell and the page ask, so the
+ * queue cannot be a drawer while thinking it is a column.
+ */
+const { stacked } = useAnnotatorLayout()
+
 // Debounced because `?q=` is a server-side filter: a keystroke per request is one round trip per
 // character.
 const debounced = refDebounced(
@@ -69,11 +91,15 @@ const viewFor = (image: LibraryImage): QueueRowView =>
  * backwards for a worklist. The strip ran IMG_22 to IMG_11 and someone working through it started
  * at the end.
  */
+/**
+ * Filtered, and NOT reordered.
+ *
+ * It used to sort by id here, which put the list in a different order from the one the page steps
+ * through: pressing "next image" moved to the row above the highlighted one. The order is the
+ * page's now, so the list, the pager and the arrow keys cannot disagree about which way is down.
+ */
 const visible = computed(() =>
-    props.images
-        .filter((image) => matchesFilter(viewFor(image).status, props.filter))
-        .slice()
-        .sort((a, b) => a.id - b.id),
+    props.images.filter((image) => matchesFilter(viewFor(image).status, props.filter)),
 )
 
 const statuses = computed(() => props.images.map((image) => viewFor(image).status))
@@ -116,20 +142,24 @@ const chips: { id: QueueFilter; label: string }[] = [
     { id: 'done', label: 'Done' },
 ]
 
-defineExpose({ focusSearch: () => searchEl.value?.focus() })
+defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
 </script>
 
 <template>
     <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col">
-        <div class="tw:flex tw:shrink-0 tw:items-center tw:gap-2 tw:px-3.5 tw:pt-3 tw:pb-1.5">
+        <div
+            class="tw:flex tw:shrink-0 tw:items-center tw:gap-2"
+            :class="stacked ? 'tw:px-2 tw:pt-1.5 tw:pb-1' : 'tw:px-3.5 tw:pt-3 tw:pb-1.5'"
+        >
             <!-- The queue's own collapse. `PanelLeftClose` - a panel with an arrow - is
                  deliberately NOT the app sidebar's plain `PanelLeft`: two identical icons for two
                  different panels is the confusion this separates. -->
             <button
                 type="button"
-                class="tw:flex tw:h-6 tw:w-6 tw:items-center tw:justify-center tw:rounded-md tw:text-an-n-500 tw:hover:bg-an-n-100 tw:hover:text-an-text"
-                aria-label="Collapse the image queue"
-                title="Collapse the image queue"
+                class="tw:flex tw:items-center tw:justify-center tw:rounded-md tw:text-an-n-500 tw:hover:bg-an-n-100 tw:hover:text-an-text"
+                :class="stacked ? 'tw:h-11 tw:w-11' : 'tw:h-6 tw:w-6'"
+                :aria-label="stacked ? 'Close the image queue' : 'Collapse the image queue'"
+                :title="stacked ? 'Close the image queue' : 'Collapse the image queue'"
                 @click="emit('collapse')"
             >
                 <PanelLeftClose class="tw:h-4 tw:w-4" />
@@ -141,12 +171,13 @@ defineExpose({ focusSearch: () => searchEl.value?.focus() })
                     v-for="option in ['list', 'grid'] as const"
                     :key="option"
                     type="button"
-                    class="tw:flex tw:h-[22px] tw:w-6 tw:items-center tw:justify-center tw:rounded-[5px] tw:transition-colors"
-                    :class="
+                    class="tw:flex tw:items-center tw:justify-center tw:rounded-[5px] tw:transition-colors"
+                    :class="[
+                        stacked ? 'tw:h-9 tw:w-11' : 'tw:h-[22px] tw:w-6',
                         mode === option
                             ? 'tw:bg-white tw:text-an-text tw:shadow-sm'
-                            : 'tw:text-an-faint tw:hover:text-an-muted'
-                    "
+                            : 'tw:text-an-faint tw:hover:text-an-muted',
+                    ]"
                     :aria-label="option === 'list' ? 'List view' : 'Grid view'"
                     :aria-pressed="mode === option"
                     @click="mode = option"
@@ -255,31 +286,20 @@ defineExpose({ focusSearch: () => searchEl.value?.focus() })
                 />
             </ul>
 
-            <!-- Grid mode is the same data through the same filter; only the shape changes. -->
+            <!-- Grid mode is the same data through the same filter; only the shape changes - and
+                 the fetching, which is per tile and driven by visibility exactly as the list is. -->
             <ul v-else class="tw:grid tw:grid-cols-3 tw:gap-1.5">
-                <li v-for="image in visible" :key="image.id">
-                    <button
-                        type="button"
-                        class="tw:relative tw:block tw:aspect-square tw:w-full tw:overflow-hidden tw:rounded-[7px] tw:bg-an-canvas"
-                        :class="image.id === selectedId ? 'tw:ring-2 tw:ring-an-accent' : ''"
-                        @click="emit('select', image.id)"
-                        @pointerenter="load(image.id, 'thumb', image.content_hash)"
-                    >
-                        <img
-                            v-if="urls[image.id]"
-                            :src="urls[image.id]"
-                            alt=""
-                            class="tw:h-full tw:w-full tw:object-cover"
-                        />
-                        <McSkeleton v-else class="tw:h-full tw:w-full tw:rounded-none" />
-                        <span
-                            v-if="viewFor(image).badge !== null"
-                            class="tw:absolute tw:right-1 tw:bottom-1 tw:flex tw:h-[17px] tw:min-w-[17px] tw:items-center tw:justify-center tw:rounded tw:bg-black/70 tw:px-1 tw:font-mono tw:text-[10px] tw:font-semibold tw:text-white"
-                        >
-                            {{ viewFor(image).badge }}
-                        </span>
-                    </button>
-                </li>
+                <QueueTile
+                    v-for="image in visible"
+                    :key="image.id"
+                    :image="image"
+                    :view="viewFor(image)"
+                    :root="scroller"
+                    :thumbnail="urls[image.id]"
+                    :selected="image.id === selectedId"
+                    @visible="load(image.id, 'thumb', image.content_hash)"
+                    @select="emit('select', image.id)"
+                />
             </ul>
 
             <p
