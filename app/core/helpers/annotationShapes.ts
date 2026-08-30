@@ -1,0 +1,559 @@
+import { localId } from './localId'
+
+/**
+ * The shapes a person draws, and the payload they become.
+ *
+ * Pure, no DOM, for the same reason as `viewportTransform.ts`: this is the arithmetic that decides
+ * where a box actually is, and the export carries it outward as if it were a measurement. The
+ * component owns pointers; this owns geometry.
+ *
+ * EVERYTHING HERE IS NORMALIZED [0,1] against the original image. That is the space
+ * `image_annotations` and `detection_boxes` both store (ML-ADR-002), so nothing downstream needs the
+ * image's pixel dimensions and an export needs no rescaling anyone would have to trust. Converting
+ * to pixels anywhere in this file would be a bug.
+ */
+
+/** A point in normalized image space. */
+export type Point = { x: number; y: number }
+
+/**
+ * One drawn region.
+ *
+ * `id` is LOCAL ONLY and never sent. `PUT /images/:id/annotations` is replace-all in one
+ * transaction, so the server assigns ids and the client never reconciles them for shapes a person
+ * just drew - which is exactly why an editing session can hand out throwaway ids like this.
+ */
+export interface Shape {
+    id: string
+    /**
+     * The class, as a row in the caller's palette (BE-ADR-038). Null means unnamed, which is a real
+     * state: a box is drawn before it is named, and this is what gets written.
+     */
+    labelId: number | null
+    /**
+     * The class's text, carried alongside the id purely so this module never has to know about the
+     * palette. It is what a save's fingerprint should NOT key on - a rename changes the text without
+     * changing which class the box is in - so `toAnnotationPayload` sends the id and ignores this.
+     */
+    label: string
+    x: number
+    y: number
+    w: number
+    h: number
+    /** Outline for a polygon; null for a plain box. */
+    polygon: Point[] | null
+    /** Vetted by a domain expert. Writable only through the replace-all PUT. */
+    expert_curated: boolean
+}
+
+/** Minimum edge, in normalized units, below which a drag is treated as a click rather than a box. */
+const MIN_EDGE = 0.002
+
+export const clamp01 = (value: number): number => Math.min(1, Math.max(0, value))
+
+export const clampPoint = (point: Point): Point => ({ x: clamp01(point.x), y: clamp01(point.y) })
+
+/**
+ * The box two dragged corners describe, in any direction.
+ *
+ * Normalising the direction here rather than at the call site is what lets someone drag up-and-left
+ * and get a box instead of a negative width that renders as nothing.
+ */
+export function rectFromDrag(a: Point, b: Point): Pick<Shape, 'x' | 'y' | 'w' | 'h'> {
+    const x1 = clamp01(Math.min(a.x, b.x))
+    const y1 = clamp01(Math.min(a.y, b.y))
+    const x2 = clamp01(Math.max(a.x, b.x))
+    const y2 = clamp01(Math.max(a.y, b.y))
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }
+}
+
+/**
+ * A polygon's extent.
+ *
+ * The server recomputes this on write and IGNORES whatever box was sent alongside, so the two
+ * descriptions of one region cannot disagree. We compute it anyway so the local list, the hit test
+ * and the selection outline all agree with what the server will store.
+ */
+export function bboxOfPolygon(points: Point[]): Pick<Shape, 'x' | 'y' | 'w' | 'h'> {
+    if (!points.length) return { x: 0, y: 0, w: 0, h: 0 }
+    const xs = points.map((p) => p.x)
+    const ys = points.map((p) => p.y)
+    const x = Math.min(...xs)
+    const y = Math.min(...ys)
+    return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y }
+}
+
+/** Keep a shape's bbox in step with its outline after a vertex moves. */
+export function withDerivedBbox(shape: Shape): Shape {
+    return shape.polygon ? { ...shape, ...bboxOfPolygon(shape.polygon) } : shape
+}
+
+/**
+ * Too small or too incomplete to mean anything.
+ *
+ * A click with the rectangle tool selected produces a zero-area box, and an abandoned polygon can
+ * hold one or two points. Neither is a region, and the server refuses a polygon under three points
+ * outright, so they are dropped rather than sent and rejected.
+ */
+export function isDegenerate(shape: Shape): boolean {
+    if (shape.polygon) return shape.polygon.length < 3
+    return shape.w < MIN_EDGE || shape.h < MIN_EDGE
+}
+
+/** Move a whole shape by a normalized delta, keeping it inside the picture. */
+export function translateShape(shape: Shape, dx: number, dy: number): Shape {
+    if (shape.polygon) {
+        // Clamped as a UNIT, against the bounding box, then applied to every vertex. Clamping each
+        // vertex on its own would deform the outline as it met an edge rather than stopping it.
+        const ddx = Math.min(Math.max(dx, -shape.x), 1 - (shape.x + shape.w))
+        const ddy = Math.min(Math.max(dy, -shape.y), 1 - (shape.y + shape.h))
+        return withDerivedBbox({
+            ...shape,
+            polygon: shape.polygon.map((p) => ({ x: p.x + ddx, y: p.y + ddy })),
+        })
+    }
+    return {
+        ...shape,
+        x: Math.min(Math.max(0, shape.x + dx), 1 - shape.w),
+        y: Math.min(Math.max(0, shape.y + dy), 1 - shape.h),
+    }
+}
+
+/**
+ * Are two points within `tolerance` of each other?
+ *
+ * The tolerance is in NORMALIZED units, so the caller converts from screen pixels using the current
+ * zoom - otherwise "click the first dot to close" would need a pixel-perfect click when zoomed out
+ * and accept a click half an image away when zoomed in.
+ */
+export function isNear(a: Point, b: Point, tolerance: number): boolean {
+    return Math.hypot(a.x - b.x, a.y - b.y) <= tolerance
+}
+
+/** Which corner of a rectangle a resize handle is. */
+export type Corner = 'nw' | 'ne' | 'se' | 'sw'
+
+export const CORNERS: Corner[] = ['nw', 'ne', 'se', 'sw']
+
+/** The normalized position of one corner handle. */
+export function cornerPoint(shape: Shape, corner: Corner): Point {
+    return {
+        x: corner === 'nw' || corner === 'sw' ? shape.x : shape.x + shape.w,
+        y: corner === 'nw' || corner === 'ne' ? shape.y : shape.y + shape.h,
+    }
+}
+
+/**
+ * Drag one corner to a new point, holding the opposite corner still.
+ *
+ * Goes back through `rectFromDrag`, so dragging a corner past its opposite flips the box rather
+ * than inverting it - which is what someone means when they overshoot.
+ */
+export function resizeRect(shape: Shape, corner: Corner, to: Point): Shape {
+    const opposite: Record<Corner, Corner> = { nw: 'se', ne: 'sw', se: 'nw', sw: 'ne' }
+    return { ...shape, ...rectFromDrag(cornerPoint(shape, opposite[corner]), to) }
+}
+
+/**
+ * Distance from a point to a line SEGMENT, not to the infinite line through it.
+ *
+ * The difference is the whole value here: an infinite line would report a click far off the end of
+ * one edge as being right on it, so clicking near a polygon would insert a vertex into whichever
+ * edge happened to be collinear rather than the one under the cursor.
+ */
+export function distanceToSegment(point: Point, a: Point, b: Point): number {
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const lengthSq = dx * dx + dy * dy
+    // A degenerate edge (two identical vertices) is just a point.
+    if (!lengthSq) return Math.hypot(point.x - a.x, point.y - a.y)
+    // Projection of the point onto the segment, clamped to it - the clamp is what makes it a
+    // segment rather than a line.
+    const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSq))
+    return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy))
+}
+
+/**
+ * The edge nearest a point, as the index of the vertex the edge STARTS at.
+ *
+ * The ring is closed, so the last edge runs from the final vertex back to the first, and it has to
+ * be considered like any other - a click on the closing edge is the easy one to forget.
+ */
+export function nearestEdge(
+    points: Point[],
+    point: Point,
+): { index: number; distance: number } | null {
+    if (points.length < 2) return null
+    let best = { index: 0, distance: Infinity }
+    for (let i = 0; i < points.length; i++) {
+        const a = points[i]!
+        const b = points[(i + 1) % points.length]!
+        const distance = distanceToSegment(point, a, b)
+        if (distance < best.distance) best = { index: i, distance }
+    }
+    return best
+}
+
+/**
+ * Insert a vertex into whichever edge is under `point`, or return null if none is close enough.
+ *
+ * Null rather than an unchanged shape, so the caller can tell "nothing to do here" from "done" and
+ * fall through to whatever the click would otherwise have meant.
+ */
+export function insertPointOnEdge(shape: Shape, point: Point, tolerance: number): Shape | null {
+    if (!shape.polygon) return null
+    const edge = nearestEdge(shape.polygon, point)
+    if (!edge || edge.distance > tolerance) return null
+    const polygon = [...shape.polygon]
+    // After the edge's starting vertex, which is what puts it between the two it was drawn on.
+    polygon.splice(edge.index + 1, 0, clampPoint(point))
+    return withDerivedBbox({ ...shape, polygon })
+}
+
+/**
+ * Remove one vertex, unless doing so would leave fewer than three.
+ *
+ * Returns null in that case rather than silently refusing, so the caller can say why. Three is not
+ * an arbitrary floor: it is what the server accepts, so a two-point polygon could be drawn here and
+ * then rejected on save.
+ */
+export function removePolygonPoint(shape: Shape, index: number): Shape | null {
+    if (!shape.polygon || shape.polygon.length <= 3) return null
+    const polygon = shape.polygon.filter((_, i) => i !== index)
+    return withDerivedBbox({ ...shape, polygon })
+}
+
+const pointInRect = (shape: Shape, point: Point): boolean =>
+    point.x >= shape.x &&
+    point.x <= shape.x + shape.w &&
+    point.y >= shape.y &&
+    point.y <= shape.y + shape.h
+
+/** Ray casting. Standard, and worth having rather than approximating a polygon by its box. */
+const pointInPolygon = (points: Point[], point: Point): boolean => {
+    let inside = false
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const a = points[i]!
+        const b = points[j]!
+        const straddles = a.y > point.y !== b.y > point.y
+        if (straddles && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) {
+            inside = !inside
+        }
+    }
+    return inside
+}
+
+export function hitTest(shape: Shape, point: Point): boolean {
+    return shape.polygon ? pointInPolygon(shape.polygon, point) : pointInRect(shape, point)
+}
+
+/**
+ * The topmost polygon VERTEX under a point, across every shape.
+ *
+ * Searched before any shape hit test, because a vertex sits ON the outline and point-in-polygon is
+ * undecided exactly there - so asking "which shape is this?" first would answer for the ring when
+ * the intent was one of its corners. Last drawn wins, same as `topmostAt`.
+ */
+export function vertexAt(
+    shapes: Shape[],
+    point: Point,
+    tolerance: number,
+): { shapeId: string; index: number } | null {
+    for (let i = shapes.length - 1; i >= 0; i--) {
+        const shape = shapes[i]!
+        if (!shape.polygon) continue
+        const index = shape.polygon.findIndex((vertex) => isNear(point, vertex, tolerance))
+        if (index !== -1) return { shapeId: shape.id, index }
+    }
+    return null
+}
+
+/**
+ * The topmost polygon EDGE under a point, across every shape.
+ *
+ * `insertPointOnEdge` answers "does THIS shape take a node here?", which is the question a tool
+ * acting on an already-selected shape asks. This answers "which shape would?", which is what a tool
+ * that acts on whatever is under the cursor needs, and without it a node can only be added to a
+ * polygon that was selected first - a step that is invisible from the tool that places nodes.
+ *
+ * Last drawn wins, same as `topmostAt` and `vertexAt`, so a small polygon lying over a large one
+ * takes the node rather than the one underneath.
+ */
+export function edgeAt(
+    shapes: Shape[],
+    point: Point,
+    tolerance: number,
+): { shapeId: string; index: number } | null {
+    for (let i = shapes.length - 1; i >= 0; i--) {
+        const shape = shapes[i]!
+        if (!shape.polygon) continue
+        const edge = nearestEdge(shape.polygon, point)
+        if (edge && edge.distance <= tolerance) return { shapeId: shape.id, index: edge.index }
+    }
+    return null
+}
+
+/**
+ * The topmost shape under a point.
+ *
+ * Last drawn wins, because that is the one on top and the one someone just made. Searching from the
+ * end is what makes a small box drawn over a large one selectable at all.
+ */
+export function topmostAt(shapes: Shape[], point: Point): Shape | null {
+    for (let i = shapes.length - 1; i >= 0; i--) {
+        if (hitTest(shapes[i]!, point)) return shapes[i]!
+    }
+    return null
+}
+
+/**
+ * One annotation as the server sends it, structurally.
+ *
+ * Declared here rather than imported from `annotationService` so this module stays free of the
+ * service layer: the geometry has no business knowing how it was fetched, and the service's Zod
+ * type satisfies this by shape.
+ */
+export interface AnnotationView {
+    id: number
+    /** Resolved from the joined label row, and null when the box is unlabeled (BE-ADR-038). */
+    label: string | null
+    x: number
+    y: number
+    w: number
+    h: number
+    polygon?: number[][] | null
+    expert_curated: boolean
+}
+
+/**
+ * Recovers a label's id from its text.
+ *
+ * A function rather than the palette itself, so this module keeps knowing nothing about labels
+ * beyond an opaque id. The lookup exists at all because the annotation read resolves a label's text
+ * and colour but does NOT carry its id; the caller closes over its own palette to answer.
+ */
+export type LabelIdLookup = (name: string) => number | null
+
+/**
+ * Server annotations to editable shapes.
+ *
+ * The local id is prefixed and derived from the server's rather than reused raw, so nothing can
+ * confuse "the row this came from" with "the shape being edited" - and a shape drawn in the same
+ * session carries a `localId` that could otherwise collide with a small integer.
+ *
+ * `polygon` arrives as `[[x, y], ...]` pairs and becomes points. A pair missing a member would be a
+ * server bug rather than a case to handle, but 0 is the honest reading of absent here: it keeps the
+ * outline closed instead of producing NaN that propagates silently into the next bounding box.
+ *
+ * A LABEL THE PALETTE DOES NOT HOLD LANDS AS `labelId: null` while keeping its text. The read is
+ * owner-filtered, so that should be unreachable; if it happens the box reads as unnamed, which is a
+ * state the save accepts (`label_id` is nullable), so the text is what survives to say something
+ * was there. It does not cost a 400 that would take the whole write with it.
+ */
+export function toShapes(views: AnnotationView[], labelIdFor: LabelIdLookup): Shape[] {
+    return views.map((view) => {
+        const polygon = view.polygon?.length
+            ? view.polygon.map(([x, y]) => ({ x: x ?? 0, y: y ?? 0 }))
+            : null
+        const label = view.label ?? ''
+        return {
+            id: `srv-${view.id}`,
+            label,
+            labelId: label ? labelIdFor(label) : null,
+            x: view.x,
+            y: view.y,
+            w: view.w,
+            h: view.h,
+            polygon,
+            expert_curated: view.expert_curated,
+        }
+    })
+}
+
+/**
+ * A stable string for "what would be sent", used to tell saved from unsaved.
+ *
+ * The PAYLOAD rather than the shapes, deliberately: a throwaway local id or a point object rebuilt
+ * by an undo snapshot differs without anything the server would store having changed, and treating
+ * that as unsaved work puts a discard prompt in front of someone who has done nothing.
+ */
+export function annotationFingerprint(shapes: Shape[]): string {
+    return JSON.stringify(toAnnotationPayload(shapes))
+}
+
+/** The fingerprint an editor with nothing open starts from. */
+export function emptyFingerprint(): string {
+    return annotationFingerprint([])
+}
+
+/**
+ * Is this commit worth a history entry?
+ *
+ * NO when nothing that would be sent has changed, and that guard is what makes REDO survive.
+ *
+ * Every commit truncates the redo branch, because editing after an undo forks and the abandoned
+ * branch must not stay reachable. The canvas emits a commit at the end of ANY gesture that was not
+ * a pan - including a click that only selected a shape, which changes nothing. So without this,
+ * undo made redo available and the very next click threw it away, and a long pass filled the
+ * history with dozens of identical snapshots.
+ *
+ * Compared as the payload, so a rebuilt point object or a reassigned local id is not a change:
+ * those differ after every snapshot without anything the user drew being different.
+ */
+export function shouldCommit(current: Shape[] | undefined, next: Shape[]): boolean {
+    if (!current) return true
+    return annotationFingerprint(current) !== annotationFingerprint(next)
+}
+
+/**
+ * What changed against the last save, counted BY IDENTITY.
+ *
+ * Ids make this honest. Comparing payload arrays can only say "these two lists differ", so a box
+ * nudged by one pixel reads as one deletion plus one addition, and the previous version gave up and
+ * reported the whole shape count - which is how a freshly-opened image with five annotations
+ * offered to save "5 unsaved edits" before anyone touched it.
+ *
+ * A shape keeps its id across an edit, so a move is one CHANGE. Ids are local and never sent, which
+ * is exactly why they are safe to compare on.
+ */
+export function diffAnnotations(
+    current: Shape[],
+    baseline: Shape[],
+): { added: number; removed: number; changed: number; total: number } {
+    // Compared as the PAYLOAD, so a difference that would not be sent is not an edit: a label
+    // whitespace change, or a shape too small to survive the filter.
+    const fingerprint = (shape: Shape) =>
+        JSON.stringify(toAnnotationPayload([shape]).annotations[0] ?? null)
+
+    const before = new Map(baseline.map((shape) => [shape.id, fingerprint(shape)]))
+    const after = new Map(current.map((shape) => [shape.id, fingerprint(shape)]))
+
+    let added = 0
+    let changed = 0
+    for (const [id, print] of after) {
+        if (!before.has(id)) added += 1
+        else if (before.get(id) !== print) changed += 1
+    }
+    let removed = 0
+    for (const id of before.keys()) if (!after.has(id)) removed += 1
+
+    return { added, removed, changed, total: added + removed + changed }
+}
+
+/**
+ * Is there unsaved work?
+ *
+ * Pure and exported because getting the INITIAL value wrong is invisible until it is in front of a
+ * user: seeding the baseline with `''` rather than the empty payload made a freshly-opened editor
+ * report unsaved changes, so every navigation away from the page - signing out included - asked
+ * whether to discard annotations nobody had drawn.
+ *
+ * `hasImage` is part of the question rather than a caller's guard: with nothing open there is
+ * nothing to be dirty about, whatever the shape list happens to hold.
+ */
+export function hasUnsavedAnnotations(input: {
+    hasImage: boolean
+    shapes: Shape[]
+    baseline: Shape[]
+}): boolean {
+    if (!input.hasImage) return false
+    return diffAnnotations(input.shapes, input.baseline).total > 0
+}
+
+/** A detection box, structurally, as `detection_steps[].boxes[]` carries it. */
+export interface DetectionBoxView {
+    label: string
+    confidence: number
+    x: number
+    y: number
+    w: number
+    h: number
+    polygon?: number[][] | null
+}
+
+/**
+ * Model output as editable shapes, WITH the confidences kept alongside.
+ *
+ * Seeded client-side from the run's own boxes rather than through
+ * `POST /images/:id/annotations/seed-from-detection`, and only because of the confidence:
+ * `image_annotations` has no confidence column, and the server synthesizes `1` at its serializer
+ * precisely so a fabricated number never reaches the dataset export. Going through the endpoint
+ * would give correct shapes and no way to say which of them the model was unsure about, which is
+ * the one thing that makes a seeded set worth reviewing in order.
+ *
+ * The confidences are therefore SESSION-ONLY, returned separately rather than hung on the Shape, so
+ * nothing can mistake them for something that will be saved.
+ */
+export function shapesFromDetection(
+    boxes: DetectionBoxView[],
+    expertCurated: boolean,
+    labelIdFor: LabelIdLookup,
+): { shapes: Shape[]; confidence: Record<string, number> } {
+    const shapes: Shape[] = []
+    const confidence: Record<string, number> = {}
+    for (const box of boxes) {
+        const polygon = box.polygon?.length
+            ? box.polygon.map(([x, y]) => ({ x: x ?? 0, y: y ?? 0 }))
+            : null
+        const shape: Shape = {
+            id: localId('seed'),
+            label: box.label,
+            // The caller mints a palette label per model class before seeding, so this resolves;
+            // null only if that failed, and then the save refuses the box rather than unnaming it.
+            labelId: labelIdFor(box.label),
+            x: box.x,
+            y: box.y,
+            w: box.w,
+            h: box.h,
+            polygon,
+            expert_curated: expertCurated,
+        }
+        shapes.push(polygon ? withDerivedBbox(shape) : shape)
+        confidence[shape.id] = box.confidence
+    }
+    return { shapes, confidence }
+}
+
+/** The server's cap. Exported so the UI can say so before a save is refused. */
+export const MAX_ANNOTATIONS = 1000
+
+export interface AnnotationPayloadItem {
+    label_id: number | null
+    x: number
+    y: number
+    w: number
+    h: number
+    polygon?: number[][]
+    expert_curated?: boolean
+}
+
+/**
+ * The body of `PUT /images/:id/annotations`.
+ *
+ * Replace-all, so this is the COMPLETE set every time rather than a diff. Degenerate shapes are
+ * dropped here rather than filtered by the caller, because "what gets sent" is one question with
+ * one answer and splitting it invites the list and the payload to disagree.
+ *
+ * `polygon` goes out as `[[x, y], ...]` - the wire format is pairs, not objects, matching
+ * `detection_boxes.polygon` - and is OMITTED entirely for a plain box, because the column is
+ * nullable and sending an empty array is not the same as sending nothing.
+ *
+ * THE CLASS GOES OUT AS `label_id`, NEVER AS TEXT (BE-ADR-038). Sending the old `label` would not
+ * error - the server strips unknown fields - it would write every box unlabeled and report success.
+ * Keying on the id also makes a rename invisible here, which is right: renaming a class does not
+ * change which class a box is in, and a fingerprint built on this should not call that an edit.
+ */
+export function toAnnotationPayload(shapes: Shape[]): { annotations: AnnotationPayloadItem[] } {
+    const annotations = shapes
+        .filter((shape) => !isDegenerate(shape))
+        .map((shape) => ({
+            label_id: shape.labelId,
+            x: shape.x,
+            y: shape.y,
+            w: shape.w,
+            h: shape.h,
+            ...(shape.polygon ? { polygon: shape.polygon.map((p) => [p.x, p.y]) } : {}),
+            ...(shape.expert_curated ? { expert_curated: true } : {}),
+        }))
+    return { annotations }
+}

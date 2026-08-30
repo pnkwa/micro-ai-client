@@ -10,6 +10,14 @@ import SheetOverlay from './SheetOverlay.vue'
 interface SheetContentProps extends DialogContentProps {
     class?: HTMLAttributes['class']
     side?: 'top' | 'right' | 'bottom' | 'left'
+    /**
+     * Drop the built-in close, for content that already has one of its own.
+     *
+     * It is pinned to the top-right corner, which is where a panel's own controls tend to sit, so a
+     * sheet wrapping an existing panel gets two dismiss buttons stacked on each other. Opt-in: the
+     * caller has to be sure its content really does offer a way out.
+     */
+    hideClose?: boolean
 }
 
 defineOptions({
@@ -21,7 +29,7 @@ const props = withDefaults(defineProps<SheetContentProps>(), {
 })
 const emits = defineEmits<DialogContentEmits>()
 
-const delegatedProps = reactiveOmit(props, 'class', 'side')
+const delegatedProps = reactiveOmit(props, 'class', 'side', 'hideClose')
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
@@ -50,6 +58,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
             <slot />
 
             <DialogClose
+                v-if="!hideClose"
                 class="tw:ring-offset-background tw:focus:ring-ring tw:data-[state=open]:bg-secondary tw:absolute tw:top-4 tw:right-4 tw:rounded-xs tw:opacity-70 tw:transition-opacity tw:hover:opacity-100 tw:focus:ring-2 tw:focus:ring-offset-2 tw:focus:outline-hidden tw:disabled:pointer-events-none"
             >
                 <X class="tw:size-4" />

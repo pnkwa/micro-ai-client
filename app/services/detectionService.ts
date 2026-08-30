@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { detectionRoutes } from './routes/detectionRoutes'
-import { imageRoutes } from './routes/imageRoutes'
 
 // One detected/segmented element. Coords are normalized [0,1] against the original image;
 // `polygon` is the segmentation outline (a detector leaves it null; see DetectionBox entity).
@@ -139,6 +138,23 @@ export const detectionService = {
         return detectionSchema.parse(response)
     },
 
+    /**
+     * One run, by id.
+     *
+     * Owner-or-staff server-side, and it answers 404 rather than 403 when you may not see it, so
+     * there is deliberately nothing to distinguish "gone" from "not yours" here.
+     *
+     * Exists so a detection can be DEEP-LINKED: the library's runs list points at
+     * `/image-detection?detection=<id>`, and that page loads a whole record into its viewer rather
+     * than an id. Without this the only way into the viewer was picking a row out of the history
+     * panel, which cannot reach a colleague's run.
+     */
+    async get(id: number): Promise<DetectionRecord> {
+        const { $api } = useNuxtApp()
+        const response = await $api(detectionRoutes.byId(id))
+        return detectionSchema.parse(response)
+    },
+
     async listMine(): Promise<DetectionRecord[]> {
         const { $api } = useNuxtApp()
         const response = await $api(detectionRoutes.listMine)
@@ -150,6 +166,30 @@ export const detectionService = {
     async listAll(): Promise<DetectionWithSubmitter[]> {
         const { $api } = useNuxtApp()
         const response = await $api(detectionRoutes.listAll)
+        return z.array(detectionWithSubmitterSchema).parse(response)
+    },
+
+    /**
+     * Every run over ONE image, newest first.
+     *
+     * The annotation editor's seed step needs a `detection_id`, and v0.7 correctly made that
+     * explicit because an image can now have several runs - so "seed from the detection" no longer
+     * names one. Without this the only usable run was one made in the same session, which we asked
+     * about on 2026-08-26.
+     *
+     * For STAFF this is every run by anyone, each row carrying its `creator`, so a seed is
+     * resumable across sessions and across colleagues. For anyone else it narrows their own history
+     * to that image: the filter narrows, it never widens.
+     *
+     * Submission-sourced runs are excluded at every role, staff included (BE-ADR-012). It costs the
+     * annotation flow nothing - seeding wants a library run, and the write refuses a non-curated
+     * image anyway - and staff read submission detections through the submission instead.
+     */
+    async listForImage(imageId: number): Promise<DetectionWithSubmitter[]> {
+        const { $api } = useNuxtApp()
+        const response = await $api(detectionRoutes.listMine, {
+            query: { image_id: imageId },
+        })
         return z.array(detectionWithSubmitterSchema).parse(response)
     },
 
@@ -171,43 +211,6 @@ export const detectionService = {
         })
         const paged = detectionPageSchema.safeParse(response)
         return paged.success ? paged.data.total : z.array(detectionSchema).parse(response).length
-    },
-
-    /**
-     * The image a detection ran on. An `<img src>` can't carry the Authorization header `$api`
-     * attaches, so fetch it as a blob and hand back an object URL; caller must revoke it.
-     *
-     * `size: 'thumb'` asks for the server's cached 256px downscale (BE-ADR-026) - ~20 KB against a
-     * multi-MB microscopy frame, and all a 48px list row can show. Opt-in, because the two callers
-     * that draw boxes over the picture need the pixels the coordinates were measured against.
-     *
-     * No fallback path needed in either direction: a server too old to know `size` ignores the query
-     * param and returns the original, and a current one returns the original when the image is
-     * already smaller than the cap or cannot be decoded.
-     */
-    async imageBlobUrl(imageId: number, size?: 'thumb'): Promise<string> {
-        const { $api } = useNuxtApp()
-        const blob = await $api<Blob>(imageRoutes.file(imageId), {
-            responseType: 'blob',
-            ...(size && { query: { size } }),
-        })
-        return URL.createObjectURL(blob)
-    },
-
-    /**
-     * The stored image as a File, for re-submitting a photo the student already sent.
-     *
-     * Full size, NOT the thumb the redo preview renders: the preview only has to be looked at,
-     * whereas this becomes the answer, and handing the detector a 256px downscale of a microscopy
-     * field would quietly cost the student the analysis their mark depends on.
-     */
-    async imageFile(imageId: number): Promise<File> {
-        const { $api } = useNuxtApp()
-        const blob = await $api<Blob>(imageRoutes.file(imageId), {
-            responseType: 'blob',
-        })
-        // Named after the row, since the stored filename is no longer on the wire.
-        return new File([blob], `image-${imageId}.jpg`, { type: blob.type || 'image/jpeg' })
     },
 
     /**

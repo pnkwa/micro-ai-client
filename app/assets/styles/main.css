@@ -125,6 +125,84 @@
     --color-tag-info-text: #095796;
     --color-tag-info-active: #d5edff;
     --color-tag-info-hover: #d5edff99;
+
+    /* ----------------------------------------------------------------------------------------
+       Annotator.
+
+       Its own ramp rather than the navy one, and that is deliberate: the annotator is a tool
+       window - a dark canvas between two light chrome panels - where the app's navy greys read
+       as blue against the canvas. Prefixed `an-` so nothing here can be mistaken for an app-wide
+       token and reused on a page that should follow the ordinary palette.
+       ---------------------------------------------------------------------------------------- */
+    --color-an-chrome: #fbfbfc;
+    --color-an-panel: #ffffff;
+    --color-an-border: #e4e6ea;
+    --color-an-divider: #edeef0;
+    --color-an-text: #14181d;
+    --color-an-muted: #6b7280;
+    --color-an-faint: #9aa0a8;
+
+    /* The canvas, and the rail a collapsed panel becomes. */
+    --color-an-canvas: #0d1117;
+    --color-an-rail: #0f1319;
+
+    /* The floating overlays' ground: dock, pills, hint bar, palette.
+       A dark SLATE at 95%, not pure black - pure black over a mostly-bright microscopy field reads
+       as a hole punched in the picture, where the slate reads as a panel lifted over it. One token
+       so every overlay is the same surface. */
+    --color-an-overlay: #161a20;
+
+    /* Teal, which is NOT the app's --color-primary (#249486). The annotator's accent has to hold
+       up as a 1px ring on white and as a fill on the canvas; the app teal is lighter and loses
+       the ring. */
+    --color-an-accent: #0e9384;
+    --color-an-accent-hover: #0b7c70;
+    --color-an-accent-tint: #e6f4f2;
+
+    /* Seeded work, everywhere it appears: a queue badge, a shape row, an image status. */
+    --color-an-warn: #a56a08;
+    --color-an-warn-tint: #fdf3e3;
+
+    /* The seeded SHAPE ROW specifically, which is much fainter than the badge above.
+       A row is read down a column next to the picture, so it gets a near-white wash and a 1px
+       ring; `an-warn-tint` at that size pulls the eye off the image it is describing. */
+    --color-an-seed-tint: #fefbf4;
+    --color-an-seed-ring: #e8d3a8;
+
+    /* Neutral ramp. The panels lean on these hard, and the gaps between them are what make a
+       disabled row read as disabled rather than as faint text. */
+    --color-an-n-700: #3c434c;
+    --color-an-n-600: #5c636d;
+    --color-an-n-500: #8a9099;
+    --color-an-n-400: #9aa0a8;
+    --color-an-n-300: #b0b5bc;
+    --color-an-n-250: #c7cbd1;
+    --color-an-n-200: #e1e3e7;
+    --color-an-n-150: #edeef0;
+    --color-an-n-100: #f2f3f5;
+    --color-an-n-50: #f6f7f8;
+
+    /* On the dark canvas, where the light ramp is unreadable. */
+    /* Text ON the dark overlays, which sit over a photograph rather than a flat panel and so need
+       more contrast than the rail icons: a shape name in the floating card, and a class name in the
+       palette. */
+    --color-an-d-strong: #d7dde4;
+    --color-an-d-soft: #b9c1cb;
+    --color-an-d-icon: #aeb6c0;
+    --color-an-d-text: #9ba4af;
+    --color-an-d-rail-icon: #8b94a0;
+    --color-an-d-disabled: #5c6672;
+
+    /* Class colours, assigned by index and stable per label.
+
+       Separate from `core/helpers/colors.ts`, which is the app-wide deterministic label map the
+       detection viewer and the confidence bars share. Changing that one would restyle
+       /image-detection and grading, which this rebuild was not asked to touch. */
+    --color-an-class-1: #7c5ce0;
+    --color-an-class-2: #d97706;
+    --color-an-class-3: #2e9bd6;
+    --color-an-class-4: #64748b;
+    --color-an-class-5: #db5a7e;
 }
 
 @layer theme {
@@ -467,4 +545,64 @@ html.mc-hide-sidebar-trigger [data-mc-sidebar-trigger] {
     html.mc-full-bleed [data-mc-page-container] {
         max-width: none;
     }
+}
+
+/*
+ * A page that IS the viewport: the annotator.
+ *
+ * Stronger than mc-full-bleed, and a separate class rather than a wider version of it, because the
+ * two want different things. That one lets a page reach the edges on a tablet and leaves the
+ * desktop cap alone; this one removes the cap and the padding at EVERY width, because a tool window
+ * with 16px of #f9f9f9 around it is a tool window that has given away 32px of image.
+ *
+ * The page container also stops scrolling. The annotator sizes itself to the space under the app
+ * bar and every column scrolls internally, so a scroll here would be the outer page moving beneath
+ * a fixed layout - which is how the queue's last row and the nav's sign-out both ended up below the
+ * fold with nothing to scroll them into view.
+ *
+ * Same shape as the classes above: a class on <html>, an attribute on the element, removed in
+ * onBeforeUnmount.
+ */
+html.mc-app-fill [data-mc-page-container] {
+    max-width: none;
+    padding: 0;
+}
+
+html.mc-app-fill,
+html.mc-app-fill body {
+    overflow: hidden;
+    /*
+     * No boundary action on either axis.
+     *
+     * An unconsumed downward overscroll at a scrolled-to-top root is exactly the gesture a mobile
+     * browser reads as pull-to-refresh - which reloads the editor out from under an unsaved
+     * annotation pass, mid-drag. Horizontally it is the swipe-to-go-back gesture, which navigates
+     * away from the same. The annotator is an app shell whose inner columns own their own
+     * scrolling, so neither axis has a legitimate root boundary action.
+     */
+    overscroll-behavior: none;
+}
+
+/*
+ * Hide the app's own breadcrumb bar, for a page that brings its own.
+ *
+ * The annotator is a tool window: it has a 48px toolbar of its own carrying the batch, the run, the
+ * unsaved count and Save, and stacking that under the app bar meant two rows saying overlapping
+ * things and 48px less canvas. Teleporting the annotator's controls INTO the app bar was tried and
+ * is worse - that bar is `justify-between` with targets only at its two ends, so a count badge that
+ * belongs beside the breadcrumb lands over by Save instead.
+ *
+ * The app's navigation is still reachable: the sidebar rail stays, and this removes only the bar
+ * above the page body.
+ */
+html.mc-hide-app-bar [data-mc-app-bar] {
+    display: none;
+}
+
+/* Focus mode hides the app's NAV as well as its bar.
+   The mode exists to give the picture the screen, and 120px of collapsed nav down the left is the
+   largest thing left competing with it. Paired with the annotator's own 52px rails, which are the
+   only chrome that survives. Toggled from the annotator page and removed when it unmounts. */
+html.mc-hide-app-nav [data-slot='sidebar'] {
+    display: none;
 }

@@ -2,7 +2,7 @@
 import { Send, CheckCircle2, ImageUp, Camera, Images, Loader2, X, Clock, Lock } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
-import { detectionService } from '~/services/detectionService'
+import { imageService } from '~/services/imageService'
 import { assignmentTotalPoints } from '~/services/assignmentService'
 import type { Exam } from '~/services/examService'
 import { normalizeSlideNumber } from '~/core/helpers/slideNumber'
@@ -95,7 +95,7 @@ const loadPreviousAttempt = async () => {
                 // PREVIEW may still be re-sent on submit, and dropping the id would silently lose
                 // their picture instead of merely not showing it.
                 try {
-                    previousImageUrls[answer.question_id] = await detectionService.imageBlobUrl(
+                    previousImageUrls[answer.question_id] = await imageService.blobUrl(
                         answer.image_id,
                         'thumb',
                     )
@@ -163,7 +163,7 @@ const keptPhoto = async (stationId: number): Promise<File | null> => {
     const imageId = previousImageIds[stationId]
     if (!imageId) return null
     try {
-        return await detectionService.imageFile(imageId)
+        return await imageService.file(imageId)
     } catch {
         // Better to submit the rest than to fail the attempt over one image, and mid-exam that
         // difference is unrecoverable.
