@@ -73,6 +73,24 @@ const previousImageUrls = reactive<Record<number, string>>({})
  * The preview URL is a thumb and must never be what gets submitted.
  */
 const previousImageIds = reactive<Record<number, number>>({})
+
+/**
+ * The instructor's note on each station, from the attempt that was handed back.
+ *
+ * *** THIS IS THE POINT OF A RETURN. *** The banner says the exam came back; the reason says why
+ * overall; this says what was wrong with THIS slide - and it is the only one of the three that
+ * tells a student what to re-photograph. Shown beside the station rather than collected at the top,
+ * because a note about station 4 read next to station 4 is instruction, and read at the top of the
+ * page is a puzzle.
+ *
+ * *** IT IS EMPTY TODAY, AND THAT IS A SERVER ISSUE, NOT A BUG HERE. *** `stripUnpublishedGrades`
+ * nulls `answer.comment` for anything not `graded`, so a rejected submission arrives with every
+ * note removed. That rule is right for scores and wrong for these: a note on a returned attempt is
+ * not an unpublished grade, it is the instruction to fix. Requested in
+ * `.claude/backend-request-2026-08-31-grading-feedback.md`; this renders the moment it
+ * arrives, and renders nothing until then.
+ */
+const previousComments = reactive<Record<number, string>>({})
 /** Set once a previous attempt has actually been read back, so the notice never claims a prefill
  * that did not happen (the load is best-effort and silent). */
 const isRedo = ref(false)
@@ -88,6 +106,7 @@ const loadPreviousAttempt = async () => {
             // not normalize is stored only in that form.
             station.slideNumber = answer.slide_number_raw ?? answer.slide_number ?? ''
             station.diagnosis = answer.response_text ?? ''
+            if (answer.comment) previousComments[answer.question_id] = answer.comment
             if (answer.image_id) {
                 previousImageIds[answer.question_id] = answer.image_id
                 // Per photo, so one that will not load does not abandon the prefill for every
@@ -555,26 +574,6 @@ const onSubmit = async () => {
             </p>
         </div>
 
-        <!--
-            A plain line rather than a card: it reads as a caption for the stations below it.
-
-            Not sticky, which it cannot be without a background - the station cards would scroll
-            through the text. If it should follow the scroll again it needs bg-white back, plus
-            top-12 to clear SidebarMain's own sticky header (min-h-12, z-30), since the page
-            scrolls at body level and top-0 would park it underneath.
-        -->
-        <!-- Once, not per station: the same sentence on every card is noise, and what a student
-             needs to know on arrival is that the form is not blank by accident. -->
-        <p
-            v-if="isRedo"
-            class="tw:rounded-lg tw:bg-navy-5 tw:px-4 tw:py-3 tw:text-sm tw:leading-relaxed tw:text-navy-70"
-        >
-            Your previous answers are filled in below, and each station shows the photo you sent.
-            <span class="tw:font-medium tw:text-navy-90">
-                Those photos are resubmitted as they are unless you replace them.
-            </span>
-        </p>
-
         <div class="tw:flex tw:flex-wrap tw:items-center tw:justify-between tw:gap-2 tw:px-1">
             <span class="tw:text-sm tw:text-navy-70">
                 <span class="tw:font-semibold tw:text-navy-100">{{ answeredCount }}</span>
@@ -618,6 +617,24 @@ const onSubmit = async () => {
                 <p class="tw:font-medium tw:text-navy-100">
                     {{ s.prompt }}
                     <span class="tw:text-danger" aria-label="required">*</span>
+                </p>
+            </div>
+
+            <!--
+                What the instructor said about THIS station last time.
+
+                Under the prompt and above the answer, because that is the order it is used in: read
+                the station, read what was wrong with your last attempt, then answer. Collected at
+                the top of the page instead, a note about station 4 is a puzzle to match up; here it
+                is an instruction.
+            -->
+            <div
+                v-if="previousComments[s.id]"
+                class="tw:mt-3 tw:rounded-md tw:border tw:border-danger/25 tw:bg-danger/5 tw:px-3 tw:py-2 tw:sm:ml-9"
+            >
+                <p class="tw:text-xs tw:font-medium tw:text-danger">Instructor feedback</p>
+                <p class="tw:mt-0.5 tw:text-sm tw:whitespace-pre-line tw:text-navy-90">
+                    {{ previousComments[s.id] }}
                 </p>
             </div>
 

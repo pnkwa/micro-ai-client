@@ -109,6 +109,24 @@ const previousImageUrls = reactive<Record<number, string>>({})
  * The preview URL is a thumb and must never be what gets submitted.
  */
 const previousImageIds = reactive<Record<number, number>>({})
+
+/**
+ * The instructor's note on each question, from the attempt that was handed back.
+ *
+ * The banner at the top says the work came back and why overall; this says what was wrong with THIS
+ * answer, which is the only one of the two that says what to change. Beside the question rather
+ * than collected at the top, because a note read next to the thing it is about is an instruction
+ * and read anywhere else is a puzzle.
+ *
+ * *** IT IS EMPTY TODAY, AND THAT IS SERVER-SIDE. *** `stripUnpublishedGrades` nulls
+ * `answer.comment` for anything not `graded`, so a rejected submission arrives with every note
+ * removed - a rule that is right for scores and wrong for these, since a note on returned work is
+ * the instruction to fix rather than an unpublished grade. Requested in
+ * `.claude/backend-request-2026-08-31-grading-feedback.md`. This renders the moment it
+ * arrives and renders nothing until then.
+ */
+const previousComments = reactive<Record<number, string>>({})
+
 /** True once a previous attempt actually loaded, so the notice cannot claim a prefill that failed. */
 const isRedo = ref(false)
 const loadPreviousAttempt = async () => {
@@ -129,6 +147,7 @@ const loadPreviousAttempt = async () => {
                 slideLabels[answer.question_id] =
                     answer.slide_number_raw ?? answer.slide_number ?? ''
             }
+            if (answer.comment) previousComments[answer.question_id] = answer.comment
             if (answer.image_id) {
                 previousImageIds[answer.question_id] = answer.image_id
                 // Per photo, so one that will not load does not abandon the prefill for every
@@ -530,6 +549,18 @@ const onSubmit = handleSubmit(async (v) => {
                         <p class="tw:text-navy-100 tw:font-medium">
                             {{ q.prompt }}
                             <span class="tw:text-danger" aria-label="required">*</span>
+                        </p>
+                    </div>
+
+                    <!-- What the instructor said about THIS answer last time: under the prompt,
+                         above the input, which is the order it gets used in. -->
+                    <div
+                        v-if="previousComments[q.id]"
+                        class="tw:mt-3 tw:rounded-md tw:border tw:border-danger/25 tw:bg-danger/5 tw:px-3 tw:py-2"
+                    >
+                        <p class="tw:text-xs tw:font-medium tw:text-danger">Instructor feedback</p>
+                        <p class="tw:mt-0.5 tw:text-sm tw:whitespace-pre-line tw:text-navy-90">
+                            {{ previousComments[q.id] }}
                         </p>
                     </div>
 

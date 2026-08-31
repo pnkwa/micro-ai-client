@@ -2,6 +2,8 @@
 import { ArrowLeft, Check, X, MessageSquarePlus, Undo2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { submissionService, type GradingAnswer } from '~/services/submissionService'
+import { assignmentService } from '~/services/assignmentService'
+import { slideCollectionService } from '~/services/slideCollectionService'
 import { submissionBadges } from '~/core/helpers/studentAssignmentStatus'
 import { apiErrorMessage } from '~/core/helpers/error'
 import { useSubmissionDetail } from '~/core/composables/useSubmissionDetail'
@@ -31,6 +33,49 @@ const {
     totalPoints,
     load,
 } = useSubmissionDetail(submissionId, assignmentId)
+
+/**
+ * THE SLIDE'S ANSWER KEY, for the one question type whose key is not on the question.
+ *
+ * A slide_identification answer grades against the SLIDE the student says they were at
+ * (BE-ADR-011), so `question.accepted_answers` is empty by construction and the card had nothing
+ * to show - leaving the grader to read a diagnosis with no idea what the right one was, then go
+ * and look the slide up in the collection by hand.
+ *
+ * Two reads, because neither is on the grading payload: the assignment tree carries each
+ * question's `image_question.slide_collection_id`, and the collection carries its slides with
+ * their keys. Both are staff-only and both are cheap; they run once per grading page and only when
+ * a slide answer is actually on it.
+ *
+ * Keyed by the CANONICAL label. A label the server could not normalize leaves `slide_number` null,
+ * which is exactly the answer routed to a human - and there is nothing to look up for it, so the
+ * card shows the raw text alone and says so rather than guessing at a slide.
+ */
+const slideKeys = ref<Record<string, string[]>>({})
+
+const loadSlideKeys = async () => {
+    const answers = answerGroups.value.flatMap((group) => group.items)
+    if (!answers.some(({ answer }) => answer.question.type === 'slide_identification')) return
+    try {
+        const assignment = await assignmentService.getById(assignmentId.value)
+        const collectionIds = new Set(
+            assignment.sections
+                .flatMap((section) => section.questions)
+                .filter((question) => question.type === 'slide_identification')
+                .map((question) => question.image_question?.slide_collection_id)
+                .filter((id): id is number => typeof id === 'number'),
+        )
+        const keys: Record<string, string[]> = {}
+        for (const id of collectionIds) {
+            const collection = await slideCollectionService.getById(id)
+            for (const slide of collection.slides) keys[slide.slide_number] = slide.accepted_answers
+        }
+        slideKeys.value = keys
+    } catch {
+        // The key is an aid, not the grade. A failure leaves the card as it was rather than
+        // failing a page whose job is to let someone mark the work in front of them.
+    }
+}
 
 const isSaving = ref(false)
 const isRejecting = ref(false)
@@ -72,6 +117,8 @@ const reload = () =>
         }
     })
 await reload()
+// After the answers are in: the lookup only fires when one of them is a slide question.
+void loadSlideKeys()
 
 /**
  * Where "back" goes: the exam page for an exam, the assignment page for an assignment.
@@ -280,6 +327,9 @@ const rejectSubmission = async () => {
                     :image-error="imageErrors[answer.question_id]"
                     :tint-class="responseBoxClass(answer.question_id)"
                     :highlight="drafts[answer.question_id]?.is_correct === null"
+                    :slide-answer-key="
+                        answer.slide_number ? slideKeys[answer.slide_number] : undefined
+                    "
                     show-answer-key
                     show-review-flag
                 >

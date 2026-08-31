@@ -51,6 +51,20 @@ const submissionBaseSchema = z.object({
             // until v0.7, and no longer exam-only. Detail read only: the list read whitelists its
             // fields, hence optional.
             closes_at: z.string().nullable().optional(),
+            /**
+             * Whether staff have released the answer key to students on this assignment.
+             *
+             * *** THE STUDENT'S FEEDBACK PAGE READS THIS AND NOTHING ELSE. *** The key itself is
+             * stripped from every student-facing read (`stripAnswerKeys`), so this flag is what
+             * decides whether the server sends it at all; the client only decides whether to
+             * render what arrived. Off by default, because an assignment is reused across classes
+             * and terms - the first cohort to be graded would otherwise hold the key for the next.
+             *
+             * Optional and absent today: requested on 2026-08-31, see
+             * `.claude/backend-request-2026-08-31-grading-feedback.md`. Until it ships this is
+             * undefined, which reads as "not released" and shows nothing.
+             */
+            answers_released: z.boolean().optional(),
             class: z.object({ id: z.number(), name: z.string() }).nullable(),
         })
         .nullable(),
@@ -106,6 +120,20 @@ const gradingAnswerSchema = z.object({
     auto_is_correct: z.boolean().nullable(),
     auto_points: z.number().nullable(),
     needs_review: z.boolean(),
+    /**
+     * WHICH OF THE STUDENT'S OWN PICKS WERE RIGHT, on a choice question.
+     *
+     * The subset of `selected_options` that is in the key - never the key itself, so an option the
+     * student did NOT pick stays unknown to them. That is the whole point of it being a separate
+     * field: marking a partly-correct answer tick-by-tick needs to know which pick counted, and
+     * nothing else on a student read can say. The score is `right picks / key size`, one equation
+     * in two unknowns, so it cannot single one out.
+     *
+     * Optional and absent today: requested on 2026-08-31, see
+     * `.claude/backend-request-2026-08-31-grading-feedback.md`. Until it ships, a partly-correct
+     * answer marks its picks as "part of this" rather than guessing at each one.
+     */
+    correct_selected_options: z.array(z.string()).optional(),
     is_correct: z.boolean().nullable(),
     points_awarded: z.number().nullable(),
     comment: z.string().nullable(),
