@@ -6,7 +6,6 @@ import {
     Paperclip,
     FileText,
     Pencil,
-    Layers,
     Link,
     X,
     Check,
@@ -21,10 +20,6 @@ import {
     type Assignment,
 } from '~/services/assignmentService'
 import { createAssignmentFormSchema } from '~/features/types/forms/assignment'
-import {
-    slideCollectionService,
-    type SlideCollectionListItem,
-} from '~/services/slideCollectionService'
 
 const props = defineProps<{
     assignment: Assignment
@@ -110,51 +105,16 @@ const statusOptions = [
 const isEditing = ref(false)
 const isSaving = ref(false)
 
-/**
- * The slide collection is NO LONGER an assignment-level field.
+/*
+ * No slide-collection panel here any more.
  *
- * It moved onto each question's `image_question` in v0.7 (BE-ADR-034), where the model and the
- * confidence threshold that go with it already live, so it is set per question in the question
- * editor now. This tab only reports which collection the questions actually reference, which is
- * usually one but is not guaranteed to be.
- *
- * Without a collection the grader cannot resolve the slide, so every slide answer on that question
- * routes to instructor review. The submission still works, it just cannot be marked automatically.
+ * It moved onto each question's `image_question` in v0.7 (BE-ADR-034) and is now printed under the
+ * station that uses it in AssignmentSections, which is where an author is looking when the answer
+ * matters. Summing it at the top of the page restated one collection for the common case and, for
+ * the case it existed to cover, listed several without saying which station had which - the
+ * question it was meant to answer. `none set` on the station itself replaces the count of
+ * questions missing one.
  */
-const collections = ref<SlideCollectionListItem[]>([])
-
-const slideQuestions = computed(() =>
-    props.assignment.sections
-        .flatMap((section) => section.questions)
-        .filter((q) => q.type === 'slide_identification'),
-)
-const showCollection = computed(() => slideQuestions.value.length > 0)
-const referencedCollectionIds = computed(() => [
-    ...new Set(
-        slideQuestions.value
-            .map((q) => q.image_question?.slide_collection_id)
-            .filter((id): id is number => id != null),
-    ),
-])
-const collectionSummary = computed(() => {
-    const ids = referencedCollectionIds.value
-    if (ids.length === 0) return 'None set'
-    const names = ids.map((id) => collections.value.find((c) => c.id === id)?.name ?? `#${id}`)
-    return names.join(', ')
-})
-const unsetSlideQuestions = computed(
-    () => slideQuestions.value.filter((q) => q.image_question?.slide_collection_id == null).length,
-)
-
-// The list endpoint is staff-only, so a student never calls it.
-onMounted(async () => {
-    if (props.isStudent || !showCollection.value) return
-    try {
-        collections.value = await slideCollectionService.list()
-    } catch {
-        /* the names just fall back to the id */
-    }
-})
 
 const totalPoints = computed(() => assignmentTotalPoints(props.assignment))
 
@@ -358,26 +318,6 @@ const onSave = handleSubmit(async (values) => {
                     <p class="tw:text-sm tw:text-navy-60">Total Points</p>
                     <p class="tw:text-base tw:font-medium">
                         {{ totalPoints }} pt{{ totalPoints === 1 ? '' : 's' }}
-                    </p>
-                </div>
-            </div>
-            <!-- Staff only, and only where a slide question makes it mean something. A student is
-                 never shown which collection their answers are keyed against: it is the answer
-                 key by another name. -->
-            <div
-                v-if="showCollection && !isStudent"
-                class="tw:col-span-2 tw:flex tw:items-center tw:gap-4 tw:p-4 tw:bg-white/50 tw:rounded-md tw:border tw:border-navy-20"
-            >
-                <Layers class="tw:w-5 tw:h-5 tw:text-navy-60" />
-                <div>
-                    <p class="tw:text-sm tw:text-navy-60">Slide collection</p>
-                    <p class="tw:text-base tw:font-medium">{{ collectionSummary }}</p>
-                    <!-- Set per question now, so this reports rather than edits, and counts the
-                         questions still missing one instead of showing a single yes or no. -->
-                    <p v-if="unsetSlideQuestions > 0" class="tw:text-xs tw:text-warning">
-                        {{ unsetSlideQuestions }} slide
-                        {{ unsetSlideQuestions === 1 ? 'question has' : 'questions have' }} no
-                        collection, so those answers come to you for manual marking.
                     </p>
                 </div>
             </div>
