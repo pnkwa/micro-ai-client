@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Pencil, Circle, CircleDot, Square, CheckSquare, X } from '@lucide/vue'
+import { Plus, Pencil, X } from '@lucide/vue'
 import { useForm, useFieldArray } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
@@ -181,8 +181,15 @@ const useThreshold = ref(false)
 const threshold = ref(0.6)
 
 const collections = ref<SlideCollectionListItem[]>([])
-const collectionOptions = computed(() =>
-    collections.value.map((c) => ({ value: c.id, label: c.name })),
+
+/**
+ * The chosen collection's name for the closed control, or null when nothing is chosen yet.
+ *
+ * A combobox trigger holds text, not a value: `slideCollectionId` is 0 until an author picks, and
+ * null here is what lets the trigger fall back to its placeholder.
+ */
+const selectedCollectionName = computed(
+    () => collections.value.find((c) => c.id === slideCollectionId.value)?.name ?? null,
 )
 /**
  * Kept as the manifest rows rather than as ready-made options, because the placeholder needs the
@@ -335,8 +342,18 @@ const onSubmit = handleSubmit((v) => {
         return toast.error('Mark exactly one correct answer')
     if (v.type === 'multiple_select' && acceptedAnswers.length < 1)
         return toast.error('Mark at least one correct answer')
-    if (v.type === 'fill_in' && acceptedAnswers.length < 1)
-        return toast.error('Add at least one accepted answer')
+    /*
+     * NO MINIMUM ON `fill_in`. A key-less one is an OPEN-ENDED question (BE-ADR-036).
+     *
+     * This refused it, and the server never did: `assertValidQuestionKey` has no minimum for this
+     * type precisely because "the answer is prose" is a real assessment rather than a missing key.
+     * The refusal here made authoring one impossible through the UI, and the workaround was to
+     * invent an accepted answer nothing could match - which is worse than no key, because the
+     * autograder then marks every response wrong instead of standing aside.
+     *
+     * Empty goes out as an empty array, which the server reads as "no key", and the answer lands
+     * with the instructor to grade by hand.
+     */
     if (v.type === 'image_detection' && acceptedAnswers.length < 1)
         return toast.error('Add at least one expected class')
     // Required by the server for this type, and the reason a slide answer can be graded at all:
@@ -415,28 +432,26 @@ const onSubmit = handleSubmit((v) => {
                 :key="field.key"
                 class="tw:flex tw:items-center tw:gap-2"
             >
-                <button
-                    type="button"
+                <!--
+                    THE CONTROL THE STUDENT WILL SEE, marking which option is correct.
+
+                    A button wrapping a lucide circle or square before, which meant the author was
+                    setting the key on a picture of a radio while the student answers with a real
+                    one - and the two could drift in size, shape and grey without anyone noticing.
+                    A native input at the same `size-4 accent-primary` as the student form cannot.
+
+                    `name` groups the radios so a single choice behaves like one natively, including
+                    under the arrow keys. Exclusivity is still enforced in `toggleCorrect`, which is
+                    what makes the state right rather than merely the DOM.
+                -->
+                <input
+                    :type="values.type === 'multiple_choice' ? 'radio' : 'checkbox'"
+                    :name="values.type === 'multiple_choice' ? 'correct-option' : undefined"
+                    :checked="isCorrect(oi)"
                     :aria-label="isCorrect(oi) ? 'Correct answer' : 'Mark as correct'"
-                    class="tw:shrink-0 tw:transition-colors tw:cursor-pointer"
-                    :class="
-                        isCorrect(oi) ? 'tw:text-primary' : 'tw:text-navy-40 tw:hover:text-navy-60'
-                    "
-                    @click="toggleCorrect(oi)"
-                >
-                    <component
-                        :is="
-                            values.type === 'multiple_choice'
-                                ? isCorrect(oi)
-                                    ? CircleDot
-                                    : Circle
-                                : isCorrect(oi)
-                                  ? CheckSquare
-                                  : Square
-                        "
-                        class="tw:size-4"
-                    />
-                </button>
+                    class="tw:size-4 tw:shrink-0 tw:cursor-pointer tw:accent-primary"
+                    @change="toggleCorrect(oi)"
+                />
                 <McInput
                     :name="`options[${oi}].text`"
                     class="tw:flex-1 tw:bg-white"
@@ -478,9 +493,16 @@ const onSubmit = handleSubmit((v) => {
         </div>
 
         <div v-else class="tw:flex tw:flex-col tw:gap-1">
+            <!--
+                The asterisk belongs to the types that actually require a key. `fill_in` does not:
+                left empty it is an open-ended question, which is a deliberate authoring choice
+                rather than an unfinished form, so it says what empty MEANS instead of demanding a
+                value the server would have accepted the absence of.
+            -->
             <label class="tw:text-xs tw:font-medium tw:text-navy-60">
                 {{ values.type === 'image_detection' ? 'Expected classes' : 'Accepted answers' }}
-                <span class="tw:text-red-500">*</span>
+                <span v-if="values.type === 'image_detection'" class="tw:text-red-500">*</span>
+                <span v-else class="tw:font-normal tw:text-navy-40">(optional)</span>
             </label>
             <McTextarea
                 name="answers"
@@ -490,6 +512,10 @@ const onSubmit = handleSubmit((v) => {
                 "
                 auto-list
             />
+            <p v-if="values.type === 'fill_in'" class="tw:text-[11px] tw:text-navy-50">
+                Leave this empty for an open-ended question: nothing is auto-graded and every answer
+                comes to you to mark.
+            </p>
         </div>
 
         <!--
@@ -499,21 +525,42 @@ const onSubmit = handleSubmit((v) => {
             takes a model and rejects a collection. See buildImageQuestion for why the threshold
             belongs to the slide type and not to this one.
         -->
-        <div v-if="isSlideId" class="tw:flex tw:flex-col tw:gap-1">
+        <div
+            v-if="isSlideId"
+            class="tw:flex tw:flex-col tw:gap-1 tw:[&_[data-slot=native-select-wrapper]]:w-full"
+        >
             <label class="tw:text-xs tw:font-medium tw:text-navy-60">
                 Slide collection
                 <span class="tw:text-red-500">*</span>
             </label>
 
-            <McSelect
-                v-if="hasCollections"
-                v-model="slideCollectionId"
-                placeholder="Pick the collection this question grades against"
-                :options="collectionOptions"
-                option-value="value"
-                option-label="label"
-                class="tw:bg-white"
-            />
+            <!--
+                A SEARCHABLE select. A collection list grows with the course and a plain list is
+                only usable while it is short; typing a few letters is how an author finds "Wet
+                mount, term 2" among thirty. reka-ui filters on each item's text, so the options
+                stay a plain list and nothing is filtered by hand here.
+            -->
+            <McCombobox v-if="hasCollections" v-model="slideCollectionId">
+                <McComboboxAnchor>
+                    <McComboboxTrigger class="tw:bg-white">
+                        <span :class="!selectedCollectionName && 'tw:text-muted-foreground'">
+                            {{
+                                selectedCollectionName ??
+                                'Pick the collection this question grades against'
+                            }}
+                        </span>
+                    </McComboboxTrigger>
+                </McComboboxAnchor>
+                <McComboboxList>
+                    <McComboboxInput placeholder="Search collections" />
+                    <McComboboxEmpty>No collection matches that.</McComboboxEmpty>
+                    <McComboboxViewport>
+                        <McComboboxItem v-for="c in collections" :key="c.id" :value="c.id">
+                            {{ c.name }}
+                        </McComboboxItem>
+                    </McComboboxViewport>
+                </McComboboxList>
+            </McCombobox>
             <p v-else-if="loadingCollections" class="tw:text-xs tw:text-navy-50">
                 Loading slide collections...
             </p>

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { Plus, Circle, CircleDot, Square, CheckSquare } from '@lucide/vue'
+import { Plus } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import {
     assignmentService,
     type Assignment,
     type ImageQuestionInput,
 } from '~/services/assignmentService'
+import { slideCollectionService } from '~/services/slideCollectionService'
 import SectionForm from '~/features/components/assignment/SectionForm.vue'
 import QuestionForm from '~/features/components/assignment/QuestionForm.vue'
 
@@ -61,10 +62,72 @@ const questionTypeLabel: Record<string, string> = {
     multiple_select: 'Multiple select',
     fill_in: 'Fill in',
     image_detection: 'Image detection',
+    // Missing here, the chip fell back to the raw `slide_identification`, which is the only
+    // type that ever showed a snake_case tag to an author.
+    slide_identification: 'Slide identification',
 }
 
 const isCorrect = (q: { accepted_answers?: string[] }, option: string) =>
     q.accepted_answers?.includes(option) ?? false
+
+/**
+ * What grades a slide station, said on the station itself.
+ *
+ * Its key is not in the question: the collection IS the answer key (BE-ADR-011), and the
+ * auto-pass bar decides whether a correct read is accepted or sent to a human. Both are set in
+ * the editor and were then invisible from the list, so an author checking an exam had to open
+ * every station to find out which collection it grades against - and a station left on the wrong
+ * collection looks exactly like a right one until a cohort has sat it.
+ */
+const collectionNames = ref<Record<number, string>>({})
+
+const hasSlideQuestion = computed(() =>
+    props.assignment.sections.some((s) =>
+        s.questions.some((q) => q.type === 'slide_identification'),
+    ),
+)
+
+// Only the names, and only when a slide question is on screen to need one: this list is a second
+// request on a page that already has everything else it renders.
+onMounted(async () => {
+    if (!hasSlideQuestion.value) return
+    try {
+        const list = await slideCollectionService.list()
+        collectionNames.value = Object.fromEntries(list.map((c) => [c.id, c.name]))
+    } catch {
+        // Falls back to the id below. A lookup for a label must not cost the author the row.
+        collectionNames.value = {}
+    }
+})
+
+/**
+ * The collection's name, or its id when the lookup has not landed or no longer resolves.
+ *
+ * `#4` is worse than a name and far better than an empty line: a deleted or renamed collection is
+ * exactly when an author needs to see that the station still points somewhere.
+ */
+const collectionLabel = (q: { image_question?: { slide_collection_id: number | null } | null }) => {
+    const id = q.image_question?.slide_collection_id
+    if (id == null) return 'none set'
+    return collectionNames.value[id] ?? `#${id}`
+}
+
+/**
+ * The auto-pass bar, as a percentage.
+ *
+ * Unset is not "off": the grader falls back to 0.6, which is what the editor's hint promises, so
+ * the line says the number that will actually be applied and marks it as the default rather than
+ * leaving a blank that reads as "no bar at all".
+ */
+const DEFAULT_AUTO_PASS = 0.6
+
+const thresholdLabel = (q: {
+    image_question?: { detection_confidence_threshold: number | null } | null
+}) => {
+    const t = q.image_question?.detection_confidence_threshold
+    const pct = Math.round((t ?? DEFAULT_AUTO_PASS) * 100)
+    return t == null ? `${pct}% confidence (default)` : `${pct}% confidence`
+}
 
 const handleAddSection = async (values: { title: string; instructions?: string }) => {
     try {
@@ -130,9 +193,17 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
 
 <template>
     <div class="tw:flex tw:flex-col tw:gap-4">
+        <!--
+            `data-testid` because an assignment can hold several sections and every one of them
+            renders an identical "Add question" button. The browser suite has to say WHICH section
+            it is authoring into, and it cannot do that from the button alone - it matched two and
+            failed on a strict-mode violation the moment a second section existed. Same sparing use
+            as `row-score` on the class page: a hook only where the DOM is genuinely ambiguous.
+        -->
         <div
             v-for="(ex, exIndex) in assignment.sections"
             :key="ex.id"
+            data-testid="section-card"
             class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-lg tw:p-5 tw:transition-shadow tw:hover:shadow-sm"
         >
             <SectionForm
@@ -213,13 +284,62 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                             <div class="tw:flex tw:items-start tw:justify-between tw:gap-3">
                                 <div class="tw:flex tw:flex-col tw:gap-1">
                                     <span class="tw:text-navy-100">{{ q.prompt }}</span>
+                                    <!--
+                                        A slide station's key and its auto-pass bar, under the
+                                        prompt and above the type chip: it is part of reading the
+                                        question, not a footnote to it. A definition grid rather
+                                        than two sentences, so the labels share an edge and the
+                                        values line up down a list of stations, which is how a
+                                        wrong collection gets spotted. Typed like the chip below
+                                        it, minus the pill: same size, weight and colour, so the
+                                        whole band reads as one row of metadata.
+                                    -->
+                                    <dl
+                                        v-if="q.type === 'slide_identification'"
+                                        class="tw:grid tw:grid-cols-[auto_1fr] tw:gap-x-2 tw:gap-y-0.5 tw:font-medium tw:text-navy-60"
+                                    >
+                                        <!--
+                                            THE SIZE GOES ON EVERY dt AND dd, not on the `dl`.
+                                            Something in the base layer sets a font-size on both
+                                            elements, so a size on the list is inherited by
+                                            nothing: the `dl` measured 10px while its rows sat at
+                                            the browser's 16px, which is why this block kept
+                                            looking bigger than the chip under it however small
+                                            the class said. `ImageMetaCard` repeats the size per
+                                            row for the same reason.
+                                        -->
+                                        <dt class="tw:text-[11px]">Slide collection:</dt>
+                                        <!-- Amber on `none set`: the top of the page used to
+                                             count the stations missing a collection, and that
+                                             count is gone, so the station itself has to be the
+                                             thing that stands out. -->
+                                        <dd
+                                            class="tw:text-[11px]"
+                                            :class="
+                                                q.image_question?.slide_collection_id == null &&
+                                                'tw:text-warning'
+                                            "
+                                        >
+                                            {{ collectionLabel(q) }}
+                                        </dd>
+                                        <dt class="tw:text-[11px]">Auto-grader:</dt>
+                                        <dd class="tw:text-[11px]">
+                                            On, threshold {{ thresholdLabel(q) }}
+                                        </dd>
+                                    </dl>
                                     <div class="tw:flex tw:items-center tw:gap-2">
                                         <span
                                             class="tw:inline-flex tw:items-center tw:rounded-full tw:bg-navy-10 tw:px-2 tw:py-0.5 tw:text-[11px] tw:font-medium tw:text-navy-60"
                                         >
                                             {{ questionTypeLabel[q.type] ?? q.type }}
                                         </span>
-                                        <span v-if="q.points" class="tw:text-xs tw:text-navy-40">
+                                        <!-- 11px, the chip's size: the whole metadata band under
+                                             a prompt (details, type, points) reads as one thing
+                                             only if it is one size. -->
+                                        <span
+                                            v-if="q.points"
+                                            class="tw:text-[11px] tw:text-navy-40"
+                                        >
                                             {{ q.points }} pt
                                         </span>
                                     </div>
@@ -256,24 +376,30 @@ const handleUpdateQuestion = async (questionId: number, payload: QuestionPayload
                                 <div
                                     v-for="(opt, oidx) in q.options"
                                     :key="oidx"
-                                    class="tw:flex tw:items-center tw:gap-2"
+                                    class="tw:flex tw:items-center tw:gap-2.5"
                                 >
-                                    <component
-                                        :is="
-                                            q.type === 'multiple_choice'
-                                                ? isCorrect(q, opt)
-                                                    ? CircleDot
-                                                    : Circle
-                                                : isCorrect(q, opt)
-                                                  ? CheckSquare
-                                                  : Square
-                                        "
-                                        class="tw:size-4 tw:shrink-0"
-                                        :class="
-                                            isCorrect(q, opt)
-                                                ? 'tw:text-primary'
-                                                : 'tw:text-navy-30'
-                                        "
+                                    <!--
+                                        THE SAME CONTROL THE STUDENT SEES, not an icon of one.
+
+                                        This drew lucide circles and squares, which meant the
+                                        author was checking their answer key against a picture of a
+                                        radio while the student answered with a real one - two
+                                        shapes, two greys, and no way to be sure they lined up. A
+                                        native input at the same size and accent is the only way
+                                        the two views are guaranteed to match, because they are
+                                        then the same widget.
+
+                                        `pointer-events-none` and `tabindex="-1"` rather than
+                                        `disabled`: this is a preview, so it must not take a click
+                                        or a tab stop - but a disabled input is greyed by the
+                                        browser, which is exactly the divergence being removed.
+                                    -->
+                                    <input
+                                        :type="q.type === 'multiple_choice' ? 'radio' : 'checkbox'"
+                                        :checked="isCorrect(q, opt)"
+                                        class="tw:pointer-events-none tw:size-4 tw:shrink-0 tw:accent-primary"
+                                        tabindex="-1"
+                                        aria-hidden="true"
                                     />
                                     <span
                                         class="tw:text-sm"

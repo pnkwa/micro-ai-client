@@ -60,6 +60,19 @@ breadcrumb.setBreadcrumbs(() => [
     { label: 'My feedback' },
 ])
 
+/**
+ * Does this student get to see the answer key?
+ *
+ * ONLY WHEN STAFF HAVE RELEASED IT on the assignment. Not on grading: the same assignment is reused
+ * across classes and terms, so the first cohort marked would otherwise be holding the key for
+ * everyone who has not sat it yet. Releasing is the moment someone decides that no longer matters.
+ *
+ * Belt and braces with the server, deliberately. The key is stripped from every student-facing read
+ * unless released, so this flag cannot reveal anything on its own - it decides whether to RENDER
+ * what arrived. Both sides say no by default, and neither trusts the other to be the only one.
+ */
+const answersReleased = computed(() => submission.value?.assignment?.answers_released === true)
+
 const isGraded = computed(() => submission.value?.status === 'graded')
 const isRejected = computed(() => submission.value?.status === 'rejected')
 // An exam and an assignment are the same read but different pages, and this button is the whole
@@ -239,6 +252,7 @@ const formatDateTime = (date: string) => $dayjs(date).format('MMM D, YYYY HH:mm'
                                   ? 'tw:border-danger/40 tw:bg-danger/5'
                                   : 'tw:border-navy-15 tw:bg-navy-10/20'
                         "
+                        :show-answer-key="answersReleased"
                     />
                 </template>
             </template>
