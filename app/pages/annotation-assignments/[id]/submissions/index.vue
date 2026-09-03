@@ -69,7 +69,9 @@ const openReview = (id: number) => router.push(`/annotation-assignments/submissi
             >
                 <ArrowLeft class="tw:size-4" />
             </button>
-            <div class="tw:flex tw:size-10 tw:items-center tw:justify-center tw:rounded-lg tw:bg-primary/10">
+            <div
+                class="tw:flex tw:size-10 tw:items-center tw:justify-center tw:rounded-lg tw:bg-primary/10"
+            >
                 <Shapes class="tw:size-5 tw:text-primary" />
             </div>
             <div>
@@ -82,9 +84,7 @@ const openReview = (id: number) => router.push(`/annotation-assignments/submissi
 
         <!-- controls -->
         <div class="tw:flex tw:flex-wrap tw:items-center tw:justify-between tw:gap-3">
-            <span class="tw:text-sm tw:text-navy-60">
-                {{ rows.length }} submitted
-            </span>
+            <span class="tw:text-sm tw:text-navy-60">{{ rows.length }} submitted</span>
             <div class="tw:flex tw:items-center tw:gap-2">
                 <select
                     v-model="statusFilter"
@@ -123,7 +123,9 @@ const openReview = (id: number) => router.push(`/annotation-assignments/submissi
                 </thead>
                 <tbody>
                     <tr v-if="loading">
-                        <td colspan="6" class="tw:px-4 tw:py-8 tw:text-center tw:text-navy-40">Loading…</td>
+                        <td colspan="6" class="tw:px-4 tw:py-8 tw:text-center tw:text-navy-40">
+                            Loading…
+                        </td>
                     </tr>
                     <tr v-else-if="!visible.length">
                         <td colspan="6" class="tw:px-4 tw:py-8 tw:text-center tw:text-navy-40">
@@ -136,8 +138,12 @@ const openReview = (id: number) => router.push(`/annotation-assignments/submissi
                         class="tw:border-t tw:border-navy-5 tw:hover:bg-navy-5/50"
                     >
                         <td class="tw:px-4 tw:py-2.5">
-                            <div class="tw:font-medium tw:text-navy-90">{{ nameOf(r.student_id) }}</div>
-                            <div class="tw:font-mono tw:text-[11px] tw:text-navy-50">{{ r.student_id }}</div>
+                            <div class="tw:font-medium tw:text-navy-90">
+                                {{ nameOf(r.student_id) }}
+                            </div>
+                            <div class="tw:font-mono tw:text-[11px] tw:text-navy-50">
+                                {{ r.student_id }}
+                            </div>
                         </td>
                         <td class="tw:px-4 tw:py-2.5 tw:text-navy-70">
                             {{ $dayjs(r.submitted_at).format('MMM D · HH:mm') }}

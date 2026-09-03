@@ -57,10 +57,7 @@ export const DEFAULT_REVIEW_BOX_COLOR = '#7c5ce0'
  * otherwise a default. `labelColors` maps the instructor's label to its bare six-hex colour. Returns
  * CSS hex (with `#`).
  */
-export function reviewBoxColor(
-    label: string | null,
-    labelColors: Record<string, string>,
-): string {
+export function reviewBoxColor(label: string | null, labelColors: Record<string, string>): string {
     const key = (label ?? '').trim().toLowerCase()
     if (!key) return DEFAULT_REVIEW_BOX_COLOR
     for (const name in labelColors) {

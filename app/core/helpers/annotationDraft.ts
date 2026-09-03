@@ -103,10 +103,7 @@ export function mergeDraftIntoFields(
  * The palette rows the student added beyond the assignment's fixed vocabulary (the first
  * `baseCount` rows are the config's `label_set`, seeded on load; anything after is student-created).
  */
-export function extraClassesFromPalette(
-    palette: DraftClass[],
-    baseCount: number,
-): DraftClass[] {
+export function extraClassesFromPalette(palette: DraftClass[], baseCount: number): DraftClass[] {
     return palette
         .slice(baseCount)
         .map((c) => ({ id: c.id, label: c.label, color_hex: c.color_hex }))

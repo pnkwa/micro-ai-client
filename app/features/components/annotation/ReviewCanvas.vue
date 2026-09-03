@@ -44,7 +44,10 @@ const { width: cw, height: ch } = useElementSize(container)
 const natural = ref<{ w: number; h: number } | null>(null)
 
 // Reset on source change so the previous image's dimensions never size the next one.
-watch(() => props.src, () => (natural.value = null))
+watch(
+    () => props.src,
+    () => (natural.value = null),
+)
 function onLoad(event: Event) {
     const img = event.target as HTMLImageElement
     natural.value = { w: img.naturalWidth, h: img.naturalHeight }
@@ -113,11 +116,7 @@ const chipStyle = (b: Poly, place: 'above' | 'below') => {
         <div
             v-if="src"
             class="tw:relative tw:leading-none"
-            :style="
-                fit
-                    ? { width: `${fit.w}px`, height: `${fit.h}px` }
-                    : { visibility: 'hidden' }
-            "
+            :style="fit ? { width: `${fit.w}px`, height: `${fit.h}px` } : { visibility: 'hidden' }"
         >
             <img :src="src" alt="" class="tw:block tw:h-full tw:w-full" @load="onLoad" />
 

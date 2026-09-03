@@ -5,10 +5,7 @@ import type { FIELD_PROMPT_TYPES } from '~/services/annotationAssignmentService'
 // and the per-image prompts are edited as their own reactive rows in the dialog (color swatches,
 // selects and switches don't map cleanly onto name-bound fields) and validated on submit.
 export const createAnnotationAssignmentFormSchema = z.object({
-    name: z
-        .string()
-        .min(1, 'Assignment name is required')
-        .max(100, 'Assignment name is too long'),
+    name: z.string().min(1, 'Assignment name is required').max(100, 'Assignment name is too long'),
     description: z.string().optional(),
     instructions: z.string().optional(),
     dueDate: z.string().optional(),

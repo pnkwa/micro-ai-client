@@ -73,7 +73,14 @@ describe('buildDraftRecord', () => {
     it('stamps the version and given timestamp and passes state through', () => {
         const built = buildDraftRecord({
             currentIndex: 2,
-            fields: [{ imageId: 7, shapes: [shape('cell')], responses: { dx: 'BV' }, status: 'completed' }],
+            fields: [
+                {
+                    imageId: 7,
+                    shapes: [shape('cell')],
+                    responses: { dx: 'BV' },
+                    status: 'completed',
+                },
+            ],
             extraClasses: [{ id: 9, label: 'extra', color_hex: '64748b' }],
             now: 42,
         })
@@ -81,7 +88,14 @@ describe('buildDraftRecord', () => {
             v: DRAFT_VERSION,
             savedAt: 42,
             currentIndex: 2,
-            fields: [{ imageId: 7, shapes: [shape('cell')], responses: { dx: 'BV' }, status: 'completed' }],
+            fields: [
+                {
+                    imageId: 7,
+                    shapes: [shape('cell')],
+                    responses: { dx: 'BV' },
+                    status: 'completed',
+                },
+            ],
             extraClasses: [{ id: 9, label: 'extra', color_hex: '64748b' }],
         })
     })
@@ -94,13 +108,22 @@ describe('mergeDraftIntoFields', () => {
             fields,
             record({
                 fields: [
-                    { imageId: 10, shapes: [shape('a')], responses: { dx: 'BV' }, status: 'completed' },
+                    {
+                        imageId: 10,
+                        shapes: [shape('a')],
+                        responses: { dx: 'BV' },
+                        status: 'completed',
+                    },
                     { imageId: 30, shapes: [], responses: {}, status: 'skipped' },
                 ],
             }),
         )
         expect(applied).toBe(true)
-        expect(fields[0]).toMatchObject({ shapes: [shape('a')], responses: { dx: 'BV' }, status: 'completed' })
+        expect(fields[0]).toMatchObject({
+            shapes: [shape('a')],
+            responses: { dx: 'BV' },
+            status: 'completed',
+        })
         expect(fields[1]).toMatchObject({ shapes: [], responses: {}, status: 'pending' }) // untouched
         expect(fields[2]!.status).toBe('skipped')
     })
@@ -122,7 +145,9 @@ describe('mergeDraftIntoFields', () => {
         const applied = mergeDraftIntoFields(
             fields,
             record({
-                fields: [{ imageId: 999, shapes: [shape('a')], responses: {}, status: 'completed' }],
+                fields: [
+                    { imageId: 999, shapes: [shape('a')], responses: {}, status: 'completed' },
+                ],
             }),
         )
         expect(applied).toBe(false)

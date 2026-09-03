@@ -1,16 +1,7 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import { watchDebounced } from '@vueuse/core'
-import {
-    ArrowLeft,
-    Check,
-    Pentagon,
-    Send,
-    SkipForward,
-    Square,
-    Trash2,
-    Undo2,
-} from '@lucide/vue'
+import { ArrowLeft, Check, Pentagon, Send, SkipForward, Square, Trash2, Undo2 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -29,10 +20,7 @@ import {
     labelByName,
     toColorHex,
 } from '~/core/helpers/annotationClasses'
-import {
-    extraClassesFromPalette,
-    mergeDraftIntoFields,
-} from '~/core/helpers/annotationDraft'
+import { extraClassesFromPalette, mergeDraftIntoFields } from '~/core/helpers/annotationDraft'
 import { useAnnotationDraft } from '~/core/composables/useAnnotationDraft'
 import { zoomPercent } from '~/core/helpers/viewportTransform'
 import AnnotationCanvas, {
@@ -187,14 +175,10 @@ function loadHistoryForCurrent(previousImageId?: number) {
 }
 
 const allHidden = computed(
-    () =>
-        currentShapes.value.length > 0 &&
-        hiddenIds.value.size === currentShapes.value.length,
+    () => currentShapes.value.length > 0 && hiddenIds.value.size === currentShapes.value.length,
 )
 function toggleAllHidden() {
-    hiddenIds.value = allHidden.value
-        ? new Set()
-        : new Set(currentShapes.value.map((s) => s.id))
+    hiddenIds.value = allHidden.value ? new Set() : new Set(currentShapes.value.map((s) => s.id))
 }
 
 // Load a prior submission's work into the fresh skeleton (matched by imageId): boxes become editable
@@ -475,8 +459,7 @@ function recolorClass(labelId: number, color: string) {
 }
 
 const shapeColor = (s: Shape) => colorForShape(palette.value, s) ?? 'var(--color-an-n-250)'
-const shapeMeta = (s: Shape) =>
-    s.polygon ? `polygon · ${s.polygon.length} pts` : 'rectangle'
+const shapeMeta = (s: Shape) => (s.polygon ? `polygon · ${s.polygon.length} pts` : 'rectangle')
 
 // ---- per-image status ----
 const requiredPrompts = computed(() =>
@@ -604,13 +587,9 @@ const metaClass = (field: FieldState) =>
             </span>
             <div class="tw:flex-1" />
 
-            <McButton
-                v-if="config?.allow_skip"
-                variant="outline"
-                size="sm"
-                @click="skip"
-            >
-                <SkipForward class="tw:mr-1 tw:size-4" /> Skip image
+            <McButton v-if="config?.allow_skip" variant="outline" size="sm" @click="skip">
+                <SkipForward class="tw:mr-1 tw:size-4" />
+                Skip image
             </McButton>
             <McButton
                 size="sm"
@@ -637,8 +616,8 @@ const metaClass = (field: FieldState) =>
             <Undo2 class="tw:mt-0.5 tw:size-4 tw:shrink-0 tw:text-warning" />
             <span>
                 <b>Returned for changes.</b>
-                <template v-if="returnedReason"> {{ returnedReason }}</template>
-                <template v-else> Edit your work and resubmit.</template>
+                <template v-if="returnedReason">{{ returnedReason }}</template>
+                <template v-else>Edit your work and resubmit.</template>
             </span>
         </div>
 
@@ -666,17 +645,20 @@ const metaClass = (field: FieldState) =>
                                 </span>
                                 <span class="tw:text-[11px] tw:text-an-faint tw:px-1">done</span>
                             </div>
-                           
+
                             <div>
-                                <span class="tw:text-an-warn tw:font-mono tw:text-[11px] tw:font-semibold tw:tabular-nums tw:text-an-text">{{ skippedCount }}</span> 
+                                <span
+                                    class="tw:text-an-warn tw:font-mono tw:text-[11px] tw:font-semibold tw:tabular-nums tw:text-an-text"
+                                >
+                                    {{ skippedCount }}
+                                </span>
                                 <span class="tw:text-[11px] tw:text-an-faint tw:px-1">skipped</span>
                             </div>
                         </div>
                         <div class="tw:flex-1"></div>
-                        <span class="tw:font-mono  tw:tabular-nums tw:text-an-faint">
+                        <span class="tw:font-mono tw:tabular-nums tw:text-an-faint">
                             {{ percent }}%
                         </span>
-                        
                     </div>
                     <div class="tw:h-1 tw:overflow-hidden tw:rounded-full tw:bg-an-n-150">
                         <div
@@ -684,7 +666,6 @@ const metaClass = (field: FieldState) =>
                             :style="{ width: `${percent}%` }"
                         ></div>
                     </div>
-
                 </div>
 
                 <div class="tw:h-px tw:shrink-0 tw:bg-an-divider"></div>
@@ -728,7 +709,10 @@ const metaClass = (field: FieldState) =>
                                         class="tw:h-1.5 tw:w-1.5 tw:shrink-0 tw:rounded-[2px]"
                                         :style="{ background: dot }"
                                     ></span>
-                                    <span class="tw:truncate tw:text-[10.5px]" :class="metaClass(field)">
+                                    <span
+                                        class="tw:truncate tw:text-[10.5px]"
+                                        :class="metaClass(field)"
+                                    >
                                         {{ statusText(field) }}
                                     </span>
                                 </span>
@@ -776,7 +760,6 @@ const metaClass = (field: FieldState) =>
                         @delete-selected="deleteSelected"
                     />
 
-
                     <PagerPill
                         :name="currentName"
                         :index="currentIndex + 1"
@@ -808,7 +791,9 @@ const metaClass = (field: FieldState) =>
             >
                 <div class="tw:flex tw:min-h-0 tw:flex-col">
                     <div class="tw:flex tw:items-center tw:gap-2 tw:pt-3 tw:pr-3 tw:pl-3.5">
-                        <span class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text">
+                        <span
+                            class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text"
+                        >
                             Instruuction
                         </span>
                     </div>
@@ -827,7 +812,9 @@ const metaClass = (field: FieldState) =>
                             :key="prompt.key"
                             class="tw:flex tw:min-w-[240px] tw:flex-1 tw:items-center tw:gap-2"
                         >
-                            <label class="tw:shrink-0 tw:text-[13px] tw:font-medium tw:text-an-text">
+                            <label
+                                class="tw:shrink-0 tw:text-[13px] tw:font-medium tw:text-an-text"
+                            >
                                 {{ prompt.label }}
                                 <span v-if="prompt.required" class="tw:text-danger">*</span>
                             </label>
@@ -923,14 +910,12 @@ const metaClass = (field: FieldState) =>
                 <div class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:p-3">
                     <div class="tw:grid tw:grid-cols-2 tw:gap-2">
                         <McButton @click="markDone">
-                            <Check class="tw:mr-1 tw:size-4" /> Mark done
+                            <Check class="tw:mr-1 tw:size-4" />
+                            Mark done
                         </McButton>
-                        <McButton
-                            variant="outline"
-                            :disabled="!config?.allow_skip"
-                            @click="skip"
-                        >
-                            <SkipForward class="tw:mr-1 tw:size-4" /> Skip
+                        <McButton variant="outline" :disabled="!config?.allow_skip" @click="skip">
+                            <SkipForward class="tw:mr-1 tw:size-4" />
+                            Skip
                         </McButton>
                     </div>
                 </div>

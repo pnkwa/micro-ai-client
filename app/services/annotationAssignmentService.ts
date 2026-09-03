@@ -211,7 +211,8 @@ export const annotationAssignmentService = {
         if (payload.instructions !== undefined) body.instructions = payload.instructions
         if (payload.dueDate !== undefined) body.due_date = payload.dueDate
         // Sending album_id is how the server knows to replace the whole config (BE-ADR-039).
-        if (payload.albumId !== undefined) Object.assign(body, configBody(payload as AnnotationConfigInput))
+        if (payload.albumId !== undefined)
+            Object.assign(body, configBody(payload as AnnotationConfigInput))
         const response = await $api(annotationAssignmentRoutes.byId(id), {
             method: 'PATCH',
             body,
@@ -221,10 +222,9 @@ export const annotationAssignmentService = {
 
     async remove(id: number, force = false): Promise<void> {
         const { $api } = useNuxtApp()
-        await $api(
-            `${annotationAssignmentRoutes.byId(id)}${force ? '?force=true' : ''}`,
-            { method: 'DELETE' },
-        )
+        await $api(`${annotationAssignmentRoutes.byId(id)}${force ? '?force=true' : ''}`, {
+            method: 'DELETE',
+        })
     },
 
     // ---- student ----
@@ -273,20 +273,14 @@ export const annotationAssignmentService = {
         payload: { reviewStatus: AnnotationReviewStatus; remark?: string | null },
     ): Promise<AnnotationSubmission> {
         const { $api } = useNuxtApp()
-        const response = await $api(
-            annotationAssignmentRoutes.reviewField(submissionId, imageId),
-            {
-                method: 'PATCH',
-                body: { review_status: payload.reviewStatus, remark: payload.remark },
-            },
-        )
+        const response = await $api(annotationAssignmentRoutes.reviewField(submissionId, imageId), {
+            method: 'PATCH',
+            body: { review_status: payload.reviewStatus, remark: payload.remark },
+        })
         return annotationSubmissionSchema.parse(response)
     },
 
-    async finalize(
-        submissionId: number,
-        feedback?: string | null,
-    ): Promise<AnnotationSubmission> {
+    async finalize(submissionId: number, feedback?: string | null): Promise<AnnotationSubmission> {
         const { $api } = useNuxtApp()
         const response = await $api(annotationAssignmentRoutes.finalize(submissionId), {
             method: 'PATCH',

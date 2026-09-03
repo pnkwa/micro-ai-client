@@ -1,14 +1,6 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
-import {
-    ArrowLeft,
-    Check,
-    ChevronLeft,
-    ChevronRight,
-    Eye,
-    Flag,
-    Undo2,
-} from '@lucide/vue'
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Eye, Flag, Undo2 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -240,7 +232,9 @@ const reviewDotClass = (status: string) =>
           : 'tw:bg-an-n-300'
 
 const fieldStatusLabel = (f: SubmissionField) =>
-    f.status === 'skipped' ? 'skipped' : `${f.annotations.length} box${f.annotations.length === 1 ? '' : 'es'}`
+    f.status === 'skipped'
+        ? 'skipped'
+        : `${f.annotations.length} box${f.annotations.length === 1 ? '' : 'es'}`
 
 const responseText = (f: SubmissionField, key: string) => {
     const v = f.responses[key]
@@ -285,7 +279,8 @@ onMounted(load)
 
             <template v-if="isStaff">
                 <span class="tw:text-[13px] tw:text-an-muted">
-                    <b class="tw:text-an-text">{{ reviewedCount }}</b> / {{ reviewable.length }} reviewed
+                    <b class="tw:text-an-text">{{ reviewedCount }}</b>
+                    / {{ reviewable.length }} reviewed
                 </span>
                 <McButton
                     v-if="!isRejected"
@@ -295,7 +290,8 @@ onMounted(load)
                     :disabled="isGraded"
                     @click="rejectOpen = true"
                 >
-                    <Undo2 class="tw:mr-1 tw:size-4" /> Return
+                    <Undo2 class="tw:mr-1 tw:size-4" />
+                    Return
                 </McButton>
                 <McButton
                     size="sm"
@@ -309,13 +305,19 @@ onMounted(load)
             <McButton
                 v-if="!isStaff && isRejected"
                 size="sm"
-                @click="router.push(`/annotation-assignments/${submission?.assignment_id}/annotate`)"
+                @click="
+                    router.push(`/annotation-assignments/${submission?.assignment_id}/annotate`)
+                "
             >
-                <Undo2 class="tw:mr-1 tw:size-4" /> Edit &amp; resubmit
+                <Undo2 class="tw:mr-1 tw:size-4" />
+                Edit &amp; resubmit
             </McButton>
         </header>
 
-        <div v-if="loading" class="tw:flex tw:flex-1 tw:items-center tw:justify-center tw:text-an-faint">
+        <div
+            v-if="loading"
+            class="tw:flex tw:flex-1 tw:items-center tw:justify-center tw:text-an-faint"
+        >
             Loading…
         </div>
 
@@ -330,7 +332,9 @@ onMounted(load)
                         {{ items.length }}
                     </span>
                 </div>
-                <ul class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-px tw:overflow-y-auto tw:p-1.5">
+                <ul
+                    class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-px tw:overflow-y-auto tw:p-1.5"
+                >
                     <li v-for="(item, i) in items" :key="item.imageId">
                         <button
                             class="tw:flex tw:h-11 tw:w-full tw:items-center tw:gap-2.5 tw:rounded-lg tw:px-2 tw:text-left"
@@ -343,14 +347,22 @@ onMounted(load)
                         >
                             <span
                                 class="tw:size-2 tw:shrink-0 tw:rounded-full"
-                                :class="item.field ? reviewDotClass(item.field.review_status) : 'tw:bg-an-n-200'"
+                                :class="
+                                    item.field
+                                        ? reviewDotClass(item.field.review_status)
+                                        : 'tw:bg-an-n-200'
+                                "
                             />
                             <span class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col">
-                                <span class="tw:truncate tw:font-mono tw:text-[11.5px] tw:text-an-text">
+                                <span
+                                    class="tw:truncate tw:font-mono tw:text-[11.5px] tw:text-an-text"
+                                >
                                     Image {{ String(item.index + 1).padStart(2, '0') }}
                                 </span>
                                 <span class="tw:text-[10.5px] tw:text-an-faint">
-                                    {{ item.field ? fieldStatusLabel(item.field) : 'not attempted' }}
+                                    {{
+                                        item.field ? fieldStatusLabel(item.field) : 'not attempted'
+                                    }}
                                 </span>
                             </span>
                         </button>
@@ -373,7 +385,8 @@ onMounted(load)
                 <div
                     class="tw:absolute tw:top-3 tw:left-3 tw:z-10 tw:flex tw:items-center tw:gap-1.5 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[11.5px] tw:text-an-d-text tw:backdrop-blur"
                 >
-                    <Eye class="tw:size-3.5 tw:text-an-d-icon" /> Reviewing · read-only
+                    <Eye class="tw:size-3.5 tw:text-an-d-icon" />
+                    Reviewing · read-only
                 </div>
 
                 <!-- show-expert toggle (staff only) -->
@@ -396,7 +409,9 @@ onMounted(load)
                     >
                         <ChevronLeft class="tw:size-3.5" />
                     </button>
-                    <span class="tw:px-1 tw:font-mono tw:text-[12px] tw:tabular-nums tw:text-an-d-text">
+                    <span
+                        class="tw:px-1 tw:font-mono tw:text-[12px] tw:tabular-nums tw:text-an-d-text"
+                    >
                         {{ currentIndex + 1 }}/{{ items.length }}
                     </span>
                     <button
@@ -429,7 +444,9 @@ onMounted(load)
                 class="tw:flex tw:w-[340px] tw:shrink-0 tw:flex-col tw:gap-3 tw:overflow-y-auto tw:border-l tw:border-an-border tw:bg-an-panel tw:p-3"
             >
                 <!-- student's boxes -->
-                <div class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3">
+                <div
+                    class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3"
+                >
                     <div class="tw:text-[12.5px] tw:font-semibold tw:text-an-text">
                         Student's boxes ({{ current?.annotations.length ?? 0 }})
                     </div>
@@ -466,7 +483,9 @@ onMounted(load)
                     v-if="prompts.length"
                     class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3"
                 >
-                    <div class="tw:text-[12.5px] tw:font-semibold tw:text-an-text">Student's answers</div>
+                    <div class="tw:text-[12.5px] tw:font-semibold tw:text-an-text">
+                        Student's answers
+                    </div>
                     <div
                         v-for="p in prompts"
                         :key="p.key"
@@ -484,7 +503,9 @@ onMounted(load)
                     v-if="isStaff && current"
                     class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3"
                 >
-                    <div class="tw:text-[12.5px] tw:font-medium tw:text-an-text">Remark on this field</div>
+                    <div class="tw:text-[12.5px] tw:font-medium tw:text-an-text">
+                        Remark on this field
+                    </div>
                     <textarea
                         v-if="current"
                         v-model="remarks[current.image_id]"
@@ -501,7 +522,8 @@ onMounted(load)
                             :disabled="savingField || isGraded || isRejected"
                             @click="review('approved')"
                         >
-                            <Check class="tw:mr-1 tw:size-4" /> Approve
+                            <Check class="tw:mr-1 tw:size-4" />
+                            Approve
                         </McButton>
                         <McButton
                             variant="outline"
@@ -510,12 +532,17 @@ onMounted(load)
                             :disabled="savingField || isGraded || isRejected"
                             @click="review('flagged')"
                         >
-                            <Flag class="tw:mr-1 tw:size-4" /> Flag
+                            <Flag class="tw:mr-1 tw:size-4" />
+                            Flag
                         </McButton>
                         <span
                             v-if="current && current.review_status !== 'unreviewed'"
                             class="tw:ml-auto tw:text-[11px] tw:capitalize"
-                            :class="current.review_status === 'approved' ? 'tw:text-success' : 'tw:text-warning'"
+                            :class="
+                                current.review_status === 'approved'
+                                    ? 'tw:text-success'
+                                    : 'tw:text-warning'
+                            "
                         >
                             {{ current.review_status }}
                         </span>
@@ -528,12 +555,23 @@ onMounted(load)
                     class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3"
                 >
                     <div class="tw:flex tw:items-center tw:gap-2 tw:text-[12.5px] tw:font-medium">
-                        <span :class="current.review_status === 'approved' ? 'tw:text-success' : 'tw:text-warning'">
-                            <component :is="current.review_status === 'approved' ? Check : Flag" class="tw:inline tw:size-4" />
+                        <span
+                            :class="
+                                current.review_status === 'approved'
+                                    ? 'tw:text-success'
+                                    : 'tw:text-warning'
+                            "
+                        >
+                            <component
+                                :is="current.review_status === 'approved' ? Check : Flag"
+                                class="tw:inline tw:size-4"
+                            />
                             <span class="tw:ml-1 tw:capitalize">{{ current.review_status }}</span>
                         </span>
                     </div>
-                    <p v-if="current.remark" class="tw:text-[12px] tw:text-an-n-700">{{ current.remark }}</p>
+                    <p v-if="current.remark" class="tw:text-[12px] tw:text-an-n-700">
+                        {{ current.remark }}
+                    </p>
                 </div>
 
                 <!-- staff: nothing to review on an image the student left untouched -->
@@ -545,8 +583,12 @@ onMounted(load)
                 </p>
 
                 <!-- overall feedback -->
-                <div class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3">
-                    <div class="tw:text-[12.5px] tw:font-medium tw:text-an-text">Overall feedback</div>
+                <div
+                    class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3"
+                >
+                    <div class="tw:text-[12.5px] tw:font-medium tw:text-an-text">
+                        Overall feedback
+                    </div>
                     <textarea
                         v-if="isStaff && submission"
                         v-model="feedbackDraft"
@@ -575,9 +617,7 @@ onMounted(load)
                     <McDialogTitle>Return submission to the student</McDialogTitle>
                 </McDialogHeader>
                 <div class="tw:flex tw:flex-col tw:gap-2 tw:p-1">
-                    <label class="tw:text-sm tw:text-navy-70">
-                        Reason (the student sees this)
-                    </label>
+                    <label class="tw:text-sm tw:text-navy-70">Reason (the student sees this)</label>
                     <textarea
                         v-model="rejectReason"
                         rows="3"

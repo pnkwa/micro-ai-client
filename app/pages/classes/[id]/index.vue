@@ -277,9 +277,7 @@ const classTabs = computed(() =>
 // Annotation assignments are consolidated INTO the Assignments tab (no separate tab). GET /assignments
 // returns them too (they are assignment rows with is_exam=false), so classic rows exclude their ids to
 // avoid a double listing, and the annotation rows come from their own list with the right icon + route.
-const annotationIds = computed(
-    () => new Set(annotationAssignments.value.map((a) => a.id)),
-)
+const annotationIds = computed(() => new Set(annotationAssignments.value.map((a) => a.id)))
 
 type AssignmentRow =
     | { kind: 'classic'; item: AssignmentListItem }
@@ -892,7 +890,8 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     : 'tw:text-navy-80'
                             "
                         >
-                            <FileText class="tw:size-4" /> Classic
+                            <FileText class="tw:size-4" />
+                            Classic
                         </span>
                         <span class="tw:mt-0.5 tw:block tw:text-xs tw:text-navy-50">
                             Questions — choice, fill-in, image, slide.
@@ -916,7 +915,8 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     : 'tw:text-navy-80'
                             "
                         >
-                            <Shapes class="tw:size-4" /> Annotation
+                            <Shapes class="tw:size-4" />
+                            Annotation
                         </span>
                         <span class="tw:mt-0.5 tw:block tw:text-xs tw:text-navy-50">
                             Students annotate an album's images.

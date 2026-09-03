@@ -125,7 +125,8 @@ const handleSave = handleSubmit((values) => {
     >
         <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">
-                Assignment Name <span class="tw:text-red-500">*</span>
+                Assignment Name
+                <span class="tw:text-red-500">*</span>
             </label>
             <McInput name="name" placeholder="e.g., Label the clue cells" />
         </div>
@@ -133,7 +134,8 @@ const handleSave = handleSubmit((values) => {
         <!-- Album -->
         <div class="tw:flex tw:flex-col tw:gap-2">
             <label class="tw:text-sm tw:font-medium">
-                Album <span class="tw:text-red-500">*</span>
+                Album
+                <span class="tw:text-red-500">*</span>
             </label>
             <select
                 v-model.number="albumId"
@@ -150,8 +152,9 @@ const handleSave = handleSubmit((values) => {
             >
                 <Info class="tw:mt-0.5 tw:size-3.5 tw:shrink-0 tw:text-primary" />
                 <span>
-                    Students annotate the album's images. There is <b>no auto-grading</b> — you
-                    review each student. Your own boxes on these images are the reference key.
+                    Students annotate the album's images. There is
+                    <b>no auto-grading</b>
+                    — you review each student. Your own boxes on these images are the reference key.
                 </span>
             </div>
         </div>
@@ -176,7 +179,9 @@ const handleSave = handleSubmit((values) => {
         >
             <input v-model="allowSkip" type="checkbox" class="tw:size-4 tw:accent-primary" />
             <span class="tw:text-sm tw:text-navy-80">Allow skipping images</span>
-            <span class="tw:ml-auto tw:text-xs tw:text-navy-50">student can mark "no findings"</span>
+            <span class="tw:ml-auto tw:text-xs tw:text-navy-50">
+                student can mark "no findings"
+            </span>
         </label>
 
         <!-- Label classes -->
@@ -207,7 +212,8 @@ const handleSave = handleSubmit((values) => {
                 </button>
             </div>
             <McButton type="button" variant="outline" size="sm" class="tw:w-full" @click="addClass">
-                <Plus class="tw:mr-1 tw:size-3.5" /> Add class
+                <Plus class="tw:mr-1 tw:size-3.5" />
+                Add class
             </McButton>
         </div>
 
@@ -223,7 +229,11 @@ const handleSave = handleSubmit((values) => {
                 class="tw:flex tw:items-center tw:gap-2"
             >
                 <GripVertical class="tw:size-4 tw:shrink-0 tw:text-navy-30" />
-                <McInput v-model="row.label" placeholder="Field label (e.g. Diagnosis)" class="tw:flex-1" />
+                <McInput
+                    v-model="row.label"
+                    placeholder="Field label (e.g. Diagnosis)"
+                    class="tw:flex-1"
+                />
                 <select
                     v-model="row.type"
                     class="tw:h-9 tw:w-32 tw:shrink-0 tw:rounded-md tw:border tw:border-input tw:bg-background tw:px-2 tw:text-sm"
@@ -232,7 +242,9 @@ const handleSave = handleSubmit((values) => {
                         {{ t.label }}
                     </option>
                 </select>
-                <label class="tw:flex tw:shrink-0 tw:items-center tw:gap-1.5 tw:text-xs tw:text-navy-70">
+                <label
+                    class="tw:flex tw:shrink-0 tw:items-center tw:gap-1.5 tw:text-xs tw:text-navy-70"
+                >
                     <input v-model="row.required" type="checkbox" class="tw:accent-primary" />
                     Required
                 </label>
@@ -246,7 +258,8 @@ const handleSave = handleSubmit((values) => {
                 </button>
             </div>
             <McButton type="button" variant="outline" size="sm" class="tw:w-fit" @click="addPrompt">
-                <Plus class="tw:mr-1 tw:size-3.5" /> Add fill-in field
+                <Plus class="tw:mr-1 tw:size-3.5" />
+                Add fill-in field
             </McButton>
         </div>
     </form>
@@ -254,7 +267,8 @@ const handleSave = handleSubmit((values) => {
     <McDialogFooter>
         <McButton variant="outline" @click="emit('cancel')">Cancel</McButton>
         <McButton :disabled="albumsLoading" @click="handleSave">
-            <Shapes class="tw:mr-1 tw:size-4" /> Create annotation assignment
+            <Shapes class="tw:mr-1 tw:size-4" />
+            Create annotation assignment
         </McButton>
     </McDialogFooter>
 </template>

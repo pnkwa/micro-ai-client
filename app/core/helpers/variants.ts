@@ -1,5 +1,12 @@
 export type StatusType =
-    'graded' | 'submitted' | 'success' | 'error' | 'info' | 'warning' | 'students' | 'submissions'
+    | 'graded'
+    | 'submitted'
+    | 'success'
+    | 'error'
+    | 'info'
+    | 'warning'
+    | 'students'
+    | 'submissions'
 export type VariantType =
     | 'warning'
     | 'success'
