@@ -251,6 +251,14 @@ export const annotationAssignmentService = {
         return annotationSubmissionSchema.parse(response)
     },
 
+    // The student's own submission for an assignment, or null if they haven't submitted. Used to
+    // reload prior work into the workspace — notably a returned submission to edit and resubmit.
+    async getMySubmission(id: number): Promise<AnnotationSubmission | null> {
+        const { $api } = useNuxtApp()
+        const response = await $api(annotationAssignmentRoutes.mySubmission(id))
+        return response ? annotationSubmissionSchema.parse(response) : null
+    },
+
     // ---- instructor review ----
 
     async listSubmissions(id: number): Promise<SubmissionListItem[]> {

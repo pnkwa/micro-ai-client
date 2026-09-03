@@ -48,6 +48,27 @@ export function colorOf(label: AnnotationLabel): string {
     return `#${label.color_hex}`
 }
 
+/** Fallback for a student box whose label isn't in the instructor's palette (the legend's purple). */
+export const DEFAULT_REVIEW_BOX_COLOR = '#7c5ce0'
+
+/**
+ * Colour for a student's box in instructor review (BE-ADR-039): the instructor's own class colour
+ * from their `annotation_labels` palette when the student's label matches one (case-insensitive),
+ * otherwise a default. `labelColors` maps the instructor's label to its bare six-hex colour. Returns
+ * CSS hex (with `#`).
+ */
+export function reviewBoxColor(
+    label: string | null,
+    labelColors: Record<string, string>,
+): string {
+    const key = (label ?? '').trim().toLowerCase()
+    if (!key) return DEFAULT_REVIEW_BOX_COLOR
+    for (const name in labelColors) {
+        if (name.trim().toLowerCase() === key) return `#${labelColors[name]!.replace('#', '')}`
+    }
+    return DEFAULT_REVIEW_BOX_COLOR
+}
+
 export interface AnnotationClass {
     /** The label row's server id. This is what a write sends and what a pick emits. */
     id: number

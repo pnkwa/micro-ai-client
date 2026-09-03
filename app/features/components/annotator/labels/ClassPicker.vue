@@ -17,6 +17,11 @@ const props = defineProps<{
     classes: AnnotationClass[]
     /** The class new shapes take, by label id. Null before anything is picked. */
     active: number | null
+    /**
+     * A fixed vocabulary: the list cannot be added to and its colours cannot be changed. Used by an
+     * annotation assignment whose `label_set` the instructor authored — students pick from it only.
+     */
+    fixed?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -58,7 +63,9 @@ const submit = () => {
                 Classes
             </span>
             <div class="tw:flex-1"></div>
-            <span class="tw:text-[10.5px] tw:text-an-faint">Click a swatch to recolour</span>
+            <span v-if="!fixed" class="tw:text-[10.5px] tw:text-an-faint">
+                Click a swatch to recolour
+            </span>
         </div>
 
         <ul class="tw:flex tw:flex-col tw:gap-0.5 tw:px-2 tw:pb-2.5">
@@ -86,6 +93,7 @@ const submit = () => {
                             :style="{ background: klass.color }"
                         ></span>
                         <input
+                            v-if="!fixed"
                             :value="klass.color"
                             type="color"
                             class="tw:absolute tw:inset-0 tw:h-full tw:w-full tw:cursor-pointer tw:opacity-0"
@@ -123,7 +131,7 @@ const submit = () => {
                 </div>
             </li>
 
-            <li>
+            <li v-if="!fixed">
                 <!-- The name and its colour are one gesture, because both are needed to create the
                      row and asking for the colour afterwards would mean every class is born the
                      suggested shade and recoloured immediately. Blur does not submit here, unlike

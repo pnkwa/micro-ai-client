@@ -7,8 +7,10 @@ import {
     colorForShape,
     colorOf,
     dominantLabelId,
+    DEFAULT_REVIEW_BOX_COLOR,
     labelById,
     labelByName,
+    reviewBoxColor,
     toColorHex,
 } from './annotationClasses'
 import type { Shape } from './annotationShapes'
@@ -182,5 +184,28 @@ describe('dominantLabelId', () => {
     it('keeps the first-seen label on a tie, so a reload does not flip the pick', () => {
         expect(dominantLabelId([shape(1, 'a'), shape(2, 'b')])).toBe(1)
         expect(dominantLabelId([shape(2, 'a'), shape(1, 'b')])).toBe(2)
+    })
+})
+
+describe('reviewBoxColor', () => {
+    // The instructor's own annotation_labels palette: label -> bare six-hex.
+    const labelColors = { 'Clue cell': '7c5ce0', Lactobacilli: 'd97706' }
+
+    it("uses the instructor's colour on an exact label match", () => {
+        expect(reviewBoxColor('Clue cell', labelColors)).toBe('#7c5ce0')
+    })
+
+    it("matches the instructor's palette case-insensitively, trimming whitespace", () => {
+        expect(reviewBoxColor('clue CELL', labelColors)).toBe('#7c5ce0')
+        expect(reviewBoxColor('  LACTOBACILLI ', labelColors)).toBe('#d97706')
+    })
+
+    it('returns the default colour for a label the instructor has no class for', () => {
+        expect(reviewBoxColor('epithelial', labelColors)).toBe(DEFAULT_REVIEW_BOX_COLOR)
+    })
+
+    it('returns the default colour for an unlabelled box', () => {
+        expect(reviewBoxColor(null, labelColors)).toBe(DEFAULT_REVIEW_BOX_COLOR)
+        expect(reviewBoxColor('   ', labelColors)).toBe(DEFAULT_REVIEW_BOX_COLOR)
     })
 })

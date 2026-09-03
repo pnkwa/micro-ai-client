@@ -9,13 +9,16 @@ import {
     SkipForward,
     Square,
     Trash2,
+    Undo2,
 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
     type AnnotationFieldStatus,
+    type AnnotationSubmission,
     type SubmitFieldInput,
 } from '~/services/annotationAssignmentService'
+import { localId } from '~/core/helpers/localId'
 import type { AnnotationLabel } from '~/services/annotationLabelService'
 import { imageService } from '~/services/imageService'
 import { isDegenerate, shouldCommit, type Shape } from '~/core/helpers/annotationShapes'
@@ -74,6 +77,9 @@ const fields = ref<FieldState[]>([])
 const currentIndex = ref(0)
 const loading = ref(true)
 const submitting = ref(false)
+// Set when the workspace was opened on a RETURNED submission: shows the instructor's reason and
+// signals "you are editing to resubmit".
+const returnedReason = ref<string | null>(null)
 
 // Local, per-student draft so a refresh or an accidental tab close keeps the work (nothing reaches
 // the server until Submit). Restored in onMounted, autosaved on change, cleared on submit.
@@ -84,6 +90,9 @@ const draft = useAnnotationDraft(id)
 const palette = ref<AnnotationLabel[]>([])
 
 const config = computed(() => assignment.value?.annotation ?? null)
+// A fixed vocabulary the instructor authored: students pick from it only — no new classes, no
+// recolouring, and colours follow the label_set.
+const fixedLabelSet = computed(() => (config.value?.label_set.length ?? 0) > 0)
 const current = computed<FieldState | null>(() => fields.value[currentIndex.value] ?? null)
 const currentName = computed(() => `Image ${String(currentIndex.value + 1).padStart(2, '0')}`)
 
@@ -188,6 +197,32 @@ function toggleAllHidden() {
         : new Set(currentShapes.value.map((s) => s.id))
 }
 
+// Load a prior submission's work into the fresh skeleton (matched by imageId): boxes become editable
+// shapes with their class resolved, answers and per-image status come back. Used for resubmitting a
+// returned submission.
+function prefillFromSubmission(sub: AnnotationSubmission) {
+    const byId = new Map(sub.fields.map((f) => [f.image_id, f]))
+    for (const field of fields.value) {
+        const src = byId.get(field.imageId)
+        if (!src) continue
+        field.status = src.status
+        field.responses = Object.fromEntries(
+            Object.entries(src.responses ?? {}).map(([k, v]) => [k, v == null ? '' : String(v)]),
+        )
+        field.shapes = src.annotations.map((box) => ({
+            id: localId('shape'),
+            labelId: (box.label ? labelByName(palette.value, box.label) : null)?.id ?? null,
+            label: box.label ?? '',
+            x: box.x,
+            y: box.y,
+            w: box.w,
+            h: box.h,
+            polygon: box.polygon ? box.polygon.map(([x, y]) => ({ x: x ?? 0, y: y ?? 0 })) : null,
+            expert_curated: false,
+        }))
+    }
+}
+
 onMounted(async () => {
     try {
         const a = await annotationAssignmentService.getById(id)
@@ -209,8 +244,21 @@ onMounted(async () => {
             url: null,
             thumb: null,
         }))
-        // Fold a saved draft over the fresh skeleton (matched by imageId), then re-add the
-        // student's own classes and resume on the image they left off.
+        // A prior submission locks the workspace: only a RETURNED (rejected) one reopens for editing
+        // and resubmission. A submission still awaiting review, or already graded, stays read-only —
+        // so a refresh can't reopen it — and the student is sent to the read-only feedback page.
+        const mine = await annotationAssignmentService.getMySubmission(id).catch(() => null)
+        if (mine) {
+            if (mine.status !== 'rejected') {
+                await router.replace(`/annotation-assignments/submissions/${mine.id}`)
+                return
+            }
+            prefillFromSubmission(mine)
+            returnedReason.value = mine.rejection_reason
+            toast.info('This submission was returned — edit it and resubmit')
+        }
+        // Fold a saved draft over the prior work (matched by imageId), then re-add the student's own
+        // classes and resume on the image they left off.
         const saved = draft.load()
         if (saved) {
             const applied = mergeDraftIntoFields(fields.value, saved)
@@ -333,7 +381,9 @@ function labelShape(shapeId: string, name: string) {
         shape.labelId = null
     } else {
         const known = labelByName(palette.value, trimmed)
-        shape.labelId = known ? known.id : addClass(trimmed)
+        // A fixed vocabulary never grows: an unknown label stays free text (and the server rejects
+        // it at submit), rather than minting an off-list class.
+        shape.labelId = known ? known.id : fixedLabelSet.value ? null : addClass(trimmed)
     }
     commit()
 }
@@ -569,9 +619,28 @@ const metaClass = (field: FieldState) =>
                 @click="submit"
             >
                 <Send class="tw:mr-1 tw:size-4" />
-                {{ canSubmit ? 'Submit' : `Submit · ${Math.max(required - addressed, 0)} left` }}
+                {{
+                    canSubmit
+                        ? returnedReason !== null
+                            ? 'Resubmit'
+                            : 'Submit'
+                        : `Submit · ${Math.max(required - addressed, 0)} left`
+                }}
             </McButton>
         </header>
+
+        <!-- returned-for-changes banner -->
+        <div
+            v-if="returnedReason !== null"
+            class="tw:flex tw:shrink-0 tw:items-start tw:gap-2 tw:border-b tw:border-warning/30 tw:bg-warning/10 tw:px-3 tw:py-2 tw:text-[12.5px] tw:text-an-text"
+        >
+            <Undo2 class="tw:mt-0.5 tw:size-4 tw:shrink-0 tw:text-warning" />
+            <span>
+                <b>Returned for changes.</b>
+                <template v-if="returnedReason"> {{ returnedReason }}</template>
+                <template v-else> Edit your work and resubmit.</template>
+            </span>
+        </div>
 
         <div
             v-if="loading"
@@ -781,6 +850,7 @@ const metaClass = (field: FieldState) =>
                     <ClassPicker
                         :classes="classes"
                         :active="activeLabelId"
+                        :fixed="fixedLabelSet"
                         @pick="pickClass"
                         @create="createClass"
                         @recolor="recolorClass"

@@ -6,6 +6,7 @@ export const annotationAssignmentRoutes = {
     list: base,
     byId: (id: number) => `${base}/${id}`,
     submissions: (id: number) => `${base}/${id}/submissions`,
+    mySubmission: (id: number) => `${base}/${id}/my-submission`,
     submissionById: (submissionId: number) => `${base}/submissions/${submissionId}`,
     reviewField: (submissionId: number, imageId: number) =>
         `${base}/submissions/${submissionId}/fields/${imageId}`,

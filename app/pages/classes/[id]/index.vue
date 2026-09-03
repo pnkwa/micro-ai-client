@@ -297,7 +297,10 @@ const assignmentRows = computed<AssignmentRow[]>(() => [
 
 const rowLink = (row: AssignmentRow) =>
     row.kind === 'annotation'
-        ? `/annotation-assignments/${row.item.id}/annotate`
+        ? // Students annotate; staff go to the submissions list to review.
+          isStudent.value
+            ? `/annotation-assignments/${row.item.id}/annotate`
+            : `/annotation-assignments/${row.item.id}/submissions`
         : `/classes/${classId.value}/assignments/${row.item.id}`
 
 const activeTab = ref<ClassTab>('assignments')
