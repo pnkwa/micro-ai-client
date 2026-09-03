@@ -1138,18 +1138,38 @@ const hitSize = computed(() => (isCoarsePointer.value || props.touchLayout ? TOU
  * with a Tailwind text class: whatever it renders at is what CSS says, with no transform between
  * the two, so "fixed size" is true by construction and not by cancellation.
  */
+/** Screen height a chip needs above its anchor to clear the top edge; below it, the chip flips under. */
+const CHIP_CLEARANCE = 26
+
+/**
+ * The point a shape's label hangs from.
+ *
+ * A rectangle keeps its top-left corner, which is a real corner of the shape. A polygon's bbox
+ * top-left corner, though, is usually EMPTY SPACE - no vertex lives there - so a chip pinned to it
+ * floats off the outline. The highest vertex instead always sits ON an edge, which is where the
+ * name belongs.
+ */
+const topAnchor = (shape: Shape): Point => {
+    const poly = shape.polygon
+    if (!poly?.length) return { x: shape.x, y: shape.y }
+    return poly.reduce((top, p) => (p.y < top.y ? p : top), poly[0]!)
+}
+
 const labelBoxes = computed(() => {
     const nat = natural.value
     if (!nat) return []
     return visibleShapes.value
         .filter((shape) => shape.label || shape.id === selectedId.value)
         .map((shape) => {
-            // Anchored to the shape's top-left corner, which is where the eye looks for it.
-            const at = view.toScreen({ x: shape.x, y: shape.y })
+            const at = view.toScreen(topAnchor(shape))
             const confidence = props.seeded?.[shape.id]
             return {
                 id: shape.id,
                 label: shape.label,
+                // Centre the chip over a polygon's peak vertex (a box keeps its left-aligned
+                // corner); flip it below when the peak is too near the top to clear the chip.
+                center: !!shape.polygon,
+                below: !!shape.polygon && at.y < CHIP_CLEARANCE,
                 // The detail the mockup carries: a seeded shape shows what the model thought, a
                 // selected polygon shows its point count. Neither is worth the width on every chip
                 // at once, so an unselected hand-drawn box shows nothing extra.
@@ -1630,7 +1650,8 @@ defineExpose({
                     top: `${entry.y}px`,
                     // Pinned OUTSIDE the shape's top edge, so a chip never covers the thing it
                     // names. Solid class colour, which is what ties it to its outline at a glance.
-                    transform: 'translateY(-100%)',
+                    // A polygon centres over its peak vertex, and flips below it near the top edge.
+                    transform: `${entry.center ? 'translateX(-50%) ' : ''}${entry.below ? 'translateY(3px)' : 'translateY(-100%)'}`,
                     background: entry.color,
                 }"
                 :title="entry.shape.id === selectedId ? 'Click to name this shape' : undefined"

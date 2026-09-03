@@ -70,6 +70,39 @@ const boxStyle = (b: { x: number; y: number; w: number; h: number }) => ({
     width: `${b.w * 100}%`,
     height: `${b.h * 100}%`,
 })
+
+/**
+ * Where a polygon's label chip hangs.
+ *
+ * A rectangle keeps its bbox corner (the `-top-5`/`-bottom-5` utilities do that), but a polygon's
+ * bbox corner is usually EMPTY SPACE, so a chip there floats off the outline. Anchor it to the
+ * peak vertex instead (the lowest one for a chip that reads below the shape), expressed as a
+ * percentage WITHIN the bbox div it lives in, so it always sits on an edge. It centres over the
+ * vertex, and flips to the shape's inner side when that vertex is hard against the image edge.
+ */
+type Poly = { x: number; y: number; w: number; h: number; polygon: number[][] | null }
+const peakVertex = (p: number[][], place: 'above' | 'below') =>
+    p.reduce((best, v) =>
+        place === 'above'
+            ? (v[1] ?? 0) < (best[1] ?? 0)
+                ? v
+                : best
+            : (v[1] ?? 0) > (best[1] ?? 0)
+              ? v
+              : best,
+    )
+const chipStyle = (b: Poly, place: 'above' | 'below') => {
+    const v = peakVertex(b.polygon!, place)
+    const relX = (((v[0] ?? 0) - b.x) / (b.w || 1)) * 100
+    const relY = (((v[1] ?? 0) - b.y) / (b.h || 1)) * 100
+    const flip = place === 'above' ? (v[1] ?? 0) < 0.06 : (v[1] ?? 0) > 0.94
+    const above = place === 'above' ? !flip : flip
+    return {
+        left: `${relX}%`,
+        top: `${relY}%`,
+        transform: `translateX(-50%) ${above ? 'translateY(-100%)' : 'translateY(0)'}`,
+    }
+}
 </script>
 
 <template>
@@ -133,8 +166,12 @@ const boxStyle = (b: { x: number; y: number; w: number; h: number }) => ({
                 >
                     <span
                         v-if="e.label"
-                        class="tw:absolute tw:-top-5 tw:left-0 tw:rounded tw:px-1.5 tw:py-0.5 tw:text-[11px] tw:font-semibold tw:whitespace-nowrap tw:text-white"
-                        :style="{ background: hex(e.color || EXPERT) }"
+                        class="tw:absolute tw:rounded tw:px-1.5 tw:py-0.5 tw:text-[11px] tw:font-semibold tw:whitespace-nowrap tw:text-white"
+                        :class="e.polygon ? '' : 'tw:-top-5 tw:left-0'"
+                        :style="{
+                            background: hex(e.color || EXPERT),
+                            ...(e.polygon ? chipStyle(e, 'above') : {}),
+                        }"
                     >
                         {{ e.label }}
                     </span>
@@ -159,8 +196,12 @@ const boxStyle = (b: { x: number; y: number; w: number; h: number }) => ({
                 }"
             >
                 <span
-                    class="tw:absolute tw:-bottom-5 tw:left-0 tw:rounded tw:px-1.5 tw:py-0.5 tw:text-[11px] tw:font-semibold tw:whitespace-nowrap tw:text-white"
-                    :style="{ background: studentColor(s.label) }"
+                    class="tw:absolute tw:rounded tw:px-1.5 tw:py-0.5 tw:text-[11px] tw:font-semibold tw:whitespace-nowrap tw:text-white"
+                    :class="s.polygon ? '' : 'tw:-bottom-5 tw:left-0'"
+                    :style="{
+                        background: studentColor(s.label),
+                        ...(s.polygon ? chipStyle(s, 'below') : {}),
+                    }"
                 >
                     {{ s.label || 'Unlabelled' }}
                 </span>
