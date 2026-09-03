@@ -12,7 +12,7 @@ export const albumFormSchema = z.object({
     // Optional, and empty means empty rather than absent: the PATCH reads an explicit null as
     // "clear it", which is what an emptied field should do.
     description: z.string().max(500, 'Description is too long').optional(),
-    kind: z.enum(['curated', 'personal', 'system']),
+    kind: z.enum(['curated', 'personal', 'system', 'assignment']),
 })
 
 export type AlbumFormData = z.infer<typeof albumFormSchema>

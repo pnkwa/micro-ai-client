@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { classRoutes } from './routes/classRoutes'
+import { assignmentListItemSchema, type AssignmentListItem } from './assignmentService'
 
 export const classSchema = z.object({
     id: z.number(),

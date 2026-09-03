@@ -109,9 +109,6 @@ const handleCancel = () => {
 </script>
 
 <template>
-    <McDialogHeader>
-        <McDialogTitle>Create New Assignment</McDialogTitle>
-    </McDialogHeader>
     <form
         class="tw:flex tw:flex-col tw:gap-4 tw:p-2 tw:max-h-[60vh] tw:overflow-y-auto"
         @submit.prevent="handleSave"

@@ -10,6 +10,7 @@ import {
     Upload,
     ClipboardCheck,
     Download,
+    Shapes,
 } from '@lucide/vue'
 import {
     buildClassGradeCanvas,
@@ -21,6 +22,7 @@ import type { ColumnDef, PaginationState } from '@tanstack/vue-table'
 import { toast } from 'vue-sonner'
 import CreateAssignment from '~/features/components/forms/CreateAssignment.vue'
 import CreateExam from '~/features/components/forms/CreateExam.vue'
+import CreateAnnotationAssignment from '~/features/components/annotation/CreateAnnotationAssignment.vue'
 import EditClass from '~/features/components/forms/EditClass.vue'
 import AddStudent from '~/features/components/forms/AddStudent.vue'
 import ImportStudentsCsv from '~/features/components/forms/ImportStudentsCsv.vue'
@@ -36,6 +38,11 @@ import {
 } from '~/services/classService'
 import { assignmentService, type AssignmentListItem } from '~/services/assignmentService'
 import { examService, type ExamListItem, type CreateExamInput } from '~/services/examService'
+import {
+    annotationAssignmentService,
+    type AnnotationAssignmentListItem,
+    type CreateAnnotationAssignmentInput,
+} from '~/services/annotationAssignmentService'
 import { submissionService, type SubmissionView } from '~/services/submissionService'
 import {
     studentStatus,
@@ -57,10 +64,12 @@ const classItem = ref<ClassItem | null>(null)
 const students = ref<StudentRosterItem[]>([])
 const assignments = ref<AssignmentListItem[]>([])
 const exams = ref<ExamListItem[]>([])
+const annotationAssignments = ref<AnnotationAssignmentListItem[]>([])
 const isLoadingClass = ref(false)
 const isLoadingStudents = ref(false)
 const isLoadingAssignments = ref(false)
 const isLoadingExams = ref(false)
+const isLoadingAnnotations = ref(false)
 
 const loadClass = async () => {
     isLoadingClass.value = true
@@ -167,8 +176,7 @@ const exportGrades = async (format: 'xlsx' | 'csv') => {
 const loadAssignments = async () => {
     isLoadingAssignments.value = true
     try {
-        // GET /assignments returns exams too (is_exam rows); they belong in the Exams tab, so
-        // keep only real assignments here.
+        // GET /<class_id>/assignments
         const all = await assignmentService.listByClass(classId.value)
         assignments.value = all.filter((a) => !a.is_exam)
     } catch {
@@ -186,6 +194,17 @@ const loadExams = async () => {
         toast.error('Failed to load exams')
     } finally {
         isLoadingExams.value = false
+    }
+}
+
+const loadAnnotationAssignments = async () => {
+    isLoadingAnnotations.value = true
+    try {
+        annotationAssignments.value = await annotationAssignmentService.listByClass(classId.value)
+    } catch {
+        toast.error('Failed to load annotation assignments')
+    } finally {
+        isLoadingAnnotations.value = false
     }
 }
 
@@ -210,6 +229,7 @@ await Promise.all([
     loadClass(),
     loadAssignments(),
     loadExams(),
+    loadAnnotationAssignments(),
     ...(isStudent.value ? [loadMySubmissions()] : []),
 ])
 
@@ -254,6 +274,32 @@ const classTabs = computed(() =>
           ],
 )
 
+// Annotation assignments are consolidated INTO the Assignments tab (no separate tab). GET /assignments
+// returns them too (they are assignment rows with is_exam=false), so classic rows exclude their ids to
+// avoid a double listing, and the annotation rows come from their own list with the right icon + route.
+const annotationIds = computed(
+    () => new Set(annotationAssignments.value.map((a) => a.id)),
+)
+
+type AssignmentRow =
+    | { kind: 'classic'; item: AssignmentListItem }
+    | { kind: 'annotation'; item: AnnotationAssignmentListItem }
+
+const assignmentRows = computed<AssignmentRow[]>(() => [
+    ...assignments.value
+        .filter((a) => !a.is_exam && !annotationIds.value.has(a.id))
+        .map((item) => ({ kind: 'classic' as const, item })),
+    ...annotationAssignments.value.map((item) => ({
+        kind: 'annotation' as const,
+        item,
+    })),
+])
+
+const rowLink = (row: AssignmentRow) =>
+    row.kind === 'annotation'
+        ? `/annotation-assignments/${row.item.id}/annotate`
+        : `/classes/${classId.value}/assignments/${row.item.id}`
+
 const activeTab = ref<ClassTab>('assignments')
 
 const onTabChange = async (tab: ClassTab) => {
@@ -276,7 +322,21 @@ const handleCreateExam = async (values: CreateExamInput) => {
     }
 }
 
+// One "New Assignment" dialog, with a type switch deciding which form (and service) is used.
 const isCreateDialogOpen = ref(false)
+const newAssignmentType = ref<'classic' | 'annotation'>('classic')
+
+const handleCreateAnnotation = async (values: CreateAnnotationAssignmentInput) => {
+    try {
+        const created = await annotationAssignmentService.create(values)
+        annotationAssignments.value.push(created)
+        isCreateDialogOpen.value = false
+        toast.success('Annotation assignment created')
+    } catch (err) {
+        toast.error(apiErrorMessage(err, 'Failed to create annotation assignment'))
+    }
+}
+
 const isEditDialogOpen = ref(false)
 const isAddStudentOpen = ref(false)
 const isImportCsvOpen = ref(false)
@@ -477,7 +537,7 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
             <template v-if="activeTab === 'assignments'">
                 <div class="tw:flex tw:justify-between tw:mb-4">
                     <span class="tw:text-sm tw:text-navy-60">
-                        {{ assignments.length }} assignments
+                        {{ assignmentRows.length }} assignments
                     </span>
                     <McButton v-if="!isStudent" @click="isCreateDialogOpen = true">
                         <Plus class="tw:w-4 tw:h-4 tw:mr-1" />
@@ -486,35 +546,46 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                 </div>
 
                 <div
-                    v-if="isLoadingAssignments"
+                    v-if="isLoadingAssignments || isLoadingAnnotations"
                     class="tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
                 >
                     Loading assignments…
                 </div>
 
-                <div v-else-if="assignments.length > 0" class="tw:flex tw:flex-col tw:gap-3">
+                <div v-else-if="assignmentRows.length > 0" class="tw:flex tw:flex-col tw:gap-3">
                     <div
-                        v-for="assignment in assignments"
-                        :key="assignment.id"
+                        v-for="row in assignmentRows"
+                        :key="`${row.kind}-${row.item.id}`"
                         class="tw:flex tw:justify-between tw:items-center tw:gap-4 tw:p-4 tw:bg-white tw:rounded-xl tw:border tw:border-navy-10 tw:cursor-pointer tw:hover:border-primary/30 tw:hover:shadow-md tw:transition-all"
-                        @click="router.push(`/classes/${classId}/assignments/${assignment.id}`)"
+                        @click="router.push(rowLink(row))"
                     >
                         <div class="tw:flex tw:min-w-0 tw:items-center tw:gap-3">
                             <span
                                 class="tw:flex tw:h-10 tw:w-10 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-full tw:bg-primary/10 tw:text-primary"
                             >
-                                <FileText class="tw:h-5 tw:w-5" />
+                                <component
+                                    :is="row.kind === 'annotation' ? Shapes : FileText"
+                                    class="tw:h-5 tw:w-5"
+                                />
                             </span>
                             <div class="tw:flex tw:min-w-0 tw:flex-col tw:gap-0.5">
-                                <h3
-                                    class="tw:truncate tw:text-sm tw:font-semibold tw:text-navy-100"
-                                >
-                                    {{ assignment.name }}
-                                </h3>
+                                <div class="tw:flex tw:min-w-0 tw:items-center tw:gap-2">
+                                    <h3
+                                        class="tw:truncate tw:text-sm tw:font-semibold tw:text-navy-100"
+                                    >
+                                        {{ row.item.name }}
+                                    </h3>
+                                    <span
+                                        v-if="row.kind === 'annotation'"
+                                        class="tw:shrink-0 tw:rounded-full tw:bg-primary/10 tw:px-2 tw:py-0.5 tw:text-[10px] tw:font-medium tw:text-primary"
+                                    >
+                                        Annotation
+                                    </span>
+                                </div>
                                 <p class="tw:text-xs tw:text-navy-50">
                                     {{
-                                        assignment.due_date
-                                            ? `Due ${dueDateText(assignment.due_date, 'MMM D, YYYY')}`
+                                        row.item.due_date
+                                            ? `Due ${dueDateText(row.item.due_date, 'MMM D, YYYY')}`
                                             : 'Never due'
                                     }}
                                 </p>
@@ -524,26 +595,24 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                             <!-- Students get their own standing on the work; instructors get
                                  the assignment's own state, which is what they author. -->
                             <template v-if="isStudent">
-                                <!-- Status badge (the action) with the grade as smaller text just
-                                     below it - "Graded: 2/5", only once graded. -->
                                 <div class="tw:flex tw:flex-col tw:items-end tw:gap-1">
-                                    <McBadge :variant="rowStatus(assignment).variant">
-                                        {{ rowStatus(assignment).label }}
+                                    <McBadge :variant="rowStatus(row.item).variant">
+                                        {{ rowStatus(row.item).label }}
                                     </McBadge>
                                     <span
-                                        v-if="rowScore(assignment)"
+                                        v-if="rowScore(row.item)"
                                         data-testid="row-score"
                                         class="tw:text-[11px] tw:font-medium tw:text-navy-60 tw:tabular-nums"
                                     >
-                                        {{ rowScore(assignment) }}
+                                        {{ rowScore(row.item) }}
                                     </span>
                                 </div>
                             </template>
                             <McBadge
                                 v-else
-                                :variant="assignment.status === 'active' ? 'default' : 'outline'"
+                                :variant="row.item.status === 'active' ? 'default' : 'outline'"
                             >
-                                {{ assignment.status === 'active' ? 'Active' : 'Closed' }}
+                                {{ row.item.status === 'active' ? 'Active' : 'Closed' }}
                             </McBadge>
                         </div>
                     </div>
@@ -796,9 +865,71 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
 
         <McDialog v-model:open="isCreateDialogOpen">
             <McDialogContent class="tw:max-w-lg tw:sm:max-w-2xl">
+                <McDialogHeader>
+                    <McDialogTitle>Create New Assignment</McDialogTitle>
+                </McDialogHeader>
+                <!-- Type switch: a classic question-based assignment, or an annotation assignment.
+                     The two forms (and services) are otherwise independent. -->
+                <div class="tw:flex tw:gap-2 tw:px-2 tw:pt-1">
+                    <button
+                        type="button"
+                        class="tw:flex-1 tw:rounded-lg tw:border tw:p-3 tw:text-left tw:transition-colors"
+                        :class="
+                            newAssignmentType === 'classic'
+                                ? 'tw:border-primary tw:bg-primary/5'
+                                : 'tw:border-navy-15 tw:hover:bg-navy-5'
+                        "
+                        @click="newAssignmentType = 'classic'"
+                    >
+                        <span
+                            class="tw:flex tw:items-center tw:gap-1.5 tw:text-sm tw:font-semibold"
+                            :class="
+                                newAssignmentType === 'classic'
+                                    ? 'tw:text-primary'
+                                    : 'tw:text-navy-80'
+                            "
+                        >
+                            <FileText class="tw:size-4" /> Classic
+                        </span>
+                        <span class="tw:mt-0.5 tw:block tw:text-xs tw:text-navy-50">
+                            Questions — choice, fill-in, image, slide.
+                        </span>
+                    </button>
+                    <button
+                        type="button"
+                        class="tw:flex-1 tw:rounded-lg tw:border tw:p-3 tw:text-left tw:transition-colors"
+                        :class="
+                            newAssignmentType === 'annotation'
+                                ? 'tw:border-primary tw:bg-primary/5'
+                                : 'tw:border-navy-15 tw:hover:bg-navy-5'
+                        "
+                        @click="newAssignmentType = 'annotation'"
+                    >
+                        <span
+                            class="tw:flex tw:items-center tw:gap-1.5 tw:text-sm tw:font-semibold"
+                            :class="
+                                newAssignmentType === 'annotation'
+                                    ? 'tw:text-primary'
+                                    : 'tw:text-navy-80'
+                            "
+                        >
+                            <Shapes class="tw:size-4" /> Annotation
+                        </span>
+                        <span class="tw:mt-0.5 tw:block tw:text-xs tw:text-navy-50">
+                            Students annotate an album's images.
+                        </span>
+                    </button>
+                </div>
                 <CreateAssignment
+                    v-if="newAssignmentType === 'classic'"
                     :default-class-id="classId"
                     @save="handleCreate"
+                    @cancel="isCreateDialogOpen = false"
+                />
+                <CreateAnnotationAssignment
+                    v-else
+                    :default-class-id="classId"
+                    @save="handleCreateAnnotation"
                     @cancel="isCreateDialogOpen = false"
                 />
             </McDialogContent>
