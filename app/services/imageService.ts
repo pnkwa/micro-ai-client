@@ -208,7 +208,9 @@ export const imageService = {
             method: 'POST',
             body: {
                 model,
-                ...(segmentModel !== undefined && { segment_model: segmentModel ?? '' }),
+                // JSON carries null, so skip travels as a real null (not an empty-string
+                // sentinel): the server reads null as "opt out of chaining".
+                ...(segmentModel !== undefined && { segment_model: segmentModel }),
             },
         })
         return detectionSchema.parse(response)
