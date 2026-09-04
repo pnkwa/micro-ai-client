@@ -35,6 +35,7 @@ import BottomTools from '~/features/components/annotator/mobile/BottomTools.vue'
 import ClassStrip from '~/features/components/annotator/mobile/ClassStrip.vue'
 import AnnotateQueue from '~/features/components/annotation/AnnotateQueue.vue'
 import AnnotatePanel from '~/features/components/annotation/AnnotatePanel.vue'
+import AnnotateBrief from '~/features/components/annotation/AnnotateBrief.vue'
 import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 
 const route = useRoute()
@@ -664,77 +665,102 @@ const percent = computed(() =>
         </template>
 
         <template #canvas>
-            <AnnotationCanvas
-                v-if="current"
-                ref="canvas"
-                v-model:shapes="currentShapes"
-                v-model:selected-id="selectedId"
-                :src="current.url"
-                :name="currentName"
-                :tool="tool"
-                :default-curated="false"
-                :palette="palette"
-                :hidden-ids="hiddenIds"
-                :touch-layout="isTouchLayout"
-                @label-shape="labelShape"
-                @commit="commit"
-                @undo="undoStep"
-            />
+            <!-- A column so the tablet brief band can sit above the canvas; the canvas and its
+                 floating overlays keep their own positioning context in the flex-1 child, so the
+                 band never shifts where a pill or the loading state lands. -->
+            <div class="tw:flex tw:h-full tw:min-h-0 tw:flex-col">
+                <!-- Tablet/phone only: instructions, the fill-in form and Mark done / Skip ride
+                     ABOVE the canvas so a student cannot miss them (keyed by image, so each opens
+                     expanded). On a wide screen these stay in the docked panel and this is absent. -->
+                <AnnotateBrief
+                    v-if="stacked && current"
+                    :key="current.imageId"
+                    collapsible
+                    :instructions="assignment?.instructions"
+                    :field-prompts="config?.field_prompts ?? []"
+                    :responses="current.responses"
+                    :status="current.status"
+                    :shapes-count="currentShapes.length"
+                    :allow-skip="Boolean(config?.allow_skip)"
+                    @update-response="setResponse"
+                    @mark-done="markDone"
+                    @skip="skip"
+                />
 
-            <!-- returned-for-changes banner, pinned over the top of the canvas -->
-            <div
-                v-if="returnedReason !== null"
-                class="tw:absolute tw:inset-x-0 tw:top-0 tw:z-10 tw:flex tw:items-start tw:gap-2 tw:border-b tw:border-warning/30 tw:bg-warning/10 tw:px-3 tw:py-2 tw:text-[12.5px] tw:text-an-text tw:backdrop-blur"
-            >
-                <Undo2 class="tw:mt-0.5 tw:size-4 tw:shrink-0 tw:text-warning" />
-                <span>
-                    <b>Returned for changes.</b>
-                    <template v-if="returnedReason">{{ returnedReason }}</template>
-                    <template v-else>Edit your work and resubmit.</template>
-                </span>
+                <div class="tw:relative tw:min-h-0 tw:flex-1">
+                    <AnnotationCanvas
+                        v-if="current"
+                        ref="canvas"
+                        v-model:shapes="currentShapes"
+                        v-model:selected-id="selectedId"
+                        :src="current.url"
+                        :name="currentName"
+                        :tool="tool"
+                        :default-curated="false"
+                        :palette="palette"
+                        :hidden-ids="hiddenIds"
+                        :touch-layout="isTouchLayout"
+                        @label-shape="labelShape"
+                        @commit="commit"
+                        @undo="undoStep"
+                    />
+
+                    <!-- returned-for-changes banner, pinned over the top of the canvas -->
+                    <div
+                        v-if="returnedReason !== null"
+                        class="tw:absolute tw:inset-x-0 tw:top-0 tw:z-10 tw:flex tw:items-start tw:gap-2 tw:border-b tw:border-warning/30 tw:bg-warning/10 tw:px-3 tw:py-2 tw:text-[12.5px] tw:text-an-text tw:backdrop-blur"
+                    >
+                        <Undo2 class="tw:mt-0.5 tw:size-4 tw:shrink-0 tw:text-warning" />
+                        <span>
+                            <b>Returned for changes.</b>
+                            <template v-if="returnedReason">{{ returnedReason }}</template>
+                            <template v-else>Edit your work and resubmit.</template>
+                        </span>
+                    </div>
+
+                    <div
+                        v-if="loading"
+                        class="tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:text-an-d-text"
+                    >
+                        Loading…
+                    </div>
+
+                    <ToolDock
+                        v-if="!stacked"
+                        :tool="tool"
+                        :can-undo="canUndoAny"
+                        :can-redo="canRedo"
+                        :can-delete="Boolean(selectedId)"
+                        @update:tool="tool = $event"
+                        @undo="undoStep"
+                        @redo="redo"
+                        @delete-selected="deleteSelected"
+                    />
+                    <PagerPill
+                        :name="currentName"
+                        :index="currentIndex + 1"
+                        :total="fields.length"
+                        @previous="goTo(currentIndex - 1)"
+                        @next="goTo(currentIndex + 1)"
+                    />
+                    <HintBar
+                        v-if="!stacked"
+                        :tool="tool"
+                        :selected-count="selectedId ? 1 : 0"
+                        :drafting="Boolean(canvas?.hasDraft)"
+                    />
+                    <ZoomPill
+                        :percent="zoomPct"
+                        :at-fit="atFit"
+                        :enabled="canZoom"
+                        :all-hidden="allHidden"
+                        @zoom-in="canvas?.zoomIn()"
+                        @zoom-out="canvas?.zoomOut()"
+                        @fit="canvas?.fit()"
+                        @toggle-visibility="toggleAllHidden"
+                    />
+                </div>
             </div>
-
-            <div
-                v-if="loading"
-                class="tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:text-an-d-text"
-            >
-                Loading…
-            </div>
-
-            <ToolDock
-                v-if="!stacked"
-                :tool="tool"
-                :can-undo="canUndoAny"
-                :can-redo="canRedo"
-                :can-delete="Boolean(selectedId)"
-                @update:tool="tool = $event"
-                @undo="undoStep"
-                @redo="redo"
-                @delete-selected="deleteSelected"
-            />
-            <PagerPill
-                :name="currentName"
-                :index="currentIndex + 1"
-                :total="fields.length"
-                @previous="goTo(currentIndex - 1)"
-                @next="goTo(currentIndex + 1)"
-            />
-            <HintBar
-                v-if="!stacked"
-                :tool="tool"
-                :selected-count="selectedId ? 1 : 0"
-                :drafting="Boolean(canvas?.hasDraft)"
-            />
-            <ZoomPill
-                :percent="zoomPct"
-                :at-fit="atFit"
-                :enabled="canZoom"
-                :all-hidden="allHidden"
-                @zoom-in="canvas?.zoomIn()"
-                @zoom-out="canvas?.zoomOut()"
-                @fit="canvas?.fit()"
-                @toggle-visibility="toggleAllHidden"
-            />
         </template>
 
         <template #labels>
@@ -815,7 +841,10 @@ const percent = computed(() =>
 
             <McSheet v-model:open="panelSheetOpen">
                 <McSheetContent side="right" class="tw:flex tw:w-[320px] tw:flex-col tw:p-0">
+                    <!-- The brief (instructions, form, Mark done / Skip) is the top band above the
+                         canvas on this layout, so the drawer drops it and shows classes + shapes. -->
                     <AnnotatePanel
+                        :show-brief="false"
                         :instructions="assignment?.instructions"
                         :field-prompts="config?.field_prompts ?? []"
                         :responses="current?.responses ?? null"

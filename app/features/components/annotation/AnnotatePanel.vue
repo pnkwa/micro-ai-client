@@ -13,17 +13,26 @@ import type { Shape } from '~/core/helpers/annotationShapes'
 import type { AnnotationLabel } from '~/services/annotationLabelService'
 import type { FieldPrompt } from '~/services/annotationAssignmentService'
 
-const props = defineProps<{
-    instructions: string | null | undefined
-    fieldPrompts: FieldPrompt[]
-    responses: Record<string, string> | null
-    status: 'pending' | 'completed' | 'skipped' | null
-    shapes: Shape[]
-    selectedId: string | null
-    hiddenIds: Set<string>
-    palette: AnnotationLabel[]
-    allowSkip: boolean
-}>()
+const props = withDefaults(
+    defineProps<{
+        instructions: string | null | undefined
+        fieldPrompts: FieldPrompt[]
+        responses: Record<string, string> | null
+        status: 'pending' | 'completed' | 'skipped' | null
+        shapes: Shape[]
+        selectedId: string | null
+        hiddenIds: Set<string>
+        palette: AnnotationLabel[]
+        allowSkip: boolean
+        /**
+         * Show instructions, the fill-in form and Mark done / Skip. On a tablet these move to the
+         * AnnotateBrief band above the canvas, so the panel drawer turns them off and is left with
+         * the classes and the shape list.
+         */
+        showBrief?: boolean
+    }>(),
+    { showBrief: true },
+)
 
 const emit = defineEmits<{
     'update-response': [key: string, value: string]
@@ -41,7 +50,7 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
 <template>
     <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col">
         <!-- instructions -->
-        <div class="tw:flex tw:min-h-0 tw:flex-col">
+        <div v-if="showBrief" class="tw:flex tw:min-h-0 tw:flex-col">
             <div class="tw:flex tw:items-center tw:gap-2 tw:pt-3 tw:pr-3 tw:pl-3.5">
                 <span
                     class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text"
@@ -56,7 +65,7 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
 
         <!-- per-image fill-in form (field_prompts) -->
         <div
-            v-if="responses && fieldPrompts.length > 0"
+            v-if="showBrief && responses && fieldPrompts.length > 0"
             class="tw:shrink-0 tw:border-t tw:border-an-border tw:bg-an-panel tw:px-4 tw:py-3"
         >
             <div class="tw:flex tw:flex-wrap tw:items-center tw:gap-4">
@@ -163,7 +172,10 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
             </section>
         </div>
 
-        <div class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:p-3">
+        <div
+            v-if="showBrief"
+            class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:p-3"
+        >
             <!-- Once a box is drawn, Skip stops making sense, so it goes and Done takes the row.
                  Done reads as outline once the image is already marked complete. -->
             <div class="tw:flex tw:gap-2">
