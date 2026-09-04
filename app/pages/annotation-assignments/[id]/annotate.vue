@@ -781,14 +781,15 @@ const percent = computed(() =>
             />
         </template>
         <template #bottom-classes>
-            <!-- Quick-pick strip. Naming a new class needs a text field, so "+" opens the panel
-                 sheet where the full ClassPicker lives (a fixed label_set hides "+" entirely). -->
+            <!-- Quick-pick strip. "+" opens an inline name + colour row right here (a fixed
+                 label_set hides "+" entirely), so a student never has to reach the panel drawer
+                 to add a class on a phone. -->
             <ClassStrip
                 :classes="classes"
                 :active="activeLabelId"
                 :fixed="fixedLabelSet"
                 @pick="pickClass"
-                @create="panelSheetOpen = true"
+                @create="createClass"
             />
         </template>
 

@@ -1141,6 +1141,19 @@ const hitSize = computed(() => (isCoarsePointer.value || props.touchLayout ? TOU
 /** Screen height a chip needs above its anchor to clear the top edge; below it, the chip flips under. */
 const CHIP_CLEARANCE = 26
 
+/** A label chip may run to this multiple of its shape's on-screen width before it truncates... */
+const LABEL_WIDTH_MULT = 3
+/** ...but never narrower than this, so a small box still shows a few characters and an ellipsis. */
+const LABEL_WIDTH_FLOOR = 56
+
+/** A shape's width on screen, in CSS pixels, at the current zoom (polygons measured by bbox). */
+const shapeWidthPx = (shape: Shape): number => {
+    const xs = shape.polygon?.length ? shape.polygon.map((p) => p.x) : [shape.x, shape.x + shape.w]
+    const left = view.toScreen({ x: Math.min(...xs), y: 0 }).x
+    const right = view.toScreen({ x: Math.max(...xs), y: 0 }).x
+    return right - left
+}
+
 /**
  * The point a shape's label hangs from.
  *
@@ -1158,6 +1171,7 @@ const topAnchor = (shape: Shape): Point => {
 const labelBoxes = computed(() => {
     const nat = natural.value
     if (!nat) return []
+    const vw = viewport.value.w
     return visibleShapes.value
         .filter((shape) => shape.label || shape.id === selectedId.value)
         .map((shape) => {
@@ -1170,15 +1184,18 @@ const labelBoxes = computed(() => {
                 // corner); flip it below when the peak is too near the top to clear the chip.
                 center: !!shape.polygon,
                 below: !!shape.polygon && at.y < CHIP_CLEARANCE,
-                // The detail the mockup carries: a seeded shape shows what the model thought, a
-                // selected polygon shows its point count. Neither is worth the width on every chip
-                // at once, so an unselected hand-drawn box shows nothing extra.
-                detail:
-                    confidence !== undefined
-                        ? confidence.toFixed(2)
-                        : shape.id === selectedId.value && shape.polygon
-                          ? `${shape.polygon.length} pts`
-                          : null,
+                // A seeded shape shows what the model thought; nothing else earns the width. The
+                // polygon's point count used to show here and read as a graded score, so it is gone.
+                detail: confidence !== undefined ? confidence.toFixed(2) : null,
+                // How wide the chip may grow: at most three times the shape's own on-screen width
+                // (a floor so a tiny box still shows a few characters, and never past the old 40%
+                // cap), so a long name is truncated rather than sprawling across the picture.
+                maxWidth: Math.round(
+                    Math.min(
+                        vw * 0.4,
+                        Math.max(LABEL_WIDTH_FLOOR, LABEL_WIDTH_MULT * shapeWidthPx(shape)),
+                    ),
+                ),
                 // White when there is no class, matching the outline. The chip then needs dark
                 // text, since white on white is nothing at all.
                 color: colorForShape(props.palette, shape) ?? NEUTRAL,
@@ -1653,6 +1670,9 @@ defineExpose({
                     // A polygon centres over its peak vertex, and flips below it near the top edge.
                     transform: `${entry.center ? 'translateX(-50%) ' : ''}${entry.below ? 'translateY(3px)' : 'translateY(-100%)'}`,
                     background: entry.color,
+                    // Capped to a few times the shape's width so a long name truncates; lifted
+                    // while editing so a name being typed is never clipped mid-word.
+                    maxWidth: editingId === entry.id ? undefined : `${entry.maxWidth}px`,
                 }"
                 :title="entry.shape.id === selectedId ? 'Click to name this shape' : undefined"
                 @pointerdown.stop

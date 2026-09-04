@@ -66,8 +66,13 @@ const PROMPT_TYPES = [
     { value: 'textarea', label: 'Paragraph' },
     { value: 'number', label: 'Number' },
 ] as const
+// A hard cap keeps the per-image form short enough to fit above the canvas on a tablet, and the
+// label length is bounded so a prompt cannot push the collapsible header out of shape.
+const MAX_PROMPTS = 5
+const MAX_PROMPT_LABEL = 60
 const fieldPrompts = ref<FieldPromptRow[]>([])
-const addPrompt = () =>
+const addPrompt = () => {
+    if (fieldPrompts.value.length >= MAX_PROMPTS) return
     fieldPrompts.value.push({
         key: '',
         label: '',
@@ -76,6 +81,7 @@ const addPrompt = () =>
         gradable: false,
         points: 1,
     })
+}
 const removePrompt = (i: number) => fieldPrompts.value.splice(i, 1)
 
 // A key is derived from the label if the author leaves it blank, so they rarely see it.
@@ -242,6 +248,7 @@ const handleSave = handleSubmit((values) => {
                 <GripVertical class="tw:size-4 tw:shrink-0 tw:text-navy-30" />
                 <McInput
                     v-model="row.label"
+                    :maxlength="MAX_PROMPT_LABEL"
                     placeholder="Field label (e.g. Diagnosis)"
                     class="tw:flex-1"
                 />
@@ -286,9 +293,20 @@ const handleSave = handleSubmit((values) => {
                     <X class="tw:size-4" />
                 </button>
             </div>
-            <McButton type="button" variant="outline" size="sm" class="tw:w-fit" @click="addPrompt">
+            <McButton
+                type="button"
+                variant="outline"
+                size="sm"
+                class="tw:w-fit"
+                :disabled="fieldPrompts.length >= MAX_PROMPTS"
+                @click="addPrompt"
+            >
                 <Plus class="tw:mr-1 tw:size-3.5" />
-                Add fill-in field
+                {{
+                    fieldPrompts.length >= MAX_PROMPTS
+                        ? `Up to ${MAX_PROMPTS} fields`
+                        : 'Add fill-in field'
+                }}
             </McButton>
         </div>
     </form>

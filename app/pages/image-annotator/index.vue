@@ -1433,7 +1433,7 @@ const step = (delta: number) => {
                 :classes="classes"
                 :active="activeLabelId"
                 @pick="pickClass"
-                @create="toast.info('Add a class from the labels panel on a wider screen.')"
+                @create="createClass"
             />
         </template>
 

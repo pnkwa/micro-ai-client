@@ -67,7 +67,15 @@ export default defineNuxtConfig({
                 lang: 'en',
             },
             meta: [
-                { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+                // maximum-scale + user-scalable pin the page at 1x: the annotator zooms the image
+                // itself, and a stray two-finger gesture zooming the whole page (not the picture)
+                // was the actual complaint on tablets. Note iOS Safari ignores user-scalable for
+                // accessibility, so on iPad this reins in Chrome/Android but not Safari's pinch.
+                {
+                    name: 'viewport',
+                    content:
+                        'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no',
+                },
                 { charset: 'utf-8' },
                 { name: 'format-detection', content: 'telephone=no' },
             ],

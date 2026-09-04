@@ -34,7 +34,8 @@ const emit = defineEmits<{
 }>()
 
 const shapeColor = (s: Shape) => colorForShape(props.palette, s) ?? 'var(--color-an-n-250)'
-const shapeMeta = (s: Shape) => (s.polygon ? `polygon, ${s.polygon.length} pts` : 'rectangle')
+// No node count: "N pts" beside a label read as a graded score to students. Shape kind is enough.
+const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
 </script>
 
 <template>
