@@ -17,13 +17,16 @@ export const labelClassSchema = z.object({
 })
 export type LabelClass = z.infer<typeof labelClassSchema>
 
-// One per-image form slot the student fills alongside the boxes.
+// One per-image form slot the student fills alongside the boxes. A `gradable` slot is marked
+// correct/incorrect during review and a correct answer adds `points` to the score (BE-ADR-039).
 export const fieldPromptSchema = z.object({
     key: z.string(),
     label: z.string(),
     type: z.enum(FIELD_PROMPT_TYPES),
     required: z.boolean(),
     options: z.array(z.string()).optional(),
+    gradable: z.boolean().optional(),
+    points: z.number().optional(),
 })
 export type FieldPrompt = z.infer<typeof fieldPromptSchema>
 
@@ -60,7 +63,12 @@ export type AnnotationAssignmentListItem = z.infer<typeof assignmentListItemSche
 export const annotationFieldStatusValues = ['pending', 'completed', 'skipped'] as const
 export type AnnotationFieldStatus = (typeof annotationFieldStatusValues)[number]
 
-export const annotationReviewStatusValues = ['unreviewed', 'approved', 'flagged'] as const
+export const annotationReviewStatusValues = [
+    'unreviewed',
+    'approved',
+    'flagged',
+    'incorrect',
+] as const
 export type AnnotationReviewStatus = (typeof annotationReviewStatusValues)[number]
 
 // One box the student drew (free-text label; geometry normalized [0,1]).
@@ -94,6 +102,8 @@ export const submissionFieldSchema = z.object({
     responses: z.record(z.string(), z.unknown()),
     review_status: z.enum(annotationReviewStatusValues),
     remark: z.string().nullable(),
+    // Instructor's correct/incorrect marks for this image's gradable prompts, keyed by prompt key.
+    field_marks: z.record(z.string(), z.boolean()).nullable().optional(),
     reviewed_at: z.string().nullable(),
     annotations: z.array(studentBoxSchema),
     // Staff reads only.
@@ -110,6 +120,11 @@ export const annotationSubmissionSchema = z.object({
     graded_at: z.string().nullable(),
     feedback: z.string().nullable(),
     rejection_reason: z.string().nullable(),
+    // The grade (BE-ADR-039): `score` is null for a student until graded; `points_possible` is the
+    // total it is out of. Each image is 1 point (approved 1 / flagged 0.5 / incorrect 0) plus its
+    // correct gradable-field points.
+    score: z.number().nullable(),
+    points_possible: z.number().nullable(),
     fields: z.array(submissionFieldSchema),
 })
 export type AnnotationSubmission = z.infer<typeof annotationSubmissionSchema>
@@ -270,12 +285,20 @@ export const annotationAssignmentService = {
     async reviewField(
         submissionId: number,
         imageId: number,
-        payload: { reviewStatus: AnnotationReviewStatus; remark?: string | null },
+        payload: {
+            reviewStatus: AnnotationReviewStatus
+            remark?: string | null
+            fieldMarks?: Record<string, boolean>
+        },
     ): Promise<AnnotationSubmission> {
         const { $api } = useNuxtApp()
         const response = await $api(annotationAssignmentRoutes.reviewField(submissionId, imageId), {
             method: 'PATCH',
-            body: { review_status: payload.reviewStatus, remark: payload.remark },
+            body: {
+                review_status: payload.reviewStatus,
+                remark: payload.remark,
+                ...(payload.fieldMarks !== undefined && { field_marks: payload.fieldMarks }),
+            },
         })
         return annotationSubmissionSchema.parse(response)
     },

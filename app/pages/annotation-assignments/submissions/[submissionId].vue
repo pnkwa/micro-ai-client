@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, Eye, Flag, Undo2 } from '@lucide/vue'
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Eye, Flag, Undo2, X } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -34,10 +34,12 @@ const assignment = ref<AnnotationAssignment | null>(null)
 const studentName = ref<string | null>(null)
 const loading = ref(true)
 const currentIndex = ref(0)
-const showExpert = ref(true)
+const showExpert = ref(false)
 const imageUrls = ref<Map<number, string>>(new Map())
 // Per-image remark drafts (staff), keyed by image_id and seeded from the saved review.
 const remarks = ref<Record<number, string>>({})
+// Per-image correct/incorrect marks for gradable prompts (staff), keyed by image_id then prompt key.
+const fieldMarks = ref<Record<number, Record<string, boolean>>>({})
 // Overall feedback draft, kept apart from `submission` so an approve/flag (which replaces
 // `submission` with the server's copy) doesn't wipe what the instructor is still typing.
 const feedbackDraft = ref('')
@@ -92,6 +94,14 @@ const reviewable = computed(() => items.value.filter((i) => i.field))
 const labelColors = ref<Record<string, string>>({})
 const prompts = computed(() => assignment.value?.annotation.field_prompts ?? [])
 
+// The grade the server computes (BE-ADR-039): staff see the live tally; the student sees it once
+// graded. `score` is null before it exists; `points_possible` is the total it is out of.
+const score = computed(() => submission.value?.score ?? null)
+const pointsPossible = computed(() => submission.value?.points_possible ?? null)
+const showScore = computed(() => score.value !== null && pointsPossible.value !== null)
+// Trim binary-float noise from summed half-points without forcing trailing zeros.
+const formatPts = (n: number) => Number(n.toFixed(2))
+
 const reviewedCount = computed(
     () => reviewable.value.filter((i) => i.field!.review_status !== 'unreviewed').length,
 )
@@ -106,6 +116,9 @@ async function load() {
         const sub = await annotationAssignmentService.getSubmission(submissionId)
         submission.value = sub
         remarks.value = Object.fromEntries(sub.fields.map((f) => [f.image_id, f.remark ?? '']))
+        fieldMarks.value = Object.fromEntries(
+            sub.fields.map((f) => [f.image_id, { ...(f.field_marks ?? {}) }]),
+        )
         feedbackDraft.value = sub.feedback ?? ''
         assignment.value = await annotationAssignmentService.getById(sub.assignment_id)
         if (isStaff.value) void resolveStudentName(assignment.value.class_id, sub.student_id)
@@ -164,8 +177,14 @@ async function goTo(index: number) {
     await loadImage(index)
 }
 
-// Approve/flag persist immediately with the current remark draft (mirrors "Mark reviewed").
-async function review(status: 'approved' | 'flagged') {
+// Verdict persists immediately with the current remark draft and field marks (mirrors "Mark
+// reviewed"). approved=1, flagged=0.5, incorrect=0 toward the image's point (BE-ADR-039).
+const verdictToast: Record<'approved' | 'flagged' | 'incorrect', string> = {
+    approved: 'Field approved',
+    flagged: 'Field flagged',
+    incorrect: 'Field marked incorrect',
+}
+async function review(status: 'approved' | 'flagged' | 'incorrect') {
     const field = current.value
     if (!field || savingField.value) return
     savingField.value = true
@@ -173,14 +192,24 @@ async function review(status: 'approved' | 'flagged') {
         submission.value = await annotationAssignmentService.reviewField(
             submissionId,
             field.image_id,
-            { reviewStatus: status, remark: remarks.value[field.image_id]?.trim() || null },
+            {
+                reviewStatus: status,
+                remark: remarks.value[field.image_id]?.trim() || null,
+                fieldMarks: fieldMarks.value[field.image_id] ?? {},
+            },
         )
-        toast.success(status === 'approved' ? 'Field approved' : 'Field flagged')
+        toast.success(verdictToast[status])
     } catch (err) {
         toast.error(apiErrorMessage(err, 'Could not save the review'))
     } finally {
         savingField.value = false
     }
+}
+
+// Toggle a gradable field's correct/incorrect draft; it persists on the next verdict click, like
+// the remark draft does.
+function setMark(imageId: number, key: string, correct: boolean) {
+    ;(fieldMarks.value[imageId] ??= {})[key] = correct
 }
 
 async function finalize() {
@@ -229,7 +258,9 @@ const reviewDotClass = (status: string) =>
         ? 'tw:bg-success'
         : status === 'flagged'
           ? 'tw:bg-warning'
-          : 'tw:bg-an-n-300'
+          : status === 'incorrect'
+            ? 'tw:bg-danger'
+            : 'tw:bg-an-n-300'
 
 const fieldStatusLabel = (f: SubmissionField) =>
     f.status === 'skipped'
@@ -273,6 +304,14 @@ onMounted(load)
                 :class="statusBadge(submission.status)"
             >
                 {{ submission.status }}
+            </span>
+
+            <span
+                v-if="showScore"
+                class="tw:ml-1 tw:inline-flex tw:items-center tw:rounded-full tw:border tw:border-an-accent tw:px-1.5 tw:text-[11px] tw:font-medium tw:tabular-nums tw:text-an-accent"
+                :title="isStaff && !isGraded ? 'Running score so far' : 'Score'"
+            >
+                {{ formatPts(score!) }} / {{ formatPts(pointsPossible!) }}
             </span>
 
             <div class="tw:flex-1"></div>
@@ -395,7 +434,7 @@ onMounted(load)
                     class="tw:absolute tw:top-3 tw:left-1/2 tw:z-10 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-2 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-3 tw:py-1.5 tw:text-[11.5px] tw:text-an-d-strong tw:backdrop-blur"
                 >
                     <input v-model="showExpert" type="checkbox" class="tw:accent-an-accent" />
-                    Show expert boxes
+                    Show answer key
                 </label>
 
                 <!-- pager -->
@@ -430,7 +469,7 @@ onMounted(load)
                 >
                     <span class="tw:flex tw:items-center tw:gap-1.5">
                         <span class="tw:w-4 tw:border-t-2 tw:border-dashed tw:border-an-accent" />
-                        Expert key
+                        Answer key
                     </span>
                     <span class="tw:flex tw:items-center tw:gap-1.5">
                         <span class="tw:w-4 tw:border-t-2" style="border-color: #7c5ce0" />
@@ -495,6 +534,43 @@ onMounted(load)
                         <span class="tw:font-medium tw:text-an-n-700">
                             {{ current ? responseText(current, p.key) : '—' }}
                         </span>
+                        <!-- gradable field: staff tick correct/incorrect; others see the result -->
+                        <template v-if="p.gradable && current">
+                            <label
+                                v-if="isStaff && !isGraded && !isRejected"
+                                class="tw:ml-auto tw:flex tw:shrink-0 tw:cursor-pointer tw:items-center tw:gap-1 tw:text-[11px] tw:text-an-faint"
+                                title="Tick if the student's answer is correct"
+                            >
+                                <input
+                                    type="checkbox"
+                                    class="tw:accent-an-accent"
+                                    :checked="!!fieldMarks[current.image_id]?.[p.key]"
+                                    @change="
+                                        setMark(
+                                            current.image_id,
+                                            p.key,
+                                            ($event.target as HTMLInputElement).checked,
+                                        )
+                                    "
+                                />
+                                Correct ({{ p.points ?? 1 }} pt)
+                            </label>
+                            <span
+                                v-else
+                                class="tw:ml-auto tw:shrink-0 tw:text-[11px] tw:font-medium"
+                                :class="
+                                    current.field_marks?.[p.key]
+                                        ? 'tw:text-success'
+                                        : 'tw:text-danger'
+                                "
+                            >
+                                {{
+                                    current.field_marks?.[p.key]
+                                        ? `Correct +${p.points ?? 1}`
+                                        : 'Incorrect'
+                                }}
+                            </span>
+                        </template>
                     </div>
                 </div>
 
@@ -535,13 +611,25 @@ onMounted(load)
                             <Flag class="tw:mr-1 tw:size-4" />
                             Flag
                         </McButton>
+                        <McButton
+                            variant="outline"
+                            size="sm"
+                            class="tw:border-danger tw:text-danger"
+                            :disabled="savingField || isGraded || isRejected"
+                            @click="review('incorrect')"
+                        >
+                            <X class="tw:mr-1 tw:size-4" />
+                            Incorrect
+                        </McButton>
                         <span
                             v-if="current && current.review_status !== 'unreviewed'"
                             class="tw:ml-auto tw:text-[11px] tw:capitalize"
                             :class="
                                 current.review_status === 'approved'
                                     ? 'tw:text-success'
-                                    : 'tw:text-warning'
+                                    : current.review_status === 'flagged'
+                                      ? 'tw:text-warning'
+                                      : 'tw:text-danger'
                             "
                         >
                             {{ current.review_status }}
@@ -559,11 +647,19 @@ onMounted(load)
                             :class="
                                 current.review_status === 'approved'
                                     ? 'tw:text-success'
-                                    : 'tw:text-warning'
+                                    : current.review_status === 'flagged'
+                                      ? 'tw:text-warning'
+                                      : 'tw:text-danger'
                             "
                         >
                             <component
-                                :is="current.review_status === 'approved' ? Check : Flag"
+                                :is="
+                                    current.review_status === 'approved'
+                                        ? Check
+                                        : current.review_status === 'flagged'
+                                          ? Flag
+                                          : X
+                                "
                                 class="tw:inline tw:size-4"
                             />
                             <span class="tw:ml-1 tw:capitalize">{{ current.review_status }}</span>

@@ -68,7 +68,14 @@ const PROMPT_TYPES = [
 ] as const
 const fieldPrompts = ref<FieldPromptRow[]>([])
 const addPrompt = () =>
-    fieldPrompts.value.push({ key: '', label: '', type: 'text', required: true })
+    fieldPrompts.value.push({
+        key: '',
+        label: '',
+        type: 'text',
+        required: true,
+        gradable: false,
+        points: 1,
+    })
 const removePrompt = (i: number) => fieldPrompts.value.splice(i, 1)
 
 // A key is derived from the label if the author leaves it blank, so they rarely see it.
@@ -113,6 +120,9 @@ const handleSave = handleSubmit((values) => {
             label: p.label.trim(),
             type: p.type,
             required: p.required,
+            gradable: p.gradable,
+            // Only meaningful when gradable; normalize to a non-negative number.
+            ...(p.gradable && { points: Math.max(0, Number(p.points) || 0) }),
         })),
     })
 })
@@ -248,6 +258,24 @@ const handleSave = handleSubmit((values) => {
                     <input v-model="row.required" type="checkbox" class="tw:accent-primary" />
                     Required
                 </label>
+                <label
+                    class="tw:flex tw:shrink-0 tw:items-center tw:gap-1.5 tw:text-xs tw:text-navy-70"
+                    title="Grade this field correct/incorrect during review"
+                >
+                    <input v-model="row.gradable" type="checkbox" class="tw:accent-primary" />
+                    Graded
+                </label>
+                <input
+                    v-if="row.gradable"
+                    v-model.number="row.points"
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    aria-label="Points if correct"
+                    title="Points a correct answer is worth"
+                    class="tw:h-9 tw:w-16 tw:shrink-0 tw:rounded-md tw:border tw:border-input tw:bg-background tw:px-2 tw:text-sm"
+                />
+                <span v-if="row.gradable" class="tw:shrink-0 tw:text-xs tw:text-navy-50">pts</span>
                 <button
                     type="button"
                     aria-label="Remove field"

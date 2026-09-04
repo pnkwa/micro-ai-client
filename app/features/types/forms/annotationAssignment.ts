@@ -21,10 +21,13 @@ export interface LabelClassRow {
     color: string
 }
 
-// One editable per-image form slot.
+// One editable per-image form slot. `gradable` marks it correct/incorrect during review, worth
+// `points` (BE-ADR-039).
 export interface FieldPromptRow {
     key: string
     label: string
     type: (typeof FIELD_PROMPT_TYPES)[number]
     required: boolean
+    gradable: boolean
+    points: number
 }
