@@ -10,7 +10,7 @@
  */
 
 export type HotkeyAction =
-    | { type: 'tool'; tool: 'select' | 'rectangle' | 'polygon' | 'delete' }
+    | { type: 'tool'; tool: 'select' | 'rectangle' | 'polygon' | 'pencil' | 'delete' }
     /** 1-9. Picks the class, or reclasses the selection - the caller decides which. */
     | { type: 'class'; digit: number }
     | { type: 'next-image' }
@@ -42,10 +42,12 @@ export interface HotkeyEvent {
     targetEditable?: boolean
 }
 
-const TOOLS: Record<string, 'select' | 'rectangle' | 'polygon' | 'delete'> = {
+const TOOLS: Record<string, 'select' | 'rectangle' | 'polygon' | 'pencil' | 'delete'> = {
     v: 'select',
     r: 'rectangle',
     p: 'polygon',
+    // `d` for draw: the pencil traces a freehand outline into a polygon.
+    d: 'pencil',
     // Erase is a TOOL, not a button acting on a selection: point at a shape to remove it, or at a
     // polygon's node to remove just that node. `e` rather than `d`, which is a hair from the Del
     // key's neighbourhood on the mental map and would read as a second binding for the same thing.
@@ -174,6 +176,7 @@ export const HOTKEY_GROUPS: { title: string; keys: { keys: string[]; label: stri
             { keys: ['V'], label: 'Select and pan' },
             { keys: ['R'], label: 'Rectangle' },
             { keys: ['P'], label: 'Polygon' },
+            { keys: ['D'], label: 'Pencil: trace an outline' },
             { keys: ['E'], label: 'Erase a shape or a polygon point' },
             { keys: ['Space'], label: 'Hold to pan' },
         ],

@@ -49,6 +49,8 @@ const parts = computed<Part[]>(() => {
     switch (props.tool) {
         case 'rectangle':
             return [{ text: 'Drag to draw a box' }]
+        case 'pencil':
+            return [{ text: 'Drag to trace an outline; it becomes a polygon when you let go' }]
         case 'delete':
             return [{ text: 'Click a shape to remove it, or a polygon point to remove that point' }]
         default:

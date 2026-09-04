@@ -52,7 +52,7 @@ import {
  * approach - it recomputes the browser's layout and has to agree with the CSS exactly - and its
  * comments record what happens when two descriptions of one rectangle disagree.
  */
-export type Tool = 'select' | 'rectangle' | 'polygon' | 'delete'
+export type Tool = 'select' | 'rectangle' | 'polygon' | 'pencil' | 'delete'
 
 const props = withDefaults(
     defineProps<{
@@ -462,6 +462,21 @@ const onPointerDown = (event: PointerEvent) => {
     // Ahead of every tool: a held Space means "move the picture", whatever is armed.
     if (props.spacePanning) {
         gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
+        return
+    }
+
+    /*
+     * The pencil tool TRACES. A drag with any pointer records an outline that is thinned into a
+     * polygon on release (the same trace the polygon tool offers a finger, made the whole tool).
+     *
+     * Deliberately the drawing route that works with an Apple Pencil: iPadOS reports the pencil as
+     * an ordinary touch, so placing points one tap at a time inherited the finger's hold-to-aim and
+     * was unusable, but a continuous drag is a gesture a mouse, a finger and a stylus all make
+     * identically. Two fingers still pinch (handled above), so the picture is reachable mid-drawing.
+     */
+    if (props.tool === 'pencil') {
+        tracing.value = [at]
+        gesture.value = { kind: 'none' }
         return
     }
 
@@ -1745,6 +1760,16 @@ defineExpose({
                 :style="{ left: `${viewport.w / 2}px` }"
             >
                 Drag to trace, or tap to place points
+            </div>
+
+            <!-- The pencil tool's line: a stylus (or finger) traces, so this is the tool an Apple
+                 Pencil draws with. Same placement and reason as the others. -->
+            <div
+                v-if="isTouchCapable && tool === 'pencil' && !tracing"
+                class="tw:pointer-events-none tw:absolute tw:top-2 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-1.5 tw:rounded-lg tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[12px] tw:text-an-d-text"
+                :style="{ left: `${viewport.w / 2}px` }"
+            >
+                Drag to trace an outline
             </div>
 
             <!-- The erase tool's own line. Same place, same reason: there is no hint bar on a

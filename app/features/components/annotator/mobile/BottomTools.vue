@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eraser, MousePointer2, Pentagon, Redo2, Square, Trash2, Undo2 } from '@lucide/vue'
+import { Eraser, MousePointer2, PenTool, Pentagon, Redo2, Square, Trash2, Undo2 } from '@lucide/vue'
 import type { Tool } from '../canvas/AnnotationCanvas.vue'
 
 /**
@@ -22,6 +22,9 @@ const tools = [
     { id: 'select', label: 'Select and pan', icon: MousePointer2 },
     { id: 'rectangle', label: 'Rectangle', icon: Square },
     { id: 'polygon', label: 'Polygon', icon: Pentagon },
+    // Trace a freehand outline into a polygon: a drag, which a stylus makes the same as a mouse,
+    // so it is the drawing tool that works with an Apple Pencil.
+    { id: 'pencil', label: 'Pencil (trace an outline)', icon: PenTool },
     // A mode, and the only delete a finger has: the trash beside it needs a selection, and
     // selecting on a touchscreen is the step this tool removes.
     { id: 'delete', label: 'Erase a shape or a point', icon: Eraser },
