@@ -40,7 +40,7 @@ export function useAnnotationDraft(assignmentId: number) {
         store.value = buildDraftRecord(input)
     }
 
-    /** Drop the draft — call once the work has been submitted. */
+    /** Drop the draft call once the work has been submitted. */
     function clear(): void {
         store.value = null
     }

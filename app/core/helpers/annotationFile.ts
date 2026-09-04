@@ -9,11 +9,11 @@ import {
 } from './annotationShapes'
 
 /**
- * The per-image annotation file — save / load / share one image's boxes within the platform, and
+ * The per-image annotation file save / load / share one image's boxes within the platform, and
  * the "template onto any image" import (BE-ADR-030, FE side).
  *
  * DELIBERATELY IMAGE-AGNOSTIC. Everything is normalized [0,1] (ML-ADR-002), so a set drawn on one
- * picture lands in the same relative places on another. `source_image_id` is PROVENANCE ONLY — it
+ * picture lands in the same relative places on another. `source_image_id` is PROVENANCE ONLY it
  * records where the set came from and is ignored on import, which is what makes the file a portable
  * template rather than a binding to one image.
  *
@@ -24,9 +24,9 @@ export const ANNOTATION_FILE_FORMAT = 'microai-annotations'
 export const ANNOTATION_FILE_VERSION = 1
 
 export interface AnnotationFileEntry {
-    /** The class text; null for an unnamed box (a real state — a box drawn before it is named). */
+    /** The class text; null for an unnamed box (a real state a box drawn before it is named). */
     label: string | null
-    /** Six-hex, no leading '#', or null — carried so a shared set can recreate its palette colours. */
+    /** Six-hex, no leading '#', or null carried so a shared set can recreate its palette colours. */
     color: string | null
     bbox: [number, number, number, number]
     /** `[[x, y], ...]` in normalized space; null for a plain box. */
@@ -38,7 +38,7 @@ export interface AnnotationFile {
     format: typeof ANNOTATION_FILE_FORMAT
     v: typeof ANNOTATION_FILE_VERSION
     coords: 'normalized'
-    /** Where the set was exported from. Provenance only — import ignores it. */
+    /** Where the set was exported from. Provenance only import ignores it. */
     source_image_id?: number
     annotations: AnnotationFileEntry[]
 }
@@ -51,7 +51,7 @@ export type ColorLookup = (shape: Shape) => string | null
  * `Shape[]` -> the file. Pure, so the round-trip is unit-tested rather than eyeballed in a download.
  *
  * Degenerate shapes are dropped here, the one place "what gets written" is decided, matching
- * `toAnnotationPayload` — a zero-area box or a two-point polygon is not a region worth saving.
+ * `toAnnotationPayload` a zero-area box or a two-point polygon is not a region worth saving.
  */
 export function serializeAnnotations(
     shapes: Shape[],
@@ -94,7 +94,7 @@ const asPolygon = (raw: unknown): number[][] | null => {
  * to mean anything.
  *
  * Throws a readable error on anything that is not one of our files, rather than letting a bad shape
- * reach the canvas as `NaN` — the caller turns the message into a toast. The version/format guard is
+ * reach the canvas as `NaN` the caller turns the message into a toast. The version/format guard is
  * what lets the shape change later without a v1 file being read as if it were the new one.
  */
 export function parseAnnotationsFile(raw: unknown): AnnotationFile {

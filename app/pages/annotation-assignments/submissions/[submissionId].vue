@@ -50,7 +50,7 @@ const rejectOpen = ref(false)
 const rejectReason = ref('')
 
 // Review is numbered over the ALBUM images (the same order and count the student saw), not over
-// submission.fields — the server returns fields only for images the student addressed, so a pending
+// submission.fields the server returns fields only for images the student addressed, so a pending
 // image earlier in the album would otherwise shift every later "Image NN" out of step with the
 // student's view (and show a different photo). Each album image carries its field when worked.
 interface ReviewItem {
@@ -157,7 +157,7 @@ async function loadReviewColors() {
         const labels = await annotationLabelService.list()
         labelColors.value = Object.fromEntries(labels.map((l) => [l.label, l.color_hex]))
     } catch {
-        /* no palette / not permitted — boxes fall back to the default colour */
+        /* no palette / not permitted boxes fall back to the default colour */
     }
 }
 
@@ -220,9 +220,9 @@ async function finalize() {
             submissionId,
             feedbackDraft.value.trim() || null,
         )
-        toast.success('Review saved — the student can see their feedback')
+        toast.success('Review saved. The student can see their feedback')
     } catch (err) {
-        toast.error(apiErrorMessage(err, 'Could not finalize — is every field reviewed?'))
+        toast.error(apiErrorMessage(err, 'Could not finalize: is every field reviewed?'))
     } finally {
         finalizing.value = false
     }
@@ -269,7 +269,7 @@ const fieldStatusLabel = (f: SubmissionField) =>
 
 const responseText = (f: SubmissionField, key: string) => {
     const v = f.responses[key]
-    return v === undefined || v === null || v === '' ? '—' : String(v)
+    return v === undefined || v === null || v === '' ? '-' : String(v)
 }
 
 onMounted(load)
@@ -532,7 +532,7 @@ onMounted(load)
                     >
                         <span class="tw:w-24 tw:shrink-0 tw:text-an-faint">{{ p.label }}</span>
                         <span class="tw:font-medium tw:text-an-n-700">
-                            {{ current ? responseText(current, p.key) : '—' }}
+                            {{ current ? responseText(current, p.key) : '-' }}
                         </span>
                         <!-- gradable field: staff tick correct/incorrect; others see the result -->
                         <template v-if="p.gradable && current">
@@ -717,7 +717,7 @@ onMounted(load)
                     <textarea
                         v-model="rejectReason"
                         rows="3"
-                        placeholder="e.g. Several images are unlabelled — please complete them and resubmit."
+                        placeholder="e.g. Several images are unlabelled, please complete them and resubmit."
                         class="tw:rounded-md tw:border tw:border-input tw:px-3 tw:py-2 tw:text-sm tw:outline-none tw:focus:border-primary"
                     />
                 </div>

@@ -19,7 +19,7 @@ const props = defineProps<{
     active: number | null
     /**
      * A fixed vocabulary: the list cannot be added to and its colours cannot be changed. Used by an
-     * annotation assignment whose `label_set` the instructor authored — students pick from it only.
+     * annotation assignment whose `label_set` the instructor authored students pick from it only.
      */
     fixed?: boolean
 }>()

@@ -6,8 +6,8 @@ import type { AnnotationFieldStatus } from '~/services/annotationAssignmentServi
  * the server until Submit, so a refresh would otherwise lose every drawn box and form answer).
  *
  * Framework-free on purpose: the storage/auth glue lives in `useAnnotationDraft`, and the logic
- * worth testing — the version + staleness guard, the merge-by-imageId restore, the derivation of
- * student-added classes — lives here where the plain-node Vitest suite can reach it.
+ * worth testing the version + staleness guard, the merge-by-imageId restore, the derivation of
+ * student-added classes lives here where the plain-node Vitest suite can reach it.
  */
 
 /** Bump when the persisted shape changes; a record from an older version is discarded on read. */
@@ -16,7 +16,7 @@ export const DRAFT_VERSION = 1
 /** Drafts older than this are treated as abandoned. useStorage has no TTL of its own. */
 export const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
-/** One image's work. Deliberately excludes the blob object-URLs — they die on refresh anyway. */
+/** One image's work. Deliberately excludes the blob object-URLs they die on refresh anyway. */
 export interface DraftField {
     imageId: number
     shapes: Shape[]

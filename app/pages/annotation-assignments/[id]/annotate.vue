@@ -78,7 +78,7 @@ const draft = useAnnotationDraft(id)
 const palette = ref<AnnotationLabel[]>([])
 
 const config = computed(() => assignment.value?.annotation ?? null)
-// A fixed vocabulary the instructor authored: students pick from it only — no new classes, no
+// A fixed vocabulary the instructor authored: students pick from it only no new classes, no
 // recolouring, and colours follow the label_set.
 const fixedLabelSet = computed(() => (config.value?.label_set.length ?? 0) > 0)
 const current = computed<FieldState | null>(() => fields.value[currentIndex.value] ?? null)
@@ -90,7 +90,7 @@ const activeLabelId = ref<number | null>(null)
 const hiddenIds = ref<Set<string>>(new Set())
 
 // Which shape ids existed when the current image was opened, so auto-labelling (below) only touches
-// shapes drawn from here on — a label cleared later stays cleared, and restored work is untouched.
+// shapes drawn from here on a label cleared later stays cleared, and restored work is untouched.
 let knownShapeIds = new Set<string>()
 // Monotonic id source for student-added classes. Never reuses an id even after a class is pruned, so
 // `palette.length + 1` can't collide with a surviving row.
@@ -115,7 +115,7 @@ const canZoom = computed(() => Boolean(canvas.value?.ready))
 
 // ---- per-image undo/redo history ----
 // currentShapes swaps per image (unlike the single-image staff annotator), so each image keeps its
-// own stack, stashed here across switches and keyed by imageId. History is in-memory only — a
+// own stack, stashed here across switches and keyed by imageId. History is in-memory only a
 // refresh keeps the work (the draft) but starts undo fresh.
 const historyStore = new Map<number, { stack: Shape[][]; index: number }>()
 const history = ref<Shape[][]>([[]])
@@ -229,8 +229,8 @@ onMounted(async () => {
             thumb: null,
         }))
         // A prior submission locks the workspace: only a RETURNED (rejected) one reopens for editing
-        // and resubmission. A submission still awaiting review, or already graded, stays read-only —
-        // so a refresh can't reopen it — and the student is sent to the read-only feedback page.
+        // and resubmission. A submission still awaiting review, or already graded, stays read-only
+        // so a refresh can't reopen it and the student is sent to the read-only feedback page.
         const mine = await annotationAssignmentService.getMySubmission(id).catch(() => null)
         if (mine) {
             if (mine.status !== 'rejected') {
@@ -239,7 +239,7 @@ onMounted(async () => {
             }
             prefillFromSubmission(mine)
             returnedReason.value = mine.rejection_reason
-            toast.info('This submission was returned — edit it and resubmit')
+            toast.info('This submission was returned: edit it and resubmit')
         }
         // Fold a saved draft over the prior work (matched by imageId), then re-add the student's own
         // classes and resume on the image they left off.
@@ -275,7 +275,7 @@ onMounted(async () => {
         watch(currentShapes, labelNewShapes, { deep: true })
         watch([fields, activeLabelId], pruneUnusedClasses, { deep: true })
 
-        // Autosave from here on — the load above is done, so the first fire persists real edits, not
+        // Autosave from here on the load above is done, so the first fire persists real edits, not
         // the skeleton. Deep because the student mutates fields/shapes/responses in place; url/thumb
         // churn from lazy image loads also trips it but is filtered out of what gets written.
         watchDebounced(
@@ -348,7 +348,7 @@ function pickClass(labelId: number) {
             commit()
         }
     } else {
-        // Click the highlighted class again to switch it off — new shapes then stay unlabelled.
+        // Click the highlighted class again to switch it off new shapes then stay unlabelled.
         activeLabelId.value = activeLabelId.value === labelId ? null : labelId
     }
 }
@@ -377,7 +377,7 @@ function deleteSelected() {
     deleteShape(selectedId.value)
 }
 
-// Remove one shape from the current image — the per-row delete button in the labels list.
+// Remove one shape from the current image the per-row delete button in the labels list.
 function deleteShape(sid: string) {
     currentShapes.value = currentShapes.value.filter((s) => s.id !== sid)
     if (selectedId.value === sid) selectedId.value = null
@@ -411,7 +411,7 @@ function labelNewShapes() {
     }
 }
 
-// Label ids a shape uses on ANY image — a class belongs in the list while it is used somewhere.
+// Label ids a shape uses on ANY image a class belongs in the list while it is used somewhere.
 function usedLabelIdsEverywhere(): Set<number> {
     const used = new Set<number>()
     for (const f of fields.value)
@@ -420,7 +420,7 @@ function usedLabelIdsEverywhere(): Set<number> {
 }
 
 // Drop student-added classes no shape uses anywhere, keeping the one highlighted for drawing. The
-// instructor's fixed vocabulary — the first `label_set` rows — always stays, so students can still
+// instructor's fixed vocabulary the first `label_set` rows always stays, so students can still
 // pick the classes they are meant to use.
 function pruneUnusedClasses() {
     const baseCount = config.value?.label_set.length ?? 0
@@ -528,7 +528,7 @@ async function submit() {
         toast.success('Submitted')
         await router.push(`/annotation-assignments/submissions/${submission.id}`)
     } catch {
-        toast.error('Could not submit — check the highlighted fields')
+        toast.error('Could not submit: check the highlighted fields')
     } finally {
         submitting.value = false
     }

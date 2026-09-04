@@ -7,7 +7,7 @@ import type { StudentBox } from '~/services/annotationAssignmentService'
 
 /**
  * Read-only compare canvas for instructor review (BE-ADR-039, screen 7). Not the editable
- * AnnotationCanvas — nothing here is draggable, but it pans and ZOOMS: a microscopy field is often
+ * AnnotationCanvas nothing here is draggable, but it pans and ZOOMS: a microscopy field is often
  * only worth grading up close, and the boxes were drawn at a magnification the fitted view throws
  * away. It shares the annotator's `useCanvasViewport`, so fit / wheel-pan / pinch-zoom behave
  * exactly as they do while drawing, and the readout says "Fit 13%" the same way.
@@ -20,7 +20,7 @@ import type { StudentBox } from '~/services/annotationAssignmentService'
  * as the view zooms.
  *
  * Two layers: the student's boxes (solid, in their class colour) and, optionally, the instructor's
- * expert key (dashed teal). The student never mounts this with expert boxes — the server omits them.
+ * expert key (dashed teal). The student never mounts this with expert boxes the server omits them.
  */
 export interface ExpertBox {
     id: number
@@ -55,12 +55,12 @@ const ready = view.ready
 const atFit = view.atFit
 const percent = computed(() => zoomPercent(transform.value))
 
-/** Overlays off, to read the bare image while grading — the pill's eye toggles it. */
+/** Overlays off, to read the bare image while grading the pill's eye toggles it. */
 const overlaysHidden = ref(false)
 
 const onLoad = (event: Event) => view.measure(event.target as HTMLImageElement)
 
-/** Wheel pans; ctrl/⌘-wheel (and trackpad pinch) zooms at the cursor — same as the annotator. */
+/** Wheel pans; ctrl/⌘-wheel (and trackpad pinch) zooms at the cursor same as the annotator. */
 const onWheel = (event: WheelEvent) => {
     if (event.ctrlKey || event.metaKey) {
         view.zoomAtCursor(event, event.deltaY)

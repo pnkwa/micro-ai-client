@@ -9,7 +9,7 @@ import { assignmentSchema, assignmentListItemSchema } from './assignmentService'
 export const FIELD_PROMPT_TYPES = ['text', 'textarea', 'number', 'select'] as const
 export type FieldPromptType = (typeof FIELD_PROMPT_TYPES)[number]
 
-// One class in the fixed vocabulary — a snapshot copied from the author's palette (color = 6 hex,
+// One class in the fixed vocabulary a snapshot copied from the author's palette (color = 6 hex,
 // no leading #). Empty label_set = free-text labels.
 export const labelClassSchema = z.object({
     label: z.string(),
@@ -46,10 +46,10 @@ const annotationImageSchema = z.object({
     image: z.object({ id: z.number() }).passthrough(),
 })
 
-// GET /annotation-assignments/:id — the assignment view, its annotation config, and the album images.
+// GET /annotation-assignments/:id the assignment view, its annotation config, and the album images.
 //
 // `images` is OPTIONAL because the CREATE/UPDATE responses are the plain assignment view (no album
-// images attached — only the `GET /:id` read fans them in). Requiring it made `create()`'s parse
+// images attached only the `GET /:id` read fans them in). Requiring it made `create()`'s parse
 // throw on an otherwise-successful 201, which left the create dialog open. Defaults to [].
 export const annotationAssignmentSchema = assignmentSchema.extend({
     annotation: annotationConfigSchema,
@@ -267,7 +267,7 @@ export const annotationAssignmentService = {
     },
 
     // The student's own submission for an assignment, or null if they haven't submitted. Used to
-    // reload prior work into the workspace — notably a returned submission to edit and resubmit.
+    // reload prior work into the workspace notably a returned submission to edit and resubmit.
     async getMySubmission(id: number): Promise<AnnotationSubmission | null> {
         const { $api } = useNuxtApp()
         const response = await $api(annotationAssignmentRoutes.mySubmission(id))

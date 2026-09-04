@@ -102,7 +102,7 @@ const handleSave = handleSubmit((values) => {
     const prompts = fieldPrompts.value.filter((p) => p.label.trim())
     const keys = prompts.map(keyFor)
     if (new Set(keys).size !== keys.length)
-        return toast.error('Two fill-in fields resolve to the same key — rename one')
+        return toast.error('Two fill-in fields resolve to the same key: rename one')
 
     emit('save', {
         classId: props.defaultClassId,
@@ -153,7 +153,7 @@ const handleSave = handleSubmit((values) => {
             >
                 <option v-if="albumsLoading" :value="null">Loading…</option>
                 <option v-else-if="albums.length === 0" :value="null">
-                    No assignment albums — create one in the Image Library first
+                    No assignment albums: create one in the Image Library first
                 </option>
                 <option v-for="a in albums" :key="a.id" :value="a.id">{{ a.name }}</option>
             </select>
@@ -164,7 +164,8 @@ const handleSave = handleSubmit((values) => {
                 <span>
                     Students annotate the album's images. There is
                     <b>no auto-grading</b>
-                    — you review each student. Your own boxes on these images are the reference key.
+                    here, so you review each student. Your own boxes on these images are the
+                    reference key.
                 </span>
             </div>
         </div>

@@ -894,7 +894,7 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                             Classic
                         </span>
                         <span class="tw:mt-0.5 tw:block tw:text-xs tw:text-navy-50">
-                            Questions — choice, fill-in, image, slide.
+                            Questions: choice, fill-in, image, slide.
                         </span>
                     </button>
                     <button
