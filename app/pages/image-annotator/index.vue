@@ -866,6 +866,25 @@ const markReviewed = async (value: boolean) => {
     }
 }
 
+/**
+ * The image's metadata bag, edited from the meta card the same way the library's detail panel edits
+ * it (BE-ADR-031). The patch is changed-keys-only (metadataPatch), a shallow merge the server
+ * applies over whatever else the bag holds, so editing here and in the library cannot clobber each
+ * other's keys.
+ */
+const saveMetadata = async (patch: Record<string, unknown>) => {
+    const image = selectedImage.value
+    if (!image) return
+    try {
+        const updated = await imageService.updateMetadata(image.id, patch)
+        selectedImage.value = updated
+        const index = images.value.findIndex((row) => row.id === image.id)
+        if (index !== -1) images.value[index] = updated
+    } catch (error) {
+        toast.error(apiErrorMessage(error, 'Could not save the metadata'))
+    }
+}
+
 /** How many shapes differ from the last save, for the header and the queue row. */
 /** A real count of what changed, not the shape total. See diffAnnotations. */
 const unsavedEdits = computed(() => (selectedImageId.value === null ? 0 : edits.value.total))
@@ -1495,6 +1514,7 @@ const step = (delta: number) => {
                         :dimensions="canvas?.natural ?? null"
                         :seeded-by="Object.keys(seeded).length ? lastRun : null"
                         @update:reviewed="markReviewed"
+                        @save="saveMetadata"
                     />
                 </McSheetContent>
             </McSheet>
@@ -1776,6 +1796,7 @@ const step = (delta: number) => {
                 :dimensions="canvas?.natural ?? null"
                 :seeded-by="Object.keys(seeded).length ? lastRun : null"
                 @update:reviewed="markReviewed"
+                @save="saveMetadata"
             />
         </template>
 
