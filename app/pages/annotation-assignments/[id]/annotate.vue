@@ -476,6 +476,12 @@ function missingRequired(field: FieldState): string | null {
 
 function markDone() {
     if (!current.value) return
+    // Toggle: clicking a completed image again reverts it to pending (the button reads "Mark done"
+    // and turns solid), and stays put rather than advancing.
+    if (current.value.status === 'completed') {
+        current.value.status = 'pending'
+        return
+    }
     const missing = missingRequired(current.value)
     if (missing) return toast.error(`"${missing}" is required`)
     current.value.status = 'completed'
@@ -908,12 +914,24 @@ const metaClass = (field: FieldState) =>
                 </div>
 
                 <div class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:p-3">
-                    <div class="tw:grid tw:grid-cols-2 tw:gap-2">
-                        <McButton @click="markDone">
+                    <!-- Once a box is drawn, Skip stops making sense, so it goes and Done takes the
+                         row. Done reads as outline once the image is already marked complete. -->
+                    <div class="tw:flex tw:gap-2">
+                        <McButton
+                            class="tw:flex-1"
+                            :variant="current?.status === 'completed' ? 'outline' : 'default'"
+                            @click="markDone"
+                        >
                             <Check class="tw:mr-1 tw:size-4" />
-                            Mark done
+                            {{ current?.status === 'completed' ? 'Done' : 'Mark done' }}
                         </McButton>
-                        <McButton variant="outline" :disabled="!config?.allow_skip" @click="skip">
+                        <McButton
+                            v-if="!currentShapes.length"
+                            variant="outline"
+                            class="tw:flex-1"
+                            :disabled="!config?.allow_skip"
+                            @click="skip"
+                        >
                             <SkipForward class="tw:mr-1 tw:size-4" />
                             Skip
                         </McButton>
