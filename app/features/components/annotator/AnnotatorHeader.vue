@@ -89,6 +89,10 @@ const emit = defineEmits<{
 
     <div class="tw:flex-1"></div>
 
+    <!-- Page-local actions (e.g. the library annotator's import/export). Empty on pages that pass
+         nothing, so the student annotator's header is unchanged. -->
+    <slot name="actions" />
+
     <McButton
         variant="outline"
         size="sm"

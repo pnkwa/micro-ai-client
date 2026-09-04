@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
-import { CircleCheck, PanelLeft, PanelLeftOpen, PanelRight, Shapes, Sparkles } from '@lucide/vue'
+import {
+    CircleCheck,
+    Download,
+    PanelLeft,
+    PanelLeftOpen,
+    PanelRight,
+    Shapes,
+    Sparkles,
+    Upload,
+} from '@lucide/vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { until, watchDebounced } from '@vueuse/core'
 import { zoomPercent as toPercent } from '~/core/helpers/viewportTransform'
@@ -14,6 +23,11 @@ import {
     toShapes,
     type Shape,
 } from '~/core/helpers/annotationShapes'
+import {
+    serializeAnnotations,
+    parseAnnotationsFile,
+    shapesFromFile,
+} from '~/core/helpers/annotationFile'
 import { imageService, type LibraryImage } from '~/services/imageService'
 import { annotationService } from '~/services/annotationService'
 import { annotationLabelService, type AnnotationLabel } from '~/services/annotationLabelService'
@@ -941,6 +955,76 @@ const runAndSeed = async ({
     }
 }
 
+// ---- import / export (BE-ADR-030) ----------------------------------------------------------------
+
+/**
+ * Save one image's boxes to a portable, normalized file, and load one back onto WHATEVER image is
+ * open — the "template onto any image" flow. Export is a plain client-side download; import overlays
+ * the file's boxes onto the current set and mints any label the palette does not yet hold, exactly
+ * as a seeded run does. The ordinary save path (replace-all PUT) then persists it.
+ *
+ * The dataset/training export is a different feature living server-side (COCO, many images); this is
+ * the per-image interchange a person keeps or shares.
+ */
+const importInput = useTemplateRef<HTMLInputElement>('import-input')
+
+const exportAnnotations = () => {
+    const image = selectedImage.value
+    if (!image || !shapes.value.length) return
+    const file = serializeAnnotations(
+        shapes.value,
+        image.id,
+        (shape) => colorForShape(palette.value, shape)?.replace(/^#/, '') ?? null,
+    )
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `annotations-img${image.id}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    toast.success(`Exported ${file.annotations.length} box(es).`)
+}
+
+const onImportFile = async (event: Event) => {
+    const input = event.target as HTMLInputElement
+    const picked = input.files?.[0]
+    // Cleared at once so re-importing the SAME file fires `change` again.
+    input.value = ''
+    if (!picked) return
+    const image = selectedImage.value
+    if (!image) return
+
+    let parsed
+    try {
+        parsed = parseAnnotationsFile(JSON.parse(await picked.text()))
+    } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Could not read that file.')
+        return
+    }
+    if (!parsed.annotations.length) {
+        toast.error('That file has no boxes to import.')
+        return
+    }
+    if (shapes.value.length + parsed.annotations.length > MAX_ANNOTATIONS) {
+        toast.error(`That would exceed the ${MAX_ANNOTATIONS}-box limit for one image.`)
+        return
+    }
+
+    // Mint a palette label per name first, keeping the file's colour, so an imported box carries a
+    // real `label_id` and is saveable at once. Sequential for the same reason seeding is: two boxes
+    // of one class must not race to mint it.
+    for (const entry of parsed.annotations) {
+        if (entry.label) await ensureLabel(entry.label, entry.color ?? undefined)
+    }
+    const imported = shapesFromFile(parsed.annotations, labelIdFor)
+    // Overlaid, not replaced: a template drops ON TOP of whatever is there. `commit` makes it one
+    // undoable step and marks the image dirty for the ordinary save.
+    shapes.value = [...shapes.value, ...imported]
+    commit()
+    toast.success(`Imported ${imported.length} box(es). Review, then save.`)
+}
+
 // ---- the keyboard ----------------------------------------------------------------------------------
 
 /**
@@ -1107,7 +1191,38 @@ const step = (delta: number) => {
                 @seed="seedOpen = true"
                 @save="save()"
                 @shortcuts="shortcutsOpen = true"
-            />
+            >
+                <template #actions>
+                    <McButton
+                        variant="outline"
+                        size="sm"
+                        :disabled="!selectedImage"
+                        title="Import boxes from a file onto this image"
+                        @click="importInput?.click()"
+                    >
+                        <Upload class="tw:h-4 tw:w-4" />
+                        Import
+                    </McButton>
+                    <McButton
+                        variant="outline"
+                        size="sm"
+                        :disabled="!selectedImage || shapes.length === 0"
+                        title="Export this image's boxes to a file"
+                        @click="exportAnnotations"
+                    >
+                        <Download class="tw:h-4 tw:w-4" />
+                        Export
+                    </McButton>
+                    <input
+                        ref="import-input"
+                        type="file"
+                        accept="application/json,.json"
+                        class="tw:hidden"
+                        @change="onImportFile"
+                    />
+                    <div class="tw:mx-1 tw:h-5 tw:w-px tw:bg-an-divider"></div>
+                </template>
+            </AnnotatorHeader>
         </template>
 
         <template #header-compact>
