@@ -29,6 +29,7 @@ import {
     shapesFromFile,
 } from '~/core/helpers/annotationFile'
 import { imageService, type LibraryImage } from '~/services/imageService'
+import { albumService, type Album } from '~/services/albumService'
 import { annotationService } from '~/services/annotationService'
 import { annotationLabelService, type AnnotationLabel } from '~/services/annotationLabelService'
 import {
@@ -156,6 +157,12 @@ const images = ref<LibraryImage[]>([])
 const total = ref(0)
 const page = ref(1)
 const imagesLoading = ref(false)
+
+// The library is scoped to a chosen source and starts EMPTY: an album id, `'all'` for the whole
+// library, or `null` for nothing yet. The shared pool can be large, so the annotator no longer
+// pulls all of it on open; the student/instructor picks an album or opts into "All images".
+const albums = ref<Album[]>([])
+const source = ref<number | 'all' | null>(null)
 
 // ---- panels, classes, per-shape view state -------------------------------------------------------
 
@@ -369,11 +376,18 @@ const rejectSeeded = (id: string) => {
 const seededImages = ref<Set<number>>(new Set())
 
 const loadImages = async (append = false) => {
+    // No source chosen: the strip stays empty rather than fetching the whole library.
+    if (source.value === null) {
+        images.value = []
+        total.value = 0
+        return
+    }
     imagesLoading.value = true
     try {
         const result = await imageService.list({
             page: page.value,
             per_page: PAGE_SIZE,
+            ...(typeof source.value === 'number' && { album_id: source.value }),
             ...(search.value && { q: search.value }),
         })
         images.value = append ? [...images.value, ...result.data] : result.data
@@ -395,6 +409,12 @@ const loadMore = () => {
 // filter chips are NOT: they read `reviewed` from metadata and `seeded` from session state, neither
 // of which `?annotated=` can express, so they narrow what is loaded rather than what is fetched.
 watch(search, () => {
+    page.value = 1
+    void loadImages()
+})
+
+// Switching album / all / none restarts the strip from its first page.
+watch(source, () => {
     page.value = 1
     void loadImages()
 })
@@ -791,7 +811,13 @@ const linkedImageId = computed(() => {
     return Number.isInteger(id) && id > 0 ? id : null
 })
 
-await loadImages()
+// Albums for the source picker. The strip itself stays empty until a source is chosen (or a
+// `?image=` link opens one image directly, handled below).
+try {
+    albums.value = await albumService.list()
+} catch {
+    // Non-fatal: without the list the picker just offers "All images", which still loads.
+}
 
 /*
  * The palette, before anything is drawn.
@@ -1473,6 +1499,8 @@ const step = (delta: number) => {
                         :total="total"
                         :search="search"
                         :filter="queueFilter"
+                        :albums="albums"
+                        :source="source"
                         @select="
                             (id) => {
                                 selectImage(id)
@@ -1481,6 +1509,7 @@ const step = (delta: number) => {
                         "
                         @update:search="search = $event"
                         @update:filter="queueFilter = $event"
+                        @update:source="source = $event"
                         @more="loadMore"
                         @collapse="queueSheetOpen = false"
                     />
@@ -1531,9 +1560,12 @@ const step = (delta: number) => {
                 :total="total"
                 :search="search"
                 :filter="queueFilter"
+                :albums="albums"
+                :source="source"
                 @select="selectImage"
                 @update:search="search = $event"
                 @update:filter="queueFilter = $event"
+                @update:source="source = $event"
                 @more="loadMore"
                 @collapse="leftOpen = false"
             />

@@ -31,16 +31,33 @@ const props = defineProps<{
     total: number
     search: string
     filter: QueueFilter
+    /** The albums the library can be narrowed to, for the source picker. */
+    albums: { id: number; name: string }[]
+    /**
+     * Which images to load: an album id, `'all'` for the whole library, or `null` for nothing yet.
+     * The library is deliberately empty until a source is chosen, so a huge shared pool is never
+     * pulled in wholesale just to open the annotator.
+     */
+    source: number | 'all' | null
 }>()
 
 const emit = defineEmits<{
     select: [id: number]
     'update:search': [value: string]
     'update:filter': [value: QueueFilter]
+    'update:source': [value: number | 'all' | null]
     more: []
     /** Collapse the queue to its rail. Lives on the Images header rather than the top toolbar. */
     collapse: []
 }>()
+
+/**
+ * The source `<select>` carries a string; map it back to the id / 'all' / null the page holds.
+ * An empty option value is "nothing chosen", which is the empty-library state.
+ */
+const onSource = (value: string) =>
+    emit('update:source', value === '' ? null : value === 'all' ? 'all' : Number(value))
+const sourceValue = computed(() => (props.source === null ? '' : String(props.source)))
 
 const scroller = useTemplateRef<HTMLElement>('scroller')
 const searchEl = useTemplateRef<HTMLInputElement>('searchEl')
@@ -218,6 +235,23 @@ defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
             </div>
         </div>
 
+        <!-- Which pool to load. Empty until chosen, so opening the annotator never pulls the whole
+             shared library; "All images" is the explicit opt-in to that. -->
+        <div class="tw:shrink-0 tw:px-3 tw:pb-2">
+            <select
+                :value="sourceValue"
+                class="tw:h-[30px] tw:w-full tw:rounded-lg tw:border tw:border-an-n-200 tw:bg-an-n-50 tw:px-2 tw:text-[12px] tw:text-an-text tw:outline-none tw:focus:border-an-accent"
+                aria-label="Image source"
+                @change="onSource(($event.target as HTMLSelectElement).value)"
+            >
+                <option value="">Choose an album…</option>
+                <option value="all">All images</option>
+                <option v-for="album in albums" :key="album.id" :value="String(album.id)">
+                    {{ album.name }}
+                </option>
+            </select>
+        </div>
+
         <div class="tw:flex tw:shrink-0 tw:gap-1.5 tw:px-3 tw:pb-2.5">
             <button
                 v-for="chip in chips"
@@ -302,8 +336,27 @@ defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
                 />
             </ul>
 
+            <!-- Nothing chosen yet: point at the picker rather than reading as an empty album.
+                 A `?image=` deep link prepends one row with no source chosen, so this hides once
+                 anything is in the strip. -->
+            <div
+                v-if="source === null && !images.length"
+                class="tw:flex tw:flex-col tw:items-center tw:gap-2 tw:px-4 tw:py-8 tw:text-center"
+            >
+                <p class="tw:text-[12px] tw:text-an-faint">
+                    Pick an album above to load its images, or show the whole library.
+                </p>
+                <button
+                    type="button"
+                    class="tw:flex tw:h-8 tw:items-center tw:rounded-md tw:border tw:border-an-n-200 tw:px-3 tw:text-[12px] tw:font-medium tw:text-an-n-700 tw:hover:bg-an-n-50"
+                    @click="emit('update:source', 'all')"
+                >
+                    Show all images
+                </button>
+            </div>
+
             <p
-                v-if="!visible.length && !loading"
+                v-else-if="!visible.length && !loading"
                 class="tw:px-2 tw:py-8 tw:text-center tw:text-[12px] tw:text-an-faint"
             >
                 {{ search ? `Nothing matches "${search}".` : 'Nothing under this filter.' }}
