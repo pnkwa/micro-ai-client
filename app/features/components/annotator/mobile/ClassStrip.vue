@@ -8,7 +8,15 @@ import type { AnnotationClass } from '~/core/helpers/annotationClasses'
  * No number keycaps here: there is no keyboard, and a key hint on a surface that cannot receive one
  * is noise. Picking is the tap itself, which is why every chip is 44px tall.
  */
-defineProps<{ classes: AnnotationClass[]; active: number | null }>()
+defineProps<{
+    classes: AnnotationClass[]
+    active: number | null
+    /**
+     * A fixed vocabulary: the list cannot be added to, so the "+" is hidden. Used by an annotation
+     * assignment whose `label_set` the instructor authored (mirrors ClassPicker's `fixed`).
+     */
+    fixed?: boolean
+}>()
 
 const emit = defineEmits<{ pick: [labelId: number]; create: [] }>()
 </script>
@@ -43,6 +51,7 @@ const emit = defineEmits<{ pick: [labelId: number]; create: [] }>()
         </button>
 
         <button
+            v-if="!fixed"
             type="button"
             class="tw:flex tw:h-11 tw:w-11 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-xl tw:border tw:border-dashed tw:border-an-n-200 tw:text-an-faint"
             aria-label="New class"

@@ -109,8 +109,9 @@ const openReview = (id: number) => router.push(`/annotation-assignments/submissi
         </div>
 
         <!-- table -->
-        <div class="tw:overflow-hidden tw:rounded-md tw:border tw:border-navy-10 tw:bg-white">
-            <table class="tw:w-full tw:text-sm">
+        <!-- overflow-x-auto so the six columns scroll rather than squeeze on a narrow tablet. -->
+        <div class="tw:overflow-x-auto tw:rounded-md tw:border tw:border-navy-10 tw:bg-white">
+            <table class="tw:w-full tw:min-w-[640px] tw:text-sm">
                 <thead class="tw:bg-navy-5 tw:text-navy-60">
                     <tr>
                         <th class="tw:px-4 tw:py-2.5 tw:text-left tw:font-medium">Student</th>

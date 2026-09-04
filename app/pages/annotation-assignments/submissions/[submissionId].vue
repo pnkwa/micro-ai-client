@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, Eye, Flag, Undo2, X } from '@lucide/vue'
+import { ArrowLeft, ChevronLeft, ChevronRight, Eye, PanelLeft, Shapes, Undo2 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -11,8 +11,11 @@ import { classService } from '~/services/classService'
 import { imageService } from '~/services/imageService'
 import { annotationLabelService } from '~/services/annotationLabelService'
 import { apiErrorMessage } from '~/core/helpers/error'
-import { reviewBoxColor } from '~/core/helpers/annotationClasses'
 import ReviewCanvas from '~/features/components/annotation/ReviewCanvas.vue'
+import ReviewQueue from '~/features/components/annotation/ReviewQueue.vue'
+import ReviewPanel from '~/features/components/annotation/ReviewPanel.vue'
+import AnnotatorShell from '~/features/components/annotator/AnnotatorShell.vue'
+import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,6 +51,16 @@ const finalizing = ref(false)
 const rejecting = ref(false)
 const rejectOpen = ref(false)
 const rejectReason = ref('')
+
+// ---- responsive layout (tablet), the same shell /image-annotator uses ----
+// Read-only, so no bottom bars: `stacked` just moves the queue and the detail panel into sheets and
+// swaps to the compact header. The queue never collapses (leftOpen stays true) so the shell never
+// enters focus mode.
+const { layout } = useAnnotatorLayout()
+const leftOpen = ref(true)
+const rightOpen = ref(true)
+const queueSheetOpen = ref(false)
+const panelSheetOpen = ref(false)
 
 // Review is numbered over the ALBUM images (the same order and count the student saw), not over
 // submission.fields the server returns fields only for images the student addressed, so a pending
@@ -253,33 +266,21 @@ const statusBadge = (status: string) =>
           ? 'tw:border-danger tw:text-danger'
           : 'tw:border-sky-500 tw:text-sky-500'
 
-const reviewDotClass = (status: string) =>
-    status === 'approved'
-        ? 'tw:bg-success'
-        : status === 'flagged'
-          ? 'tw:bg-warning'
-          : status === 'incorrect'
-            ? 'tw:bg-danger'
-            : 'tw:bg-an-n-300'
-
-const fieldStatusLabel = (f: SubmissionField) =>
-    f.status === 'skipped'
-        ? 'skipped'
-        : `${f.annotations.length} box${f.annotations.length === 1 ? '' : 'es'}`
-
-const responseText = (f: SubmissionField, key: string) => {
-    const v = f.responses[key]
-    return v === undefined || v === null || v === '' ? '-' : String(v)
+// The detail panel (ReviewPanel) writes its textareas back through these so it never mutates a prop.
+const setRemark = (value: string) => {
+    if (current.value) remarks.value[current.value.image_id] = value
+}
+const setFeedback = (value: string) => {
+    feedbackDraft.value = value
 }
 
 onMounted(load)
 </script>
 
 <template>
-    <div class="tw:flex tw:h-dvh tw:flex-col tw:bg-an-chrome">
-        <header
-            class="tw:flex tw:h-12 tw:shrink-0 tw:items-center tw:gap-2 tw:border-b tw:border-an-border tw:bg-an-panel tw:px-2"
-        >
+    <AnnotatorShell v-model:left-open="leftOpen" v-model:right-open="rightOpen">
+        <!-- desktop header (full, and medium-landscape) -->
+        <template #header>
             <button
                 class="tw:flex tw:size-8 tw:items-center tw:justify-center tw:rounded-md tw:text-an-n-500 tw:hover:bg-an-n-100"
                 aria-label="Back"
@@ -287,12 +288,22 @@ onMounted(load)
             >
                 <ArrowLeft class="tw:size-4" />
             </button>
+            <!-- In medium the queue is a drawer, not a docked column, so it needs a way open. -->
+            <McButton
+                v-if="layout === 'medium'"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Show the image list"
+                @click="queueSheetOpen = true"
+            >
+                <PanelLeft class="tw:size-4" />
+            </McButton>
 
             <template v-if="isStaff">
                 <span class="tw:text-sm tw:font-semibold tw:text-an-text">
                     {{ studentName || 'Student' }}
                 </span>
-                <span class="tw:text-[11px] tw:text-an-faint">· {{ submission?.student_id }}</span>
+                <span class="tw:text-[11px] tw:text-an-faint">{{ submission?.student_id }}</span>
             </template>
             <span v-else class="tw:text-sm tw:font-semibold tw:text-an-text">
                 {{ assignment?.name || 'Your submission' }}
@@ -351,387 +362,246 @@ onMounted(load)
                 <Undo2 class="tw:mr-1 tw:size-4" />
                 Edit &amp; resubmit
             </McButton>
-        </header>
+        </template>
 
-        <div
-            v-if="loading"
-            class="tw:flex tw:flex-1 tw:items-center tw:justify-center tw:text-an-faint"
-        >
-            Loading…
-        </div>
-
-        <div v-else class="tw:flex tw:min-h-0 tw:flex-1">
-            <!-- FIELD QUEUE -->
-            <aside
-                class="tw:flex tw:w-[240px] tw:shrink-0 tw:flex-col tw:border-r tw:border-an-border tw:bg-an-panel"
+        <!-- compact header (portrait tablet / phone) -->
+        <template #header-compact>
+            <button
+                class="tw:flex tw:size-8 tw:items-center tw:justify-center tw:rounded-md tw:text-an-n-500 tw:hover:bg-an-n-100"
+                aria-label="Back"
+                @click="router.back()"
             >
-                <div class="tw:border-b tw:border-an-divider tw:p-2.5">
-                    <span class="tw:text-[12.5px] tw:font-semibold tw:text-an-text">Images</span>
-                    <span class="tw:ml-2 tw:font-mono tw:text-[10px] tw:text-an-faint">
-                        {{ items.length }}
-                    </span>
-                </div>
-                <ul
-                    class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-px tw:overflow-y-auto tw:p-1.5"
-                >
-                    <li v-for="(item, i) in items" :key="item.imageId">
-                        <button
-                            class="tw:flex tw:h-11 tw:w-full tw:items-center tw:gap-2.5 tw:rounded-lg tw:px-2 tw:text-left"
-                            :class="
-                                i === currentIndex
-                                    ? 'tw:bg-an-accent-tint tw:ring-1 tw:ring-an-accent'
-                                    : 'tw:hover:bg-an-n-50'
-                            "
-                            @click="goTo(i)"
-                        >
-                            <span
-                                class="tw:size-2 tw:shrink-0 tw:rounded-full"
-                                :class="
-                                    item.field
-                                        ? reviewDotClass(item.field.review_status)
-                                        : 'tw:bg-an-n-200'
-                                "
-                            />
-                            <span class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col">
-                                <span
-                                    class="tw:truncate tw:font-mono tw:text-[11.5px] tw:text-an-text"
-                                >
-                                    Image {{ String(item.index + 1).padStart(2, '0') }}
-                                </span>
-                                <span class="tw:text-[10.5px] tw:text-an-faint">
-                                    {{
-                                        item.field ? fieldStatusLabel(item.field) : 'not attempted'
-                                    }}
-                                </span>
-                            </span>
-                        </button>
-                    </li>
-                </ul>
-            </aside>
-
-            <!-- READ-ONLY COMPARE CANVAS -->
-            <main class="tw:relative tw:min-w-0 tw:flex-1">
-                <ReviewCanvas
-                    :key="currentItem?.imageId ?? -1"
-                    :src="currentUrl"
-                    :student-boxes="current?.annotations ?? []"
-                    :expert-boxes="current?.expert ?? []"
-                    :label-colors="labelColors"
-                    :show-expert="isStaff && showExpert"
-                />
-
-                <!-- read-only badge -->
-                <div
-                    class="tw:absolute tw:top-3 tw:left-3 tw:z-10 tw:flex tw:items-center tw:gap-1.5 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[11.5px] tw:text-an-d-text tw:backdrop-blur"
-                >
-                    <Eye class="tw:size-3.5 tw:text-an-d-icon" />
-                    Reviewing · read-only
-                </div>
-
-                <!-- show-expert toggle (staff only) -->
-                <label
-                    v-if="isStaff"
-                    class="tw:absolute tw:top-3 tw:left-1/2 tw:z-10 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-2 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-3 tw:py-1.5 tw:text-[11.5px] tw:text-an-d-strong tw:backdrop-blur"
-                >
-                    <input v-model="showExpert" type="checkbox" class="tw:accent-an-accent" />
-                    Show answer key
-                </label>
-
-                <!-- pager -->
-                <div
-                    class="tw:absolute tw:top-3 tw:right-3 tw:z-10 tw:flex tw:items-center tw:gap-1 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:p-1 tw:backdrop-blur"
-                >
-                    <button
-                        class="tw:flex tw:size-6 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white"
-                        aria-label="Previous"
-                        @click="goTo(currentIndex - 1)"
-                    >
-                        <ChevronLeft class="tw:size-3.5" />
-                    </button>
-                    <span
-                        class="tw:px-1 tw:font-mono tw:text-[12px] tw:tabular-nums tw:text-an-d-text"
-                    >
-                        {{ currentIndex + 1 }}/{{ items.length }}
-                    </span>
-                    <button
-                        class="tw:flex tw:size-6 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white"
-                        aria-label="Next"
-                        @click="goTo(currentIndex + 1)"
-                    >
-                        <ChevronRight class="tw:size-3.5" />
-                    </button>
-                </div>
-
-                <!-- legend -->
-                <div
-                    v-if="isStaff && showExpert"
-                    class="tw:absolute tw:bottom-3 tw:left-3 tw:z-10 tw:flex tw:items-center tw:gap-3 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-3 tw:py-1.5 tw:text-[11px] tw:text-an-d-text tw:backdrop-blur"
-                >
-                    <span class="tw:flex tw:items-center tw:gap-1.5">
-                        <span class="tw:w-4 tw:border-t-2 tw:border-dashed tw:border-an-accent" />
-                        Answer key
-                    </span>
-                    <span class="tw:flex tw:items-center tw:gap-1.5">
-                        <span class="tw:w-4 tw:border-t-2" style="border-color: #7c5ce0" />
-                        Student
-                    </span>
-                </div>
-            </main>
-
-            <!-- REVIEW / DETAIL PANEL -->
-            <aside
-                class="tw:flex tw:w-[340px] tw:shrink-0 tw:flex-col tw:gap-3 tw:overflow-y-auto tw:border-l tw:border-an-border tw:bg-an-panel tw:p-3"
+                <ArrowLeft class="tw:size-4" />
+            </button>
+            <McButton
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Show the image list"
+                @click="queueSheetOpen = true"
             >
-                <!-- student's boxes -->
-                <div
-                    class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3"
+                <PanelLeft class="tw:size-4" />
+            </McButton>
+            <div class="tw:flex tw:min-w-0 tw:flex-col">
+                <span class="tw:truncate tw:text-[13px] tw:font-semibold tw:text-an-text">
+                    {{ isStaff ? studentName || 'Student' : assignment?.name || 'Your submission' }}
+                </span>
+                <span v-if="submission" class="tw:text-[10.5px] tw:capitalize tw:text-an-faint">
+                    {{ submission.status }}
+                    <template v-if="showScore">
+                        ({{ formatPts(score!) }}/{{ formatPts(pointsPossible!) }})
+                    </template>
+                </span>
+            </div>
+            <div class="tw:flex-1"></div>
+            <McButton
+                v-if="isStaff && !isRejected"
+                variant="ghost"
+                size="icon-sm"
+                class="tw:text-danger"
+                :disabled="isGraded"
+                aria-label="Return to student"
+                @click="rejectOpen = true"
+            >
+                <Undo2 class="tw:size-4" />
+            </McButton>
+            <McButton
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Review details"
+                @click="panelSheetOpen = true"
+            >
+                <Shapes class="tw:size-4" />
+            </McButton>
+            <McButton
+                v-if="isStaff"
+                size="sm"
+                :disabled="!allReviewed || finalizing || isGraded"
+                @click="finalize"
+            >
+                {{ isGraded ? 'Reviewed' : 'Save' }}
+            </McButton>
+            <McButton
+                v-else-if="isRejected"
+                size="sm"
+                @click="
+                    router.push(`/annotation-assignments/${submission?.assignment_id}/annotate`)
+                "
+            >
+                Edit
+            </McButton>
+        </template>
+
+        <template #queue>
+            <ReviewQueue :items="items" :current-index="currentIndex" @select="goTo" />
+        </template>
+
+        <template #canvas>
+            <ReviewCanvas
+                :key="currentItem?.imageId ?? -1"
+                :src="currentUrl"
+                :student-boxes="current?.annotations ?? []"
+                :expert-boxes="current?.expert ?? []"
+                :label-colors="labelColors"
+                :show-expert="isStaff && showExpert"
+            />
+
+            <div
+                v-if="loading"
+                class="tw:absolute tw:inset-0 tw:z-20 tw:flex tw:items-center tw:justify-center tw:text-an-d-text"
+            >
+                Loading…
+            </div>
+
+            <!-- read-only badge -->
+            <div
+                class="tw:absolute tw:top-3 tw:left-3 tw:z-10 tw:flex tw:items-center tw:gap-1.5 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[11.5px] tw:text-an-d-text tw:backdrop-blur"
+            >
+                <Eye class="tw:size-3.5 tw:text-an-d-icon" />
+                Reviewing (read-only)
+            </div>
+
+            <!-- show-expert toggle (staff only) -->
+            <label
+                v-if="isStaff"
+                class="tw:absolute tw:top-3 tw:left-1/2 tw:z-10 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-2 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-3 tw:py-1.5 tw:text-[11.5px] tw:text-an-d-strong tw:backdrop-blur"
+            >
+                <input v-model="showExpert" type="checkbox" class="tw:accent-an-accent" />
+                Show answer key
+            </label>
+
+            <!-- pager -->
+            <div
+                class="tw:absolute tw:top-3 tw:right-3 tw:z-10 tw:flex tw:items-center tw:gap-1 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:p-1 tw:backdrop-blur"
+            >
+                <button
+                    class="tw:flex tw:size-6 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white"
+                    aria-label="Previous"
+                    @click="goTo(currentIndex - 1)"
                 >
-                    <div class="tw:text-[12.5px] tw:font-semibold tw:text-an-text">
-                        Student's boxes ({{ current?.annotations.length ?? 0 }})
-                    </div>
-                    <div
-                        v-for="b in current?.annotations ?? []"
-                        :key="b.id"
-                        class="tw:flex tw:items-center tw:gap-2 tw:text-[12px] tw:text-an-n-700"
-                    >
-                        <span
-                            class="tw:h-4 tw:w-[3px] tw:shrink-0 tw:rounded"
-                            :style="{ background: reviewBoxColor(b.label, labelColors) }"
+                    <ChevronLeft class="tw:size-3.5" />
+                </button>
+                <span class="tw:px-1 tw:font-mono tw:text-[12px] tw:tabular-nums tw:text-an-d-text">
+                    {{ currentIndex + 1 }}/{{ items.length }}
+                </span>
+                <button
+                    class="tw:flex tw:size-6 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white"
+                    aria-label="Next"
+                    @click="goTo(currentIndex + 1)"
+                >
+                    <ChevronRight class="tw:size-3.5" />
+                </button>
+            </div>
+
+            <!-- legend -->
+            <div
+                v-if="isStaff && showExpert"
+                class="tw:absolute tw:bottom-3 tw:left-3 tw:z-10 tw:flex tw:items-center tw:gap-3 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-3 tw:py-1.5 tw:text-[11px] tw:text-an-d-text tw:backdrop-blur"
+            >
+                <span class="tw:flex tw:items-center tw:gap-1.5">
+                    <span class="tw:w-4 tw:border-t-2 tw:border-dashed tw:border-an-accent" />
+                    Answer key
+                </span>
+                <span class="tw:flex tw:items-center tw:gap-1.5">
+                    <span class="tw:w-4 tw:border-t-2" style="border-color: #7c5ce0" />
+                    Student
+                </span>
+            </div>
+        </template>
+
+        <!-- REVIEW / DETAIL PANEL -->
+        <template #labels>
+            <ReviewPanel
+                :current="current"
+                :prompts="prompts"
+                :label-colors="labelColors"
+                :is-staff="isStaff"
+                :is-graded="isGraded"
+                :is-rejected="isRejected"
+                :saving-field="savingField"
+                :remark="current ? (remarks[current.image_id] ?? '') : ''"
+                :feedback="feedbackDraft"
+                :submission-feedback="submission?.feedback ?? null"
+                :rejection-reason="submission?.rejection_reason ?? null"
+                :field-marks="current ? (fieldMarks[current.image_id] ?? {}) : {}"
+                @update-remark="setRemark"
+                @update-feedback="setFeedback"
+                @set-mark="(key, correct) => current && setMark(current.image_id, key, correct)"
+                @review="review"
+            />
+        </template>
+
+        <template #sheets>
+            <!-- image list, as a drawer on tablet/phone -->
+            <McSheet v-model:open="queueSheetOpen">
+                <McSheetContent side="left" class="tw:w-[280px] tw:p-0" hide-close>
+                    <ReviewQueue
+                        :items="items"
+                        :current-index="currentIndex"
+                        @select="
+                            (i) => {
+                                goTo(i)
+                                queueSheetOpen = false
+                            }
+                        "
+                    />
+                </McSheetContent>
+            </McSheet>
+
+            <!-- review detail, as a drawer on tablet/phone -->
+            <McSheet v-model:open="panelSheetOpen">
+                <McSheetContent side="right" class="tw:flex tw:w-[340px] tw:flex-col tw:p-0">
+                    <ReviewPanel
+                        :current="current"
+                        :prompts="prompts"
+                        :label-colors="labelColors"
+                        :is-staff="isStaff"
+                        :is-graded="isGraded"
+                        :is-rejected="isRejected"
+                        :saving-field="savingField"
+                        :remark="current ? (remarks[current.image_id] ?? '') : ''"
+                        :feedback="feedbackDraft"
+                        :submission-feedback="submission?.feedback ?? null"
+                        :rejection-reason="submission?.rejection_reason ?? null"
+                        :field-marks="current ? (fieldMarks[current.image_id] ?? {}) : {}"
+                        @update-remark="setRemark"
+                        @update-feedback="setFeedback"
+                        @set-mark="
+                            (key, correct) => current && setMark(current.image_id, key, correct)
+                        "
+                        @review="review"
+                    />
+                </McSheetContent>
+            </McSheet>
+
+            <!-- return / reject dialog -->
+            <McDialog v-model:open="rejectOpen">
+                <McDialogContent>
+                    <McDialogHeader>
+                        <McDialogTitle>Return submission to the student</McDialogTitle>
+                    </McDialogHeader>
+                    <div class="tw:flex tw:flex-col tw:gap-2 tw:p-1">
+                        <label class="tw:text-sm tw:text-navy-70">
+                            Reason (the student sees this)
+                        </label>
+                        <textarea
+                            v-model="rejectReason"
+                            rows="3"
+                            placeholder="e.g. Several images are unlabelled, please complete them and resubmit."
+                            class="tw:rounded-md tw:border tw:border-input tw:px-3 tw:py-2 tw:text-sm tw:outline-none tw:focus:border-primary"
                         />
-                        {{ b.label || 'Unlabelled' }}
-                        <span class="tw:ml-auto tw:text-[10.5px] tw:text-an-faint">
-                            {{ b.polygon ? 'polygon' : 'box' }}
-                        </span>
                     </div>
-                    <p
-                        v-if="!(current?.annotations.length ?? 0)"
-                        class="tw:text-[11.5px] tw:text-an-faint"
-                    >
-                        {{
-                            !current
-                                ? 'Student did not attempt this image.'
-                                : current.status === 'skipped'
-                                  ? 'Marked as skipped.'
-                                  : 'No boxes on this image.'
-                        }}
-                    </p>
-                </div>
-
-                <!-- student's answers -->
-                <div
-                    v-if="prompts.length"
-                    class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3"
-                >
-                    <div class="tw:text-[12.5px] tw:font-semibold tw:text-an-text">
-                        Student's answers
-                    </div>
-                    <div
-                        v-for="p in prompts"
-                        :key="p.key"
-                        class="tw:flex tw:items-baseline tw:gap-2 tw:text-[12px]"
-                    >
-                        <span class="tw:w-24 tw:shrink-0 tw:text-an-faint">{{ p.label }}</span>
-                        <span class="tw:font-medium tw:text-an-n-700">
-                            {{ current ? responseText(current, p.key) : '-' }}
-                        </span>
-                        <!-- gradable field: staff tick correct/incorrect; others see the result -->
-                        <template v-if="p.gradable && current">
-                            <label
-                                v-if="isStaff && !isGraded && !isRejected"
-                                class="tw:ml-auto tw:flex tw:shrink-0 tw:cursor-pointer tw:items-center tw:gap-1 tw:text-[11px] tw:text-an-faint"
-                                title="Tick if the student's answer is correct"
-                            >
-                                <input
-                                    type="checkbox"
-                                    class="tw:accent-an-accent"
-                                    :checked="!!fieldMarks[current.image_id]?.[p.key]"
-                                    @change="
-                                        setMark(
-                                            current.image_id,
-                                            p.key,
-                                            ($event.target as HTMLInputElement).checked,
-                                        )
-                                    "
-                                />
-                                Correct ({{ p.points ?? 1 }} pt)
-                            </label>
-                            <span
-                                v-else
-                                class="tw:ml-auto tw:shrink-0 tw:text-[11px] tw:font-medium"
-                                :class="
-                                    current.field_marks?.[p.key]
-                                        ? 'tw:text-success'
-                                        : 'tw:text-danger'
-                                "
-                            >
-                                {{
-                                    current.field_marks?.[p.key]
-                                        ? `Correct +${p.points ?? 1}`
-                                        : 'Incorrect'
-                                }}
-                            </span>
-                        </template>
-                    </div>
-                </div>
-
-                <!-- staff: remark + approve/flag (only for an image the student worked) -->
-                <div
-                    v-if="isStaff && current"
-                    class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3"
-                >
-                    <div class="tw:text-[12.5px] tw:font-medium tw:text-an-text">
-                        Remark on this field
-                    </div>
-                    <textarea
-                        v-if="current"
-                        v-model="remarks[current.image_id]"
-                        rows="4"
-                        :disabled="isGraded || isRejected"
-                        placeholder="What the student should notice on this image…"
-                        class="tw:rounded-md tw:border tw:border-an-n-200 tw:px-3 tw:py-2 tw:text-sm tw:outline-none tw:focus:border-an-accent tw:disabled:opacity-60"
-                    />
-                    <div class="tw:flex tw:items-center tw:gap-2">
+                    <McDialogFooter>
+                        <McButton variant="outline" @click="rejectOpen = false">Cancel</McButton>
                         <McButton
-                            variant="outline"
-                            size="sm"
-                            class="tw:border-success tw:text-success"
-                            :disabled="savingField || isGraded || isRejected"
-                            @click="review('approved')"
+                            variant="destructive"
+                            :disabled="!rejectReason.trim() || rejecting"
+                            @click="reject"
                         >
-                            <Check class="tw:mr-1 tw:size-4" />
-                            Approve
+                            Return submission
                         </McButton>
-                        <McButton
-                            variant="outline"
-                            size="sm"
-                            class="tw:border-warning tw:text-warning"
-                            :disabled="savingField || isGraded || isRejected"
-                            @click="review('flagged')"
-                        >
-                            <Flag class="tw:mr-1 tw:size-4" />
-                            Flag
-                        </McButton>
-                        <McButton
-                            variant="outline"
-                            size="sm"
-                            class="tw:border-danger tw:text-danger"
-                            :disabled="savingField || isGraded || isRejected"
-                            @click="review('incorrect')"
-                        >
-                            <X class="tw:mr-1 tw:size-4" />
-                            Incorrect
-                        </McButton>
-                        <span
-                            v-if="current && current.review_status !== 'unreviewed'"
-                            class="tw:ml-auto tw:text-[11px] tw:capitalize"
-                            :class="
-                                current.review_status === 'approved'
-                                    ? 'tw:text-success'
-                                    : current.review_status === 'flagged'
-                                      ? 'tw:text-warning'
-                                      : 'tw:text-danger'
-                            "
-                        >
-                            {{ current.review_status }}
-                        </span>
-                    </div>
-                </div>
-
-                <!-- student: read-only verdict + remark for this field -->
-                <div
-                    v-else-if="current && current.review_status !== 'unreviewed'"
-                    class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3"
-                >
-                    <div class="tw:flex tw:items-center tw:gap-2 tw:text-[12.5px] tw:font-medium">
-                        <span
-                            :class="
-                                current.review_status === 'approved'
-                                    ? 'tw:text-success'
-                                    : current.review_status === 'flagged'
-                                      ? 'tw:text-warning'
-                                      : 'tw:text-danger'
-                            "
-                        >
-                            <component
-                                :is="
-                                    current.review_status === 'approved'
-                                        ? Check
-                                        : current.review_status === 'flagged'
-                                          ? Flag
-                                          : X
-                                "
-                                class="tw:inline tw:size-4"
-                            />
-                            <span class="tw:ml-1 tw:capitalize">{{ current.review_status }}</span>
-                        </span>
-                    </div>
-                    <p v-if="current.remark" class="tw:text-[12px] tw:text-an-n-700">
-                        {{ current.remark }}
-                    </p>
-                </div>
-
-                <!-- staff: nothing to review on an image the student left untouched -->
-                <p
-                    v-if="isStaff && !current"
-                    class="tw:rounded-lg tw:border tw:border-dashed tw:border-an-border tw:bg-white tw:p-3 tw:text-[12px] tw:text-an-faint"
-                >
-                    The student did not attempt this image, so there is nothing to review here.
-                </p>
-
-                <!-- overall feedback -->
-                <div
-                    class="tw:flex tw:flex-col tw:gap-2 tw:rounded-lg tw:border tw:border-an-border tw:bg-white tw:p-3"
-                >
-                    <div class="tw:text-[12.5px] tw:font-medium tw:text-an-text">
-                        Overall feedback
-                    </div>
-                    <textarea
-                        v-if="isStaff && submission"
-                        v-model="feedbackDraft"
-                        rows="3"
-                        :disabled="isGraded || isRejected"
-                        placeholder="Summary the student sees on their feedback page…"
-                        class="tw:rounded-md tw:border tw:border-an-n-200 tw:px-3 tw:py-2 tw:text-sm tw:outline-none tw:focus:border-an-accent tw:disabled:opacity-60"
-                    />
-                    <p v-else class="tw:text-[12px] tw:text-an-n-700">
-                        {{ submission?.feedback || 'No overall feedback yet.' }}
-                    </p>
-                    <p
-                        v-if="!isStaff && isRejected && submission?.rejection_reason"
-                        class="tw:text-[12px] tw:text-danger"
-                    >
-                        Returned: {{ submission.rejection_reason }}
-                    </p>
-                </div>
-            </aside>
-        </div>
-
-        <!-- return / reject dialog -->
-        <McDialog v-model:open="rejectOpen">
-            <McDialogContent>
-                <McDialogHeader>
-                    <McDialogTitle>Return submission to the student</McDialogTitle>
-                </McDialogHeader>
-                <div class="tw:flex tw:flex-col tw:gap-2 tw:p-1">
-                    <label class="tw:text-sm tw:text-navy-70">Reason (the student sees this)</label>
-                    <textarea
-                        v-model="rejectReason"
-                        rows="3"
-                        placeholder="e.g. Several images are unlabelled, please complete them and resubmit."
-                        class="tw:rounded-md tw:border tw:border-input tw:px-3 tw:py-2 tw:text-sm tw:outline-none tw:focus:border-primary"
-                    />
-                </div>
-                <McDialogFooter>
-                    <McButton variant="outline" @click="rejectOpen = false">Cancel</McButton>
-                    <McButton
-                        variant="destructive"
-                        :disabled="!rejectReason.trim() || rejecting"
-                        @click="reject"
-                    >
-                        Return submission
-                    </McButton>
-                </McDialogFooter>
-            </McDialogContent>
-        </McDialog>
-    </div>
+                    </McDialogFooter>
+                </McDialogContent>
+            </McDialog>
+        </template>
+    </AnnotatorShell>
 </template>

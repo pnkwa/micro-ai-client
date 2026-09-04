@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import { watchDebounced } from '@vueuse/core'
-import { ArrowLeft, Check, Pentagon, Send, SkipForward, Square, Trash2, Undo2 } from '@lucide/vue'
+import { ArrowLeft, PanelLeft, Send, Shapes, SkipForward, Undo2 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -16,7 +16,6 @@ import { isDegenerate, shouldCommit, type Shape } from '~/core/helpers/annotatio
 import {
     buildClasses,
     classColorAt,
-    colorForShape,
     labelByName,
     toColorHex,
 } from '~/core/helpers/annotationClasses'
@@ -26,15 +25,31 @@ import { zoomPercent } from '~/core/helpers/viewportTransform'
 import AnnotationCanvas, {
     type Tool,
 } from '~/features/components/annotator/canvas/AnnotationCanvas.vue'
+import AnnotatorShell from '~/features/components/annotator/AnnotatorShell.vue'
 import ToolDock from '~/features/components/annotator/canvas/ToolDock.vue'
 import PagerPill from '~/features/components/annotator/canvas/PagerPill.vue'
 import HintBar from '~/features/components/annotator/canvas/HintBar.vue'
 import ZoomPill from '~/features/components/shared/ZoomPill.vue'
 import ClassPicker from '~/features/components/annotator/labels/ClassPicker.vue'
+import BottomTools from '~/features/components/annotator/mobile/BottomTools.vue'
+import ClassStrip from '~/features/components/annotator/mobile/ClassStrip.vue'
+import AnnotateQueue from '~/features/components/annotation/AnnotateQueue.vue'
+import AnnotatePanel from '~/features/components/annotation/AnnotatePanel.vue'
+import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 
 const route = useRoute()
 const router = useRouter()
 const id = Number(route.params.id)
+
+// ---- responsive layout (tablet), the same shell /image-annotator uses ----
+// `stacked` is the one-pane arrangement (compact, or a portrait tablet with no room to dock the
+// labels): tools and classes move to bottom bars and the queue and side panel become sheets.
+// The queue never collapses (leftOpen stays true) so the shell never enters focus mode.
+const { layout, stacked, isTouchLayout } = useAnnotatorLayout()
+const leftOpen = ref(true)
+const rightOpen = ref(true)
+const queueSheetOpen = ref(false)
+const panelSheetOpen = ref(false)
 
 // Full-bleed, like /image-annotator: drop the app container's padding and the app bar so the
 // picture owns the viewport. Both are removed on the way out.
@@ -458,8 +473,10 @@ function recolorClass(labelId: number, color: string) {
     if (klass) klass.color_hex = toColorHex(color)
 }
 
-const shapeColor = (s: Shape) => colorForShape(palette.value, s) ?? 'var(--color-an-n-250)'
-const shapeMeta = (s: Shape) => (s.polygon ? `polygon · ${s.polygon.length} pts` : 'rectangle')
+// The per-image form (AnnotatePanel) writes back through here so it never mutates a prop directly.
+function setResponse(key: string, value: string) {
+    if (current.value) current.value.responses[key] = value
+}
 
 // ---- per-image status ----
 const requiredPrompts = computed(() =>
@@ -537,51 +554,24 @@ async function submit() {
 const percent = computed(() =>
     fields.value.length ? Math.round((addressed.value / fields.value.length) * 100) : 0,
 )
-
-const statusText = (field: FieldState) =>
-    field.status === 'completed'
-        ? 'done'
-        : field.status === 'skipped'
-          ? 'skipped'
-          : field.shapes.length > 0
-            ? `${field.shapes.length} box${field.shapes.length === 1 ? '' : 'es'}`
-            : 'to do'
-
-// The class-colour squares on a row, mirroring QueueRow (up to four distinct colours).
-const fieldDots = (field: FieldState) =>
-    [
-        ...new Set(
-            field.shapes
-                .map((s) => colorForShape(palette.value, s))
-                .filter((c): c is string => Boolean(c)),
-        ),
-    ].slice(0, 4)
-
-// The trailing count badge (QueueRow shape): the box count, coloured by status. Hidden at zero.
-const fieldBadge = (field: FieldState) =>
-    field.shapes.length > 0 ? String(field.shapes.length) : null
-
-const fieldBadgeClass = (field: FieldState) =>
-    field.status === 'completed'
-        ? 'tw:bg-an-accent-tint tw:text-an-accent-hover'
-        : field.status === 'skipped'
-          ? 'tw:bg-an-warn-tint tw:text-an-warn'
-          : 'tw:bg-an-n-100 tw:text-an-n-600'
-
-const metaClass = (field: FieldState) =>
-    field.status === 'pending' && field.shapes.length === 0
-        ? 'tw:text-an-n-300'
-        : 'tw:text-an-n-500'
 </script>
 
 <template>
-    <div class="tw:flex tw:h-dvh tw:flex-col tw:overflow-hidden tw:bg-an-chrome">
-        <!-- header -->
-        <header
-            class="tw:flex tw:h-12 tw:shrink-0 tw:items-center tw:gap-2 tw:border-b tw:border-an-border tw:bg-an-panel tw:px-2"
-        >
+    <AnnotatorShell v-model:left-open="leftOpen" v-model:right-open="rightOpen">
+        <!-- desktop header (full, and medium-landscape) -->
+        <template #header>
             <McButton variant="ghost" size="icon-sm" aria-label="Back" @click="router.back()">
                 <ArrowLeft class="tw:size-4" />
+            </McButton>
+            <!-- In medium the queue is a drawer, not a docked column, so it needs a way open. -->
+            <McButton
+                v-if="layout === 'medium'"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Show the image queue"
+                @click="queueSheetOpen = true"
+            >
+                <PanelLeft class="tw:size-4" />
             </McButton>
             <span class="tw:min-w-0 tw:truncate tw:text-sm tw:font-medium tw:text-an-text">
                 {{ assignment?.name ?? 'Annotate' }}
@@ -609,237 +599,162 @@ const metaClass = (field: FieldState) =>
                         ? returnedReason !== null
                             ? 'Resubmit'
                             : 'Submit'
-                        : `Submit · ${Math.max(required - addressed, 0)} left`
+                        : `Submit, ${Math.max(required - addressed, 0)} left`
                 }}
             </McButton>
-        </header>
+        </template>
 
-        <!-- returned-for-changes banner -->
-        <div
-            v-if="returnedReason !== null"
-            class="tw:flex tw:shrink-0 tw:items-start tw:gap-2 tw:border-b tw:border-warning/30 tw:bg-warning/10 tw:px-3 tw:py-2 tw:text-[12.5px] tw:text-an-text"
-        >
-            <Undo2 class="tw:mt-0.5 tw:size-4 tw:shrink-0 tw:text-warning" />
-            <span>
-                <b>Returned for changes.</b>
-                <template v-if="returnedReason">{{ returnedReason }}</template>
-                <template v-else>Edit your work and resubmit.</template>
-            </span>
-        </div>
-
-        <div
-            v-if="loading"
-            class="tw:flex tw:flex-1 tw:items-center tw:justify-center tw:text-an-muted"
-        >
-            Loading…
-        </div>
-
-        <div v-else class="tw:flex tw:min-h-0 tw:flex-1">
-            <!-- queue -->
-            <aside
-                class="tw:flex tw:w-[280px] tw:shrink-0 tw:flex-col tw:border-r tw:border-an-border tw:bg-an-panel"
+        <!-- compact header (portrait tablet / phone): queue + panel drawers, and Submit -->
+        <template #header-compact>
+            <McButton variant="ghost" size="icon-sm" aria-label="Back" @click="router.back()">
+                <ArrowLeft class="tw:size-4" />
+            </McButton>
+            <McButton
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Show the image queue"
+                @click="queueSheetOpen = true"
             >
-                <!-- progress (ImageQueue style) -->
-                <div class="tw:shrink-0 tw:px-3 tw:pt-3 tw:pb-3">
-                    <div class="tw:mb-1.5 tw:flex tw:items-baseline tw:gap-1.5">
-                        <div class="tw:flex tw:flex-col">
-                            <div>
-                                <span
-                                    class="tw:font-mono tw:text-[11px] tw:font-semibold tw:tabular-nums tw:text-an-text"
-                                >
-                                    {{ doneCount }} / {{ fields.length }}
-                                </span>
-                                <span class="tw:text-[11px] tw:text-an-faint tw:px-1">done</span>
-                            </div>
-
-                            <div>
-                                <span
-                                    class="tw:text-an-warn tw:font-mono tw:text-[11px] tw:font-semibold tw:tabular-nums tw:text-an-text"
-                                >
-                                    {{ skippedCount }}
-                                </span>
-                                <span class="tw:text-[11px] tw:text-an-faint tw:px-1">skipped</span>
-                            </div>
-                        </div>
-                        <div class="tw:flex-1"></div>
-                        <span class="tw:font-mono tw:tabular-nums tw:text-an-faint">
-                            {{ percent }}%
-                        </span>
-                    </div>
-                    <div class="tw:h-1 tw:overflow-hidden tw:rounded-full tw:bg-an-n-150">
-                        <div
-                            class="tw:h-full tw:rounded-full tw:bg-an-accent tw:transition-[width]"
-                            :style="{ width: `${percent}%` }"
-                        ></div>
-                    </div>
-                </div>
-
-                <div class="tw:h-px tw:shrink-0 tw:bg-an-divider"></div>
-
-                <ul
-                    class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-px tw:overflow-y-auto tw:p-1.5"
-                >
-                    <li v-for="(field, i) in fields" :key="field.imageId">
-                        <button
-                            type="button"
-                            class="tw:flex tw:h-14 tw:w-full tw:items-center tw:gap-2.5 tw:rounded-lg tw:py-0 tw:pr-2 tw:pl-[7px] tw:text-left tw:transition-colors"
-                            :class="
-                                i === currentIndex
-                                    ? 'tw:bg-an-accent-tint tw:ring-1 tw:ring-an-accent'
-                                    : 'tw:hover:bg-an-n-50'
-                            "
-                            @click="goTo(i)"
-                        >
-                            <span
-                                class="tw:h-[42px] tw:w-[42px] tw:shrink-0 tw:overflow-hidden tw:rounded-md tw:bg-an-canvas"
-                            >
-                                <img
-                                    v-if="field.thumb"
-                                    :src="field.thumb"
-                                    class="tw:h-full tw:w-full tw:object-cover"
-                                    alt=""
-                                />
-                                <McSkeleton v-else class="tw:h-full tw:w-full tw:rounded-none" />
-                            </span>
-
-                            <span class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col tw:gap-[3px]">
-                                <span
-                                    class="tw:truncate tw:font-mono tw:text-[11.5px] tw:font-medium tw:text-an-n-700"
-                                >
-                                    Image {{ String(i + 1).padStart(2, '0') }}
-                                </span>
-                                <span class="tw:flex tw:items-center tw:gap-1.5">
-                                    <span
-                                        v-for="(dot, di) in fieldDots(field)"
-                                        :key="di"
-                                        class="tw:h-1.5 tw:w-1.5 tw:shrink-0 tw:rounded-[2px]"
-                                        :style="{ background: dot }"
-                                    ></span>
-                                    <span
-                                        class="tw:truncate tw:text-[10.5px]"
-                                        :class="metaClass(field)"
-                                    >
-                                        {{ statusText(field) }}
-                                    </span>
-                                </span>
-                            </span>
-
-                            <span
-                                v-if="fieldBadge(field) !== null"
-                                class="tw:flex tw:h-[19px] tw:min-w-[19px] tw:shrink-0 tw:items-center tw:justify-center tw:rounded-[5px] tw:px-1.5 tw:font-mono tw:text-[10.5px] tw:font-semibold tw:tabular-nums"
-                                :class="fieldBadgeClass(field)"
-                            >
-                                {{ fieldBadge(field) }}
-                            </span>
-                        </button>
-                    </li>
-                </ul>
-            </aside>
-
-            <!-- canvas -->
-            <main class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col">
-                <div class="tw:relative tw:min-h-0 tw:flex-1 tw:overflow-hidden tw:bg-an-canvas">
-                    <AnnotationCanvas
-                        v-if="current"
-                        ref="canvas"
-                        v-model:shapes="currentShapes"
-                        v-model:selected-id="selectedId"
-                        :src="current.url"
-                        :name="currentName"
-                        :tool="tool"
-                        :default-curated="false"
-                        :palette="palette"
-                        :hidden-ids="hiddenIds"
-                        @label-shape="labelShape"
-                        @commit="commit"
-                        @undo="undoStep"
-                    />
-
-                    <ToolDock
-                        :tool="tool"
-                        :can-undo="canUndoAny"
-                        :can-redo="canRedo"
-                        :can-delete="Boolean(selectedId)"
-                        @update:tool="tool = $event"
-                        @undo="undoStep"
-                        @redo="redo"
-                        @delete-selected="deleteSelected"
-                    />
-
-                    <PagerPill
-                        :name="currentName"
-                        :index="currentIndex + 1"
-                        :total="fields.length"
-                        @previous="goTo(currentIndex - 1)"
-                        @next="goTo(currentIndex + 1)"
-                    />
-                    <HintBar
-                        :tool="tool"
-                        :selected-count="selectedId ? 1 : 0"
-                        :drafting="Boolean(canvas?.hasDraft)"
-                    />
-                    <ZoomPill
-                        :percent="zoomPct"
-                        :at-fit="atFit"
-                        :enabled="canZoom"
-                        :all-hidden="allHidden"
-                        @zoom-in="canvas?.zoomIn()"
-                        @zoom-out="canvas?.zoomOut()"
-                        @fit="canvas?.fit()"
-                        @toggle-visibility="toggleAllHidden"
-                    />
-                </div>
-            </main>
-
-            <!-- labels -->
-            <aside
-                class="tw:flex tw:w-[320px] tw:shrink-0 tw:flex-col tw:border-l tw:border-an-border tw:bg-an-panel"
+                <PanelLeft class="tw:size-4" />
+            </McButton>
+            <div class="tw:flex tw:min-w-0 tw:flex-col">
+                <span class="tw:truncate tw:font-mono tw:text-[12px] tw:text-an-text">
+                    {{ currentName }}
+                </span>
+                <span class="tw:font-mono tw:text-[10.5px] tw:text-an-faint">
+                    {{ doneCount }} / {{ fields.length }} done
+                </span>
+            </div>
+            <div class="tw:flex-1" />
+            <McButton
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Labels and form"
+                @click="panelSheetOpen = true"
             >
-                <div class="tw:flex tw:min-h-0 tw:flex-col">
-                    <div class="tw:flex tw:items-center tw:gap-2 tw:pt-3 tw:pr-3 tw:pl-3.5">
-                        <span
-                            class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text"
-                        >
-                            Instruuction
-                        </span>
-                    </div>
-                    <span class="tw:pt-3 tw:pr-3 tw:pb-2 tw:pl-3.5">
-                        {{ assignment?.instructions || 'Box every finding and label it.' }}
-                    </span>
-                </div>
-                <!-- per-image fill-in form (field_prompts) -->
-                <div
-                    v-if="current && (config?.field_prompts.length ?? 0) > 0"
-                    class="tw:shrink-0 tw:border-t tw:border-an-border tw:bg-an-panel tw:px-4 tw:py-3"
-                >
-                    <div class="tw:flex tw:flex-wrap tw:items-center tw:gap-4">
-                        <div
-                            v-for="prompt in config?.field_prompts ?? []"
-                            :key="prompt.key"
-                            class="tw:flex tw:min-w-[240px] tw:flex-1 tw:items-center tw:gap-2"
-                        >
-                            <label
-                                class="tw:shrink-0 tw:text-[13px] tw:font-medium tw:text-an-text"
-                            >
-                                {{ prompt.label }}
-                                <span v-if="prompt.required" class="tw:text-danger">*</span>
-                            </label>
-                            <textarea
-                                v-if="prompt.type === 'textarea'"
-                                v-model="current.responses[prompt.key]"
-                                rows="1"
-                                class="tw:flex-1 tw:rounded-md tw:border tw:border-an-n-200 tw:px-3 tw:py-1.5 tw:text-sm tw:outline-none tw:focus:border-an-accent"
-                            />
-                            <input
-                                v-else
-                                v-model="current.responses[prompt.key]"
-                                :type="prompt.type === 'number' ? 'number' : 'text'"
-                                class="tw:h-9 tw:flex-1 tw:rounded-md tw:border tw:border-an-n-200 tw:px-3 tw:text-sm tw:outline-none tw:focus:border-an-accent"
-                            />
-                        </div>
-                    </div>
-                </div>
-                <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:overflow-y-auto">
+                <Shapes class="tw:size-4" />
+            </McButton>
+            <McButton
+                size="sm"
+                :disabled="!canSubmit || submitting"
+                :loading="submitting"
+                @click="submit"
+            >
+                <Send class="tw:mr-1 tw:size-4" />
+                {{
+                    canSubmit
+                        ? returnedReason !== null
+                            ? 'Resubmit'
+                            : 'Submit'
+                        : `${Math.max(required - addressed, 0)} left`
+                }}
+            </McButton>
+        </template>
+
+        <template #queue>
+            <AnnotateQueue
+                :fields="fields"
+                :palette="palette"
+                :current-index="currentIndex"
+                :done-count="doneCount"
+                :skipped-count="skippedCount"
+                :percent="percent"
+                @select="goTo"
+            />
+        </template>
+
+        <template #canvas>
+            <AnnotationCanvas
+                v-if="current"
+                ref="canvas"
+                v-model:shapes="currentShapes"
+                v-model:selected-id="selectedId"
+                :src="current.url"
+                :name="currentName"
+                :tool="tool"
+                :default-curated="false"
+                :palette="palette"
+                :hidden-ids="hiddenIds"
+                :touch-layout="isTouchLayout"
+                @label-shape="labelShape"
+                @commit="commit"
+                @undo="undoStep"
+            />
+
+            <!-- returned-for-changes banner, pinned over the top of the canvas -->
+            <div
+                v-if="returnedReason !== null"
+                class="tw:absolute tw:inset-x-0 tw:top-0 tw:z-10 tw:flex tw:items-start tw:gap-2 tw:border-b tw:border-warning/30 tw:bg-warning/10 tw:px-3 tw:py-2 tw:text-[12.5px] tw:text-an-text tw:backdrop-blur"
+            >
+                <Undo2 class="tw:mt-0.5 tw:size-4 tw:shrink-0 tw:text-warning" />
+                <span>
+                    <b>Returned for changes.</b>
+                    <template v-if="returnedReason">{{ returnedReason }}</template>
+                    <template v-else>Edit your work and resubmit.</template>
+                </span>
+            </div>
+
+            <div
+                v-if="loading"
+                class="tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:text-an-d-text"
+            >
+                Loading…
+            </div>
+
+            <ToolDock
+                v-if="!stacked"
+                :tool="tool"
+                :can-undo="canUndoAny"
+                :can-redo="canRedo"
+                :can-delete="Boolean(selectedId)"
+                @update:tool="tool = $event"
+                @undo="undoStep"
+                @redo="redo"
+                @delete-selected="deleteSelected"
+            />
+            <PagerPill
+                :name="currentName"
+                :index="currentIndex + 1"
+                :total="fields.length"
+                @previous="goTo(currentIndex - 1)"
+                @next="goTo(currentIndex + 1)"
+            />
+            <HintBar
+                v-if="!stacked"
+                :tool="tool"
+                :selected-count="selectedId ? 1 : 0"
+                :drafting="Boolean(canvas?.hasDraft)"
+            />
+            <ZoomPill
+                :percent="zoomPct"
+                :at-fit="atFit"
+                :enabled="canZoom"
+                :all-hidden="allHidden"
+                @zoom-in="canvas?.zoomIn()"
+                @zoom-out="canvas?.zoomOut()"
+                @fit="canvas?.fit()"
+                @toggle-visibility="toggleAllHidden"
+            />
+        </template>
+
+        <template #labels>
+            <AnnotatePanel
+                :instructions="assignment?.instructions"
+                :field-prompts="config?.field_prompts ?? []"
+                :responses="current?.responses ?? null"
+                :status="current?.status ?? null"
+                :shapes="currentShapes"
+                :selected-id="selectedId"
+                :hidden-ids="hiddenIds"
+                :palette="palette"
+                :allow-skip="Boolean(config?.allow_skip)"
+                @update-response="setResponse"
+                @select-shape="selectedId = $event"
+                @delete-shape="deleteShape"
+                @mark-done="markDone"
+                @skip="skip"
+            >
+                <template #classes>
                     <ClassPicker
                         :classes="classes"
                         :active="activeLabelId"
@@ -848,96 +763,86 @@ const metaClass = (field: FieldState) =>
                         @create="createClass"
                         @recolor="recolorClass"
                     />
+                </template>
+            </AnnotatePanel>
+        </template>
 
-                    <div class="tw:mx-3 tw:h-px tw:shrink-0 tw:bg-an-divider" />
+        <!-- tablet/phone: tools and classes as bottom bars (the shell mounts these only when stacked) -->
+        <template #bottom-tools>
+            <BottomTools
+                :tool="tool"
+                :can-undo="canUndoAny"
+                :can-redo="canRedo"
+                :can-delete="Boolean(selectedId)"
+                @update:tool="tool = $event"
+                @undo="undoStep"
+                @redo="redo"
+                @delete-selected="deleteSelected"
+            />
+        </template>
+        <template #bottom-classes>
+            <!-- Quick-pick strip. Naming a new class needs a text field, so "+" opens the panel
+                 sheet where the full ClassPicker lives (a fixed label_set hides "+" entirely). -->
+            <ClassStrip
+                :classes="classes"
+                :active="activeLabelId"
+                :fixed="fixedLabelSet"
+                @pick="pickClass"
+                @create="panelSheetOpen = true"
+            />
+        </template>
 
-                    <!-- shapes on this image (ShapeRow shape) -->
-                    <section class="tw:flex tw:flex-col tw:gap-1 tw:p-3">
-                        <div class="tw:mb-1 tw:flex tw:items-center tw:gap-2">
-                            <span class="tw:text-[11.5px] tw:font-semibold tw:text-an-text">
-                                Your labels
-                            </span>
-                            <span class="tw:font-mono tw:text-[10px] tw:text-an-faint">
-                                {{ currentShapes.length }}
-                            </span>
-                        </div>
+        <template #sheets>
+            <McSheet v-model:open="queueSheetOpen">
+                <McSheetContent side="left" class="tw:w-[300px] tw:p-0" hide-close>
+                    <AnnotateQueue
+                        :fields="fields"
+                        :palette="palette"
+                        :current-index="currentIndex"
+                        :done-count="doneCount"
+                        :skipped-count="skippedCount"
+                        :percent="percent"
+                        @select="
+                            (i) => {
+                                goTo(i)
+                                queueSheetOpen = false
+                            }
+                        "
+                    />
+                </McSheetContent>
+            </McSheet>
 
-                        <div
-                            v-for="s in currentShapes"
-                            :key="s.id"
-                            class="tw:flex tw:h-[42px] tw:cursor-pointer tw:items-center tw:gap-[9px] tw:rounded-[8px] tw:px-2"
-                            :class="[
-                                s.id === selectedId
-                                    ? 'tw:bg-an-n-50 tw:ring-1 tw:ring-inset tw:ring-an-accent/40'
-                                    : 'tw:hover:bg-an-n-50',
-                                hiddenIds.has(s.id) ? 'tw:opacity-45' : '',
-                            ]"
-                            @click="selectedId = s.id"
-                        >
-                            <span
-                                class="tw:h-6 tw:w-[3px] tw:shrink-0 tw:rounded-[2px]"
-                                :style="{ background: shapeColor(s) }"
+            <McSheet v-model:open="panelSheetOpen">
+                <McSheetContent side="right" class="tw:flex tw:w-[320px] tw:flex-col tw:p-0">
+                    <AnnotatePanel
+                        :instructions="assignment?.instructions"
+                        :field-prompts="config?.field_prompts ?? []"
+                        :responses="current?.responses ?? null"
+                        :status="current?.status ?? null"
+                        :shapes="currentShapes"
+                        :selected-id="selectedId"
+                        :hidden-ids="hiddenIds"
+                        :palette="palette"
+                        :allow-skip="Boolean(config?.allow_skip)"
+                        @update-response="setResponse"
+                        @select-shape="selectedId = $event"
+                        @delete-shape="deleteShape"
+                        @mark-done="markDone"
+                        @skip="skip"
+                    >
+                        <template #classes>
+                            <ClassPicker
+                                :classes="classes"
+                                :active="activeLabelId"
+                                :fixed="fixedLabelSet"
+                                @pick="pickClass"
+                                @create="createClass"
+                                @recolor="recolorClass"
                             />
-                            <component
-                                :is="s.polygon ? Pentagon : Square"
-                                class="tw:size-[15px] tw:shrink-0 tw:text-an-n-500"
-                            />
-                            <span class="tw:min-w-0 tw:flex-1">
-                                <span
-                                    class="tw:block tw:truncate tw:text-[13px]"
-                                    :class="
-                                        s.label ? 'tw:text-an-text' : 'tw:text-an-n-300 tw:italic'
-                                    "
-                                >
-                                    {{ s.label || 'Unlabelled' }}
-                                </span>
-                                <span class="tw:block tw:font-mono tw:text-[10px] tw:text-an-faint">
-                                    {{ shapeMeta(s) }}
-                                </span>
-                            </span>
-                            <button
-                                class="tw:flex tw:size-6 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:text-an-n-400 tw:hover:bg-danger/10 tw:hover:text-danger"
-                                aria-label="Delete"
-                                @click.stop="deleteShape(s.id)"
-                            >
-                                <Trash2 class="tw:size-[15px]" />
-                            </button>
-                        </div>
-
-                        <p
-                            v-if="!currentShapes.length"
-                            class="tw:px-1 tw:py-2 tw:text-[11px] tw:text-an-faint"
-                        >
-                            Pick a class, then drag a box on the image.
-                        </p>
-                    </section>
-                </div>
-
-                <div class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:p-3">
-                    <!-- Once a box is drawn, Skip stops making sense, so it goes and Done takes the
-                         row. Done reads as outline once the image is already marked complete. -->
-                    <div class="tw:flex tw:gap-2">
-                        <McButton
-                            class="tw:flex-1"
-                            :variant="current?.status === 'completed' ? 'outline' : 'default'"
-                            @click="markDone"
-                        >
-                            <Check class="tw:mr-1 tw:size-4" />
-                            {{ current?.status === 'completed' ? 'Done' : 'Mark done' }}
-                        </McButton>
-                        <McButton
-                            v-if="!currentShapes.length"
-                            variant="outline"
-                            class="tw:flex-1"
-                            :disabled="!config?.allow_skip"
-                            @click="skip"
-                        >
-                            <SkipForward class="tw:mr-1 tw:size-4" />
-                            Skip
-                        </McButton>
-                    </div>
-                </div>
-            </aside>
-        </div>
-    </div>
+                        </template>
+                    </AnnotatePanel>
+                </McSheetContent>
+            </McSheet>
+        </template>
+    </AnnotatorShell>
 </template>
