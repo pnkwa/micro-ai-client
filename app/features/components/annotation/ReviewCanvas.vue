@@ -1,18 +1,23 @@
 <script setup lang="ts">
-import { useElementSize } from '@vueuse/core'
 import { reviewBoxColor } from '~/core/helpers/annotationClasses'
+import { zoomPercent } from '~/core/helpers/viewportTransform'
+import { useCanvasViewport } from '~/core/composables/useCanvasViewport'
+import ZoomPill from '~/features/components/shared/ZoomPill.vue'
 import type { StudentBox } from '~/services/annotationAssignmentService'
 
 /**
  * Read-only compare canvas for instructor review (BE-ADR-039, screen 7). Not the editable
- * AnnotationCanvas — nothing here is draggable. Boxes are normalized [0,1] against the image, so
- * they position as plain CSS percentages over the image once it is laid out.
+ * AnnotationCanvas — nothing here is draggable, but it pans and ZOOMS: a microscopy field is often
+ * only worth grading up close, and the boxes were drawn at a magnification the fitted view throws
+ * away. It shares the annotator's `useCanvasViewport`, so fit / wheel-pan / pinch-zoom behave
+ * exactly as they do while drawing, and the readout says "Fit 13%" the same way.
  *
- * The image is fit into the pane with an explicitly computed size (from the container size and the
- * image's natural size) rather than by CSS `max-*`: a `max-height:100%` on an image inside a
- * shrink-wrapped box resolves against the box's auto height and is dropped, which let a tall image
- * overflow and get clipped — the picture then looked wrong and the box overlay no longer lined up.
- * Sizing the wrapper ourselves keeps the overlay exactly over the image at any aspect ratio.
+ * Boxes are normalized [0,1] against the image and positioned as plain CSS percentages within a
+ * wrapper the composable SIZES (natural × scale) and translates. Zoom is a change in that wrapper's
+ * size, not a CSS `transform: scale`, which is deliberate: it keeps the label chips, the rectangle
+ * borders and the non-scaling polygon strokes at a constant on-screen size at any magnification,
+ * rather than ballooning them. The overlay percentages never change, so nothing has to be recomputed
+ * as the view zooms.
  *
  * Two layers: the student's boxes (solid, in their class colour) and, optionally, the instructor's
  * expert key (dashed teal). The student never mounts this with expert boxes — the server omits them.
@@ -40,25 +45,51 @@ const props = defineProps<{
 const EXPERT = '0e9384' // an-accent teal
 
 const container = useTemplateRef<HTMLElement>('container')
-const { width: cw, height: ch } = useElementSize(container)
-const natural = ref<{ w: number; h: number } | null>(null)
+// The composable owns fit, zoom, pan and the natural-size measurement (invalidated on src change),
+// exactly as it does for the editable canvas. Destructured so the refs auto-unwrap in the template.
+const view = useCanvasViewport(container, { src: toRef(props, 'src') })
+const transform = view.transform
+const natural = view.natural
+const viewport = view.viewport
+const ready = view.ready
+const atFit = view.atFit
+const percent = computed(() => zoomPercent(transform.value))
 
-// Reset on source change so the previous image's dimensions never size the next one.
-watch(
-    () => props.src,
-    () => (natural.value = null),
-)
-function onLoad(event: Event) {
-    const img = event.target as HTMLImageElement
-    natural.value = { w: img.naturalWidth, h: img.naturalHeight }
+/** Overlays off, to read the bare image while grading — the pill's eye toggles it. */
+const overlaysHidden = ref(false)
+
+const onLoad = (event: Event) => view.measure(event.target as HTMLImageElement)
+
+/** Wheel pans; ctrl/⌘-wheel (and trackpad pinch) zooms at the cursor — same as the annotator. */
+const onWheel = (event: WheelEvent) => {
+    if (event.ctrlKey || event.metaKey) {
+        view.zoomAtCursor(event, event.deltaY)
+        return
+    }
+    const x = event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX
+    const y = event.shiftKey ? 0 : event.deltaY
+    view.pan({ x: -x, y: -y })
 }
 
-// Contain the image in the pane (scale up or down to fit, preserving aspect).
-const fit = computed(() => {
-    if (!natural.value || !cw.value || !ch.value) return null
-    const scale = Math.min(cw.value / natural.value.w, ch.value / natural.value.h)
-    return { w: natural.value.w * scale, h: natural.value.h * scale }
-})
+// Drag to pan. Read-only, so a left-drag anywhere is a pan and nothing else.
+const panning = ref(false)
+let lastPointer = { x: 0, y: 0 }
+const onPointerDown = (event: PointerEvent) => {
+    if (event.button !== 0) return
+    panning.value = true
+    lastPointer = { x: event.clientX, y: event.clientY }
+    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+const onPointerMove = (event: PointerEvent) => {
+    if (!panning.value) return
+    view.pan({ x: event.clientX - lastPointer.x, y: event.clientY - lastPointer.y })
+    lastPointer = { x: event.clientX, y: event.clientY }
+}
+const onPointerUp = (event: PointerEvent) => {
+    if (!panning.value) return
+    panning.value = false
+    ;(event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId)
+}
 
 const hex = (h: string) => (h.startsWith('#') ? h : `#${h}`)
 // Instructor's swatch when the label matches label_set (case-insensitive), else the student's own.
@@ -111,102 +142,144 @@ const chipStyle = (b: Poly, place: 'above' | 'below') => {
 <template>
     <div
         ref="container"
-        class="tw:relative tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center tw:overflow-hidden tw:bg-an-canvas"
+        class="tw:relative tw:h-full tw:w-full tw:overflow-hidden tw:bg-an-canvas"
+        :class="src ? (panning ? 'tw:cursor-grabbing' : 'tw:cursor-grab') : ''"
+        @wheel.prevent="onWheel"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointerleave="onPointerUp"
     >
+        <!-- Sized natural × scale and translated, so the fitted view and full zoom are the same
+             wrapper at different sizes; hidden until the image is measured. -->
         <div
             v-if="src"
-            class="tw:relative tw:leading-none"
-            :style="fit ? { width: `${fit.w}px`, height: `${fit.h}px` } : { visibility: 'hidden' }"
+            class="tw:absolute tw:top-1/2 tw:origin-center"
+            :style="{
+                width: `${(natural?.w ?? 0) * transform.scale}px`,
+                height: `${(natural?.h ?? 0) * transform.scale}px`,
+                left: `${viewport.w / 2}px`,
+                transform: `translate(calc(-50% + ${transform.x}px), calc(-50% + ${transform.y}px))`,
+                visibility: ready ? 'visible' : 'hidden',
+            }"
         >
-            <img :src="src" alt="" class="tw:block tw:h-full tw:w-full" @load="onLoad" />
+            <img
+                :src="src"
+                alt=""
+                class="tw:block tw:h-full tw:w-full tw:select-none"
+                draggable="false"
+                @load="onLoad"
+                @dragstart.prevent
+            />
 
-            <!-- polygons, drawn in a stretched viewBox so normalized points map straight across -->
-            <svg
-                class="tw:pointer-events-none tw:absolute tw:inset-0 tw:h-full tw:w-full"
-                viewBox="0 0 100 100"
-                preserveAspectRatio="none"
-            >
-                <template v-if="showExpert">
+            <!-- One toggle hides both layers, to check a box against the bare image. -->
+            <template v-if="!overlaysHidden">
+                <!-- polygons, drawn in a stretched viewBox so normalized points map straight across -->
+                <svg
+                    class="tw:pointer-events-none tw:absolute tw:inset-0 tw:h-full tw:w-full"
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                >
+                    <template v-if="showExpert">
+                        <polygon
+                            v-for="e in expertBoxes.filter((b) => b.polygon)"
+                            :key="`ep-${e.id}`"
+                            :points="points(e.polygon!)"
+                            :stroke="hex(e.color || EXPERT)"
+                            stroke-width="0.5"
+                            stroke-dasharray="1.5 1"
+                            fill="none"
+                            vector-effect="non-scaling-stroke"
+                        />
+                    </template>
                     <polygon
-                        v-for="e in expertBoxes.filter((b) => b.polygon)"
-                        :key="`ep-${e.id}`"
-                        :points="points(e.polygon!)"
-                        :stroke="hex(e.color || EXPERT)"
+                        v-for="s in studentBoxes.filter((b) => b.polygon)"
+                        :key="`sp-${s.id}`"
+                        :points="points(s.polygon!)"
+                        :stroke="studentColor(s.label)"
                         stroke-width="0.5"
-                        stroke-dasharray="1.5 1"
-                        fill="none"
+                        :fill="studentColor(s.label)"
+                        fill-opacity="0.12"
                         vector-effect="non-scaling-stroke"
                     />
-                </template>
-                <polygon
-                    v-for="s in studentBoxes.filter((b) => b.polygon)"
-                    :key="`sp-${s.id}`"
-                    :points="points(s.polygon!)"
-                    :stroke="studentColor(s.label)"
-                    stroke-width="0.5"
-                    :fill="studentColor(s.label)"
-                    fill-opacity="0.12"
-                    vector-effect="non-scaling-stroke"
-                />
-            </svg>
+                </svg>
 
-            <!-- expert boxes: dashed border for rectangles (the SVG outlines polygons); the label
+                <!-- expert boxes: dashed border for rectangles (the SVG outlines polygons); the label
                  chip sits at the bounding box for both, as in the annotator. -->
-            <template v-if="showExpert">
+                <template v-if="showExpert">
+                    <div
+                        v-for="e in expertBoxes"
+                        :key="`eb-${e.id}`"
+                        class="tw:absolute tw:rounded-sm"
+                        :class="e.polygon ? '' : 'tw:border-2 tw:border-dashed'"
+                        :style="{
+                            ...boxStyle(e),
+                            ...(e.polygon ? {} : { borderColor: hex(e.color || EXPERT) }),
+                        }"
+                    >
+                        <span
+                            v-if="e.label"
+                            class="tw:absolute tw:rounded tw:px-1.5 tw:py-0.5 tw:text-[11px] tw:font-semibold tw:whitespace-nowrap tw:text-white"
+                            :class="e.polygon ? '' : 'tw:-top-5 tw:left-0'"
+                            :style="{
+                                background: hex(e.color || EXPERT),
+                                ...(e.polygon ? chipStyle(e, 'above') : {}),
+                            }"
+                        >
+                            {{ e.label }}
+                        </span>
+                    </div>
+                </template>
+
+                <!-- student boxes: solid border + fill for rectangles (the SVG outlines polygons); the
+                 label chip sits at the bounding box for both. -->
                 <div
-                    v-for="e in expertBoxes"
-                    :key="`eb-${e.id}`"
+                    v-for="s in studentBoxes"
+                    :key="`sb-${s.id}`"
                     class="tw:absolute tw:rounded-sm"
-                    :class="e.polygon ? '' : 'tw:border-2 tw:border-dashed'"
+                    :class="s.polygon ? '' : 'tw:border-2'"
                     :style="{
-                        ...boxStyle(e),
-                        ...(e.polygon ? {} : { borderColor: hex(e.color || EXPERT) }),
+                        ...boxStyle(s),
+                        ...(s.polygon
+                            ? {}
+                            : {
+                                  borderColor: studentColor(s.label),
+                                  background: `${studentColor(s.label)}1f`,
+                              }),
                     }"
                 >
                     <span
-                        v-if="e.label"
                         class="tw:absolute tw:rounded tw:px-1.5 tw:py-0.5 tw:text-[11px] tw:font-semibold tw:whitespace-nowrap tw:text-white"
-                        :class="e.polygon ? '' : 'tw:-top-5 tw:left-0'"
+                        :class="s.polygon ? '' : 'tw:-bottom-5 tw:left-0'"
                         :style="{
-                            background: hex(e.color || EXPERT),
-                            ...(e.polygon ? chipStyle(e, 'above') : {}),
+                            background: studentColor(s.label),
+                            ...(s.polygon ? chipStyle(s, 'below') : {}),
                         }"
                     >
-                        {{ e.label }}
+                        {{ s.label || 'Unlabelled' }}
                     </span>
                 </div>
             </template>
-
-            <!-- student boxes: solid border + fill for rectangles (the SVG outlines polygons); the
-                 label chip sits at the bounding box for both. -->
-            <div
-                v-for="s in studentBoxes"
-                :key="`sb-${s.id}`"
-                class="tw:absolute tw:rounded-sm"
-                :class="s.polygon ? '' : 'tw:border-2'"
-                :style="{
-                    ...boxStyle(s),
-                    ...(s.polygon
-                        ? {}
-                        : {
-                              borderColor: studentColor(s.label),
-                              background: `${studentColor(s.label)}1f`,
-                          }),
-                }"
-            >
-                <span
-                    class="tw:absolute tw:rounded tw:px-1.5 tw:py-0.5 tw:text-[11px] tw:font-semibold tw:whitespace-nowrap tw:text-white"
-                    :class="s.polygon ? '' : 'tw:-bottom-5 tw:left-0'"
-                    :style="{
-                        background: studentColor(s.label),
-                        ...(s.polygon ? chipStyle(s, 'below') : {}),
-                    }"
-                >
-                    {{ s.label || 'Unlabelled' }}
-                </span>
-            </div>
         </div>
 
-        <div v-else class="tw:text-sm tw:text-an-faint">No image</div>
+        <div
+            v-else
+            class="tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:text-sm tw:text-an-faint"
+        >
+            No image
+        </div>
+
+        <ZoomPill
+            v-if="src"
+            :percent="percent"
+            :at-fit="atFit"
+            :enabled="ready"
+            :all-hidden="overlaysHidden"
+            @pointerdown.stop
+            @zoom-in="view.zoomStep(1.25)"
+            @zoom-out="view.zoomStep(1 / 1.25)"
+            @fit="view.fit()"
+            @toggle-visibility="overlaysHidden = !overlaysHidden"
+        />
     </div>
 </template>
