@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
     CLASS_COLORS,
+    applyActiveLabel,
     buildClasses,
     classColorAt,
     classForDigit,
@@ -207,5 +208,47 @@ describe('reviewBoxColor', () => {
     it('returns the default colour for an unlabelled box', () => {
         expect(reviewBoxColor(null, labelColors)).toBe(DEFAULT_REVIEW_BOX_COLOR)
         expect(reviewBoxColor('   ', labelColors)).toBe(DEFAULT_REVIEW_BOX_COLOR)
+    })
+})
+
+describe('applyActiveLabel (pick-then-draw)', () => {
+    const palette = [label(1, 'BV'), label(2, 'GU')]
+
+    it('labels a new, unlabelled shape with the active class and reports the change', () => {
+        const shapes = [shape(null, 's1')]
+        const known = new Set<string>()
+        expect(applyActiveLabel(shapes, known, palette, 1)).toBe(true)
+        expect(shapes[0]).toMatchObject({ labelId: 1, label: 'BV' })
+        expect(known.has('s1')).toBe(true)
+    })
+
+    it('touches only shapes not already known, and adds the ones it sees', () => {
+        const known = new Set(['old'])
+        const shapes = [shape(null, 'old'), shape(null, 'new')]
+        applyActiveLabel(shapes, known, palette, 2)
+        expect(shapes[0]!.labelId).toBeNull() // already known, left alone
+        expect(shapes[1]).toMatchObject({ labelId: 2, label: 'GU' })
+    })
+
+    it('never overwrites a shape that already carries a class or any text', () => {
+        const shapes = [shape(1, 'a'), shape(null, 'b', 'typed')]
+        const changed = applyActiveLabel(shapes, new Set(), palette, 2)
+        expect(changed).toBe(false)
+        expect(shapes[0]!.labelId).toBe(1)
+        expect(shapes[1]).toMatchObject({ labelId: null, label: 'typed' })
+    })
+
+    it('is a no-op when no class is active, but still marks shapes known', () => {
+        const known = new Set<string>()
+        const shapes = [shape(null, 's1')]
+        expect(applyActiveLabel(shapes, known, palette, null)).toBe(false)
+        expect(shapes[0]!.labelId).toBeNull()
+        expect(known.has('s1')).toBe(true)
+    })
+
+    it('is a no-op when the active id is not in the palette', () => {
+        const shapes = [shape(null, 's1')]
+        expect(applyActiveLabel(shapes, new Set(), palette, 999)).toBe(false)
+        expect(shapes[0]!.labelId).toBeNull()
     })
 })

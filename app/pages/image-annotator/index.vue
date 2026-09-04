@@ -32,6 +32,7 @@ import { imageService, type LibraryImage } from '~/services/imageService'
 import { annotationService } from '~/services/annotationService'
 import { annotationLabelService, type AnnotationLabel } from '~/services/annotationLabelService'
 import {
+    applyActiveLabel,
     buildClasses,
     classColorAt,
     classForDigit,
@@ -44,6 +45,15 @@ import {
 // Imported explicitly rather than left to `imports.dirs: ['core/**']`, because auto-import resolves
 // at BUILD time: a helper added while the dev server is running is typed but undefined at runtime.
 import { isConflict } from '~/core/helpers/error'
+import { localId } from '~/core/helpers/localId'
+import {
+    toDraftShapes,
+    draftShapesToShapes,
+    draftSignature,
+    type DraftClass,
+    type ImageAnnotationDraft,
+} from '~/core/helpers/imageAnnotationDraft'
+import { useImageAnnotationDraft } from '~/core/composables/useImageAnnotationDraft'
 import { queueRowView, type QueueFilter } from '~/core/helpers/annotationQueue'
 import { imageDisplayName } from '~/core/helpers/imageName'
 import AnnotationCanvas, {
@@ -151,7 +161,10 @@ const imagesLoading = ref(false)
 
 const leftOpen = ref(true)
 const rightOpen = ref(true)
-const autoSave = ref(false)
+// On by default: the local cache holds work between writes, and the server save is throttled to a
+// 20s idle so it is no longer chatty enough to want off. The header toggle still turns it off, and
+// save-on-navigate + manual Save + the local cache cover that case.
+const autoSave = ref(true)
 const search = ref('')
 const queueFilter = ref<QueueFilter>('all')
 
@@ -165,6 +178,16 @@ const queueFilter = ref<QueueFilter>('all')
  */
 const palette = ref<AnnotationLabel[]>([])
 const activeLabelId = ref<number | null>(null)
+
+/**
+ * A newly named class no longer costs a server POST the moment it is typed (BE-ADR-030, FE side).
+ * It lives as a LOCAL palette row with a NEGATIVE id until a save mints it (`flushPendingLabels`),
+ * which cuts label create/link calls to one batch per save. Negative ids are disjoint from the
+ * server's positive ones, so `isPending` is the whole of the distinction and lookups by text are
+ * unaffected. Because save-on-navigate stays, pending rows only ever exist on the open image.
+ */
+let pendingSeq = 0
+const isPending = (id: number | null): id is number => id !== null && id < 0
 
 const classes = computed(() => buildClasses(palette.value, shapes.value))
 
@@ -184,59 +207,58 @@ const labelIdFor = (name: string) => labelByName(palette.value, name)?.id ?? nul
  * re-read and the existing row used. Anything else is surfaced and the caller leaves the shape
  * unnamed rather than pretending it was labelled.
  */
-const ensureLabel = async (name: string, colorHex?: string): Promise<AnnotationLabel | null> => {
+const ensureLocalLabel = (name: string, colorHex?: string): AnnotationLabel | null => {
     const wanted = name.trim()
     if (!wanted) return null
     const held = labelByName(palette.value, wanted)
     if (held) return held
-    try {
-        // The colour offered when nobody picked one: the next one along the cycle, so two classes
-        // made back to back do not arrive the same shade.
-        const created = await annotationLabelService.create({
-            label: wanted,
-            color_hex: colorHex ?? toColorHex(classColorAt(palette.value.length)),
-        })
-        await adoptIntoPalette(created)
-        return created
-    } catch (error) {
-        if (isConflict(error)) {
-            // The name is already ours, minted in another tab or by a seed. Read the FULL palette
-            // to find it: it may well be an orphan, and the opening read filtered those out.
-            const full = await annotationLabelService.list()
-            const existing = full.find((entry) => entry.label === wanted)
-            if (existing) {
-                palette.value = keepFrom(full, existing)
-                return existing
-            }
-        }
-        toast.error(apiErrorMessage(error, 'Could not create that class'))
-        return null
+    // A pending, local-only row. No server call - the mint is deferred to the next save. The colour
+    // offered when nobody picked one is the next one along the cycle, so two classes made back to
+    // back do not arrive the same shade; `toColorHex` normalizes whatever the caller passed.
+    const created: AnnotationLabel = {
+        id: --pendingSeq,
+        label: wanted,
+        color_hex: colorHex ? toColorHex(colorHex) : toColorHex(classColorAt(palette.value.length)),
+        owner_id: null,
+        created_at: '',
+        updated_at: '',
     }
+    palette.value = [...palette.value, created]
+    return created
 }
 
 /**
- * The subset of a freshly read palette that belongs on screen, in the server's order.
- *
- * Two rules have to hold at once. The order must be the SERVER'S, because a locally appended row
- * sits at the end and the 1-9 keycaps would renumber on the next reload - seen live: "clue cell"
- * then "WBC" listed as 1 and 2, and a reload swapped them, the database sorting by byte order. And
- * nothing already on screen may disappear, because the opening read hides orphans and a class stays
- * an orphan until a box carrying it is SAVED.
- *
- * Filtering a server-ordered array satisfies both: order survives, and the kept set is whatever was
- * already shown plus whatever this call is adopting.
+ * Mint on the server the pending (local) classes these shapes carry, batched at save time, and
+ * remap their ids. This is where the deferred label create/link calls finally happen - one per new
+ * class per save instead of one the instant it was named. Holds the same 409-is-ordinary handling
+ * the old eager `ensureLabel` did: a name already ours (another tab, a seed) comes back conflicted,
+ * and the existing server row is adopted. Returns a local-id -> server-id map for `save` to apply.
  */
-const keepFrom = (full: AnnotationLabel[], ...adopting: AnnotationLabel[]): AnnotationLabel[] => {
-    const keep = new Set([...palette.value, ...adopting].map((entry) => entry.id))
-    return full.filter((entry) => keep.has(entry.id))
-}
-
-/** Put a just-created label into the palette, in the server's order. See `keepFrom`. */
-const adoptIntoPalette = async (label: AnnotationLabel) => {
-    // Falls back to appending if the read fails: a wrongly ordered palette is a far smaller problem
-    // than a class the person just made not appearing at all.
-    const full = await annotationLabelService.list().catch(() => null)
-    palette.value = full ? keepFrom(full, label) : [...palette.value, label]
+const flushPendingLabels = async (forShapes: Shape[]): Promise<Map<number, number>> => {
+    const remap = new Map<number, number>()
+    const pendingIds = [...new Set(forShapes.map((s) => s.labelId).filter(isPending))]
+    for (const pid of pendingIds) {
+        const row = palette.value.find((entry) => entry.id === pid)
+        if (!row) continue
+        let server: AnnotationLabel | null = null
+        try {
+            server = await annotationLabelService.create({
+                label: row.label,
+                color_hex: row.color_hex,
+            })
+        } catch (error) {
+            if (isConflict(error)) {
+                const full = await annotationLabelService.list()
+                server = full.find((entry) => entry.label === row.label) ?? null
+            }
+            if (!server) throw error
+        }
+        remap.set(pid, server.id)
+        // Replace the pending row in place, keeping its position so the picker does not reshuffle
+        // mid-save; other pending rows (unused classes) are left for a later save.
+        palette.value = palette.value.map((entry) => (entry.id === pid ? server! : entry))
+    }
+    return remap
 }
 
 const pickClass = (labelId: number) => {
@@ -246,25 +268,33 @@ const pickClass = (labelId: number) => {
     // draw, then press 2, without the pointer ever leaving the canvas.
     if (selectedShapeId.value)
         updateShape(selectedShapeId.value, { labelId: label.id, label: label.label })
-    else activeLabelId.value = label.id
+    // Clicking the already-active class turns it off, so the next box drawn stays unlabelled - the
+    // only way to draw without a class now that a new box inherits the active one (pick-then-draw).
+    else activeLabelId.value = activeLabelId.value === label.id ? null : label.id
 }
 
 /**
  * A class typed straight onto a shape's chip on the canvas.
  *
- * Both halves, in one gesture: the class is minted if it is new, and the shape takes it. Deliberately
- * does NOT move the active class - you named one shape, and silently re-arming the next draw with it
- * is a decision the person did not make.
+ * Both halves, in one gesture: the class is created (locally, deferred to save) if it is new, and the
+ * shape takes it. Deliberately does NOT move the active class - you named one shape, and silently
+ * re-arming the next draw with it is a decision the person did not make.
  */
-const labelShape = async (id: string, name: string) => {
-    const label = await ensureLabel(name)
-    if (!label) return
-    updateShape(id, { labelId: label.id, label: label.label })
+const labelShape = (id: string, name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) return updateShape(id, { labelId: null, label: '' })
+    const label = ensureLocalLabel(trimmed)
+    if (label) updateShape(id, { labelId: label.id, label: label.label })
 }
 
-const createClass = async (name: string, colorHex?: string) => {
-    const label = await ensureLabel(name, colorHex)
-    if (label) pickClass(label.id)
+const createClass = (name: string, colorHex?: string) => {
+    const label = ensureLocalLabel(name, colorHex)
+    if (!label) return
+    // Arm it (or reclass the selected shape). Set directly rather than through `pickClass`, whose
+    // toggle-off would turn an already-active existing name back off, which is not what "create" means.
+    if (selectedShapeId.value)
+        updateShape(selectedShapeId.value, { labelId: label.id, label: label.label })
+    else activeLabelId.value = label.id
 }
 
 /**
@@ -276,8 +306,16 @@ const createClass = async (name: string, colorHex?: string) => {
  * at once, and it is library-wide and permanent rather than a view setting.
  */
 const recolorClass = async (labelId: number, color: string) => {
-    const previous = palette.value
     const hex = toColorHex(color)
+    // A pending (local) class has no server row yet, so recolour is a local edit only - it rides
+    // along when the class is minted at save time.
+    if (isPending(labelId)) {
+        palette.value = palette.value.map((entry) =>
+            entry.id === labelId ? { ...entry, color_hex: hex } : entry,
+        )
+        return
+    }
+    const previous = palette.value
     // Optimistic, because a colour picker that lags behind the pointer feels broken. Rolled back on
     // failure rather than left showing a colour the server did not accept.
     palette.value = palette.value.map((entry) =>
@@ -444,6 +482,71 @@ const commit = () => {
     historyIndex.value = history.value.length - 1
 }
 
+// ---- pick-then-draw ------------------------------------------------------------------------------
+// The staff flow used to be name-after-draw; a new box now inherits the active class instead, the
+// way the student annotator does. `knownShapeIds` is the set that existed when the image opened (or
+// after a seed/import/restore), so only boxes drawn from here on are auto-labelled and a class
+// cleared or renamed later is left alone.
+let knownShapeIds = new Set<string>()
+const seedKnownShapes = () => {
+    knownShapeIds = new Set(shapes.value.map((shape) => shape.id))
+}
+const labelNewShapes = () => {
+    if (applyActiveLabel(shapes.value, knownShapeIds, palette.value, activeLabelId.value)) commit()
+}
+watch(shapes, labelNewShapes, { deep: true })
+
+// ---- local cache (unsaved work) ------------------------------------------------------------------
+// A per-image localStorage cache so a refresh or tab close does not lose boxes drawn inside the
+// throttled autosave window; on reopen the page offers to restore it. See useImageAnnotationDraft.
+const imgDraft = useImageAnnotationDraft()
+
+/** The pending (local, not-yet-minted) classes, for the draft so a restore keeps their colours. */
+const pendingClasses = (): DraftClass[] =>
+    palette.value
+        .filter((entry) => isPending(entry.id))
+        .map((entry) => ({ label: entry.label, color: entry.color_hex }))
+
+const writeDraft = () => {
+    const id = selectedImageId.value
+    if (id === null) return
+    // Only while there is unsaved work: a clean image needs no cache, and clearing it here means an
+    // undo back to the saved state drops the draft too.
+    if (isDirty.value)
+        imgDraft.save(id, { shapes: toDraftShapes(shapes.value), pendingClasses: pendingClasses() })
+    else imgDraft.clear(id)
+}
+
+// Cheap and frequent (localStorage only); the throttled SERVER save is separate, below.
+watchDebounced([shapes, palette], writeDraft, { deep: true, debounce: 300, maxWait: 1500 })
+
+// A cached pass waiting on the restore prompt, and whether the prompt is open.
+const pendingRestore = ref<ImageAnnotationDraft | null>(null)
+const restoreOpen = ref(false)
+
+const applyRestore = () => {
+    const cached = pendingRestore.value
+    restoreOpen.value = false
+    pendingRestore.value = null
+    if (!cached || cached.imageId !== selectedImageId.value) return
+    // Recreate the pending classes locally (dedup by name) so the boxes can resolve their ids.
+    for (const klass of cached.pendingClasses) ensureLocalLabel(klass.label, klass.color)
+    shapes.value = draftShapesToShapes(
+        cached.shapes,
+        (name) => labelByName(palette.value, name)?.id ?? null,
+        () => localId('shape'),
+    )
+    commit() // one undoable step; baseline stays the server set, so the image reads dirty
+    seedKnownShapes()
+    toast.success('Restored your unsaved work.')
+}
+
+const discardRestore = () => {
+    if (pendingRestore.value) imgDraft.clear(pendingRestore.value.imageId)
+    pendingRestore.value = null
+    restoreOpen.value = false
+}
+
 const canUndo = computed(() => historyIndex.value > 0)
 const canRedo = computed(() => historyIndex.value < history.value.length - 1)
 
@@ -551,9 +654,17 @@ const removeShape = (id: string) => {
  * The write is REPLACE-ALL, so leaving with unsaved shapes is not a partial save, it is no save at
  * all. `window.confirm` rather than a dialog because it also has to work from a route guard, which
  * cannot await a component that has already started unmounting.
+ *
+ * On a confirmed discard the local cache is CLEARED as well - otherwise the continuously-written
+ * cache would offer the just-discarded work back on the next open. A refresh or tab close is not a
+ * discard and keeps the cache (that is the safety net); only saying "yes, throw it away" clears it.
  */
-const confirmDiscard = () =>
-    !isDirty.value || window.confirm('You have unsaved annotations on this image. Discard them?')
+const confirmDiscard = () => {
+    if (!isDirty.value) return true
+    const discard = window.confirm('You have unsaved annotations on this image. Discard them?')
+    if (discard && selectedImageId.value !== null) imgDraft.clear(selectedImageId.value)
+    return discard
+}
 
 /**
  * Class colours seen on each image, cached the moment the image is opened.
@@ -591,6 +702,9 @@ const openImage = async (image: LibraryImage) => {
     // carry across to the next image.
     hiddenIds.value = new Set()
     seeded.value = {}
+    // Drop any restore prompt still open for the image being left, so it cannot apply to this one.
+    restoreOpen.value = false
+    pendingRestore.value = null
 
     try {
         // FULL RESOLUTION, never `?size=thumb`. Annotating a 256px downscale would bake the
@@ -609,6 +723,16 @@ const openImage = async (image: LibraryImage) => {
         // one keeps whatever was picked, which is what makes labelling a run of empty images work.
         activeLabelId.value = dominantLabelId(loaded) ?? activeLabelId.value
         rememberDots(image.id, loaded)
+        seedKnownShapes() // the loaded set is "known"; pick-then-draw only touches new boxes
+        // Unsaved work cached from a previous session? Offer to restore it, but only when it really
+        // differs from the saved set - otherwise the cache is stale and is dropped silently.
+        const cached = imgDraft.load(image.id)
+        if (cached && draftSignature(cached.shapes) !== draftSignature(toDraftShapes(loaded))) {
+            pendingRestore.value = cached
+            restoreOpen.value = true
+        } else if (cached) {
+            imgDraft.clear(image.id)
+        }
     } catch (error) {
         /*
          * A CLIENT BUG IS NOT A FAILED REQUEST, and this block used to report it as one: a
@@ -648,8 +772,8 @@ const openImage = async (image: LibraryImage) => {
  */
 const selectImage = async (id: number) => {
     if (id === selectedImageId.value) return
-    // A save already in flight - the auto-save fires 1.5s after the drawing stops, so a step lands
-    // inside one often. `save()` refuses to re-enter, so without this wait the step would see a
+    // A save already in flight - the auto-save can fire on the idle timer, so a step lands inside
+    // one occasionally. `save()` refuses to re-enter, so without this wait the step would see a
     // still-dirty image and refuse to move at all.
     if (isSaving.value) await until(isSaving).toBe(false)
     if (isDirty.value) {
@@ -682,7 +806,7 @@ await loadImages()
  * is asked ONCE, here, and nowhere else: a label is an orphan until a box carrying it has been
  * SAVED, so a class created a moment ago is an orphan and so is one already applied to three
  * unsaved boxes. Re-reading with the flag mid-session would drop exactly the class being used, which
- * is why every later read is unfiltered and narrowed locally. See `keepFrom`.
+ * is why the later reads in `flushPendingLabels` are unfiltered.
  *
  * Nothing is lost by filtering here: the flag hides a label only when no annotation points at it, so
  * every label that can appear on an image this session is guaranteed to be in this list.
@@ -815,8 +939,7 @@ const save = async ({ auto = false }: { auto?: boolean } = {}) => {
     const image = selectedImage.value
     if (!image || isSaving.value) return
 
-    const payload = toAnnotationPayload(shapes.value)
-    if (payload.annotations.length > MAX_ANNOTATIONS) {
+    if (toAnnotationPayload(shapes.value).annotations.length > MAX_ANNOTATIONS) {
         toast.error(`An image is limited to ${MAX_ANNOTATIONS} annotations.`)
         return
     }
@@ -827,11 +950,28 @@ const save = async ({ auto = false }: { auto?: boolean } = {}) => {
     // now a step that can follow the geometry, and the toast below says how many are still owed.
     isSaving.value = true
     try {
+        // Deferred label mint (BE-ADR-030, FE side): the pending (local) classes this image uses are
+        // created on the server now, batched, and their ids remapped onto the shapes before the
+        // annotation write - so a class costs one POST per save instead of one the moment it was named.
+        const remap = await flushPendingLabels(shapes.value)
+        if (remap.size) {
+            shapes.value = shapes.value.map((s) =>
+                isPending(s.labelId) && remap.has(s.labelId)
+                    ? { ...s, labelId: remap.get(s.labelId)! }
+                    : s,
+            )
+            if (isPending(activeLabelId.value) && remap.has(activeLabelId.value))
+                activeLabelId.value = remap.get(activeLabelId.value)!
+        }
         // Re-read the response rather than trusting local state: a polygon's extent is recomputed
         // server-side, so the stored box can differ from the one that was sent.
-        const saved = await annotationService.replace(image.id, payload.annotations)
+        const saved = await annotationService.replace(
+            image.id,
+            toAnnotationPayload(shapes.value).annotations,
+        )
         const reloaded = toShapes(saved, labelIdFor)
         adoptSaved(reloaded)
+        imgDraft.clear(image.id) // the work is on the server now; drop the local cache
         rememberDots(image.id, reloaded)
         // Saving ends the review: the ids the confidences were keyed to are gone, and a persisted
         // set is no longer "model output nobody has read".
@@ -861,12 +1001,13 @@ const save = async ({ auto = false }: { auto?: boolean } = {}) => {
 }
 
 /**
- * Auto-save: write a moment after the drawing stops.
+ * Auto-save: write after the drawing has been idle for a while.
  *
- * DEBOUNCED, not per-edit. The write is REPLACE-ALL over the whole set, so a request per pointer-up
- * while someone drags a box across a slide would be dozens of full-set writes in a few seconds.
- * `maxWait` still forces one through during continuous work, so a long unbroken pass is not left
- * entirely unsaved waiting for a pause that never comes.
+ * DEBOUNCED to 20s of inactivity, deliberately long. The point is to cut server calls: the local
+ * cache holds the work meanwhile (so a refresh is safe), and the write is REPLACE-ALL plus a batched
+ * label mint, so firing it per pause the way a 1.5s debounce did was needless chatter. `maxWait`
+ * still forces one through during a long unbroken pass so continuous work is not left entirely
+ * unsaved waiting for a pause that never comes.
  *
  * Guarded on `canSave`, which already covers "an image is open", "there is something to save" and
  * "a save is not already in flight", so this cannot re-enter itself: the save resets the baseline,
@@ -886,8 +1027,17 @@ watchDebounced(
     ([on, can, total, editing]) => {
         if (on && can && total > 0 && !editing) void save({ auto: true })
     },
-    { debounce: 1500, maxWait: 6000 },
+    { debounce: 20000, maxWait: 60000 },
 )
+
+// Flush the local cache synchronously if the tab is closing mid-edit - the throttled server save
+// may not have fired yet, and a beforeunload cannot await a network write. The next open recovers
+// it via the restore prompt. NOT called on unmount: an SPA route leave runs `confirmDiscard`, and
+// re-caching there would resurrect work the person just chose to discard; the 300ms writer has
+// already cached anything worth keeping.
+const flushDraftOnUnload = () => writeDraft()
+onMounted(() => window.addEventListener('beforeunload', flushDraftOnUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', flushDraftOnUnload))
 
 onBeforeRouteLeave(() => confirmDiscard())
 
@@ -933,16 +1083,16 @@ const runAndSeed = async ({
         // Seeded from the run's OWN boxes rather than through the seed endpoint, because those
         // carry the confidence and annotations do not. See shapesFromDetection.
         const all = detection.steps.flatMap((step) => step.boxes)
-        // Each model class becomes a real label first, so a seeded box carries a `label_id` and is
-        // saveable the moment it is accepted. Sequential rather than parallel: two boxes of the same
-        // class would otherwise race to mint it and one would take the 409 path for nothing.
-        for (const name of new Set(all.map((box) => box.label))) await ensureLabel(name)
+        // Each model class becomes a palette label first (locally now - the server mint is deferred
+        // to save), so a seeded box carries a `label_id` from the start.
+        for (const name of new Set(all.map((box) => box.label))) ensureLocalLabel(name)
         const { shapes: seededShapes, confidence } = shapesFromDetection(
             all,
             defaultCurated.value,
             labelIdFor,
         )
         resetHistory(seededShapes)
+        seedKnownShapes() // seeded shapes already carry classes; keep pick-then-draw off them
         seeded.value = confidence
         seededImages.value = new Set(seededImages.value).add(image.id)
         lastRun.value = model
@@ -959,7 +1109,7 @@ const runAndSeed = async ({
 
 /**
  * Save one image's boxes to a portable, normalized file, and load one back onto WHATEVER image is
- * open — the "template onto any image" flow. Export is a plain client-side download; import overlays
+ * open the "template onto any image" flow. Export is a plain client-side download; import overlays
  * the file's boxes onto the current set and mints any label the palette does not yet hold, exactly
  * as a seeded run does. The ordinary save path (replace-all PUT) then persists it.
  *
@@ -1011,17 +1161,17 @@ const onImportFile = async (event: Event) => {
         return
     }
 
-    // Mint a palette label per name first, keeping the file's colour, so an imported box carries a
-    // real `label_id` and is saveable at once. Sequential for the same reason seeding is: two boxes
-    // of one class must not race to mint it.
+    // Create a palette label per name first (locally, keeping the file's colour), so an imported box
+    // carries a `label_id`; the server mint is deferred to save with every other pending class.
     for (const entry of parsed.annotations) {
-        if (entry.label) await ensureLabel(entry.label, entry.color ?? undefined)
+        if (entry.label) ensureLocalLabel(entry.label, entry.color ?? undefined)
     }
     const imported = shapesFromFile(parsed.annotations, labelIdFor)
     // Overlaid, not replaced: a template drops ON TOP of whatever is there. `commit` makes it one
     // undoable step and marks the image dirty for the ordinary save.
     shapes.value = [...shapes.value, ...imported]
     commit()
+    seedKnownShapes() // imported shapes carry their own classes; keep pick-then-draw off them
     toast.success(`Imported ${imported.length} box(es). Review, then save.`)
 }
 
@@ -1034,7 +1184,7 @@ const onImportFile = async (event: Event) => {
  * Disabled while a dialog is open, or `?` would close and reopen its own sheet and `s` would save
  * behind it.
  */
-const modalOpen = computed(() => seedOpen.value || shortcutsOpen.value)
+const modalOpen = computed(() => seedOpen.value || shortcutsOpen.value || restoreOpen.value)
 
 const onHotkey = (action: HotkeyAction) => {
     switch (action.type) {
@@ -1574,6 +1724,22 @@ const step = (delta: number) => {
             <McDialog v-model:open="shortcutsOpen">
                 <McDialogContent class="tw:sm:max-w-2xl">
                     <ShortcutSheet @close="shortcutsOpen = false" />
+                </McDialogContent>
+            </McDialog>
+
+            <McDialog v-model:open="restoreOpen">
+                <McDialogContent>
+                    <McDialogHeader>
+                        <McDialogTitle>Restore unsaved work?</McDialogTitle>
+                    </McDialogHeader>
+                    <p class="tw:px-1 tw:text-sm tw:text-an-muted">
+                        This image has annotations you drew but did not save last time. Restore
+                        them, or discard and keep the saved version.
+                    </p>
+                    <McDialogFooter>
+                        <McButton variant="outline" @click="discardRestore">Discard</McButton>
+                        <McButton @click="applyRestore">Restore</McButton>
+                    </McDialogFooter>
                 </McDialogContent>
             </McDialog>
         </template>
