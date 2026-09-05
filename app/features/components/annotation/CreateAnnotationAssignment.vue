@@ -30,6 +30,9 @@ const { handleSubmit } = useForm<CreateAnnotationAssignmentFormData>({
 const albums = ref<Album[]>([])
 const albumId = ref<number | null>(null)
 const albumsLoading = ref(true)
+const albumOptions = computed(() =>
+    albums.value.map((a) => ({ value: a.id as number | null, label: a.name })),
+)
 onMounted(async () => {
     try {
         // Only `assignment`-kind albums are attachable (the server enforces it too).
@@ -153,16 +156,20 @@ const handleSave = handleSubmit((values) => {
                 Album
                 <span class="tw:text-red-500">*</span>
             </label>
-            <select
-                v-model.number="albumId"
-                class="tw:h-9 tw:rounded-md tw:border tw:border-input tw:bg-background tw:px-3 tw:text-sm"
-            >
-                <option v-if="albumsLoading" :value="null">Loading…</option>
-                <option v-else-if="albums.length === 0" :value="null">
-                    No assignment albums: create one in the Image Library first
-                </option>
-                <option v-for="a in albums" :key="a.id" :value="a.id">{{ a.name }}</option>
-            </select>
+            <McSelect
+                v-model="albumId"
+                :options="albumOptions"
+                option-value="value"
+                option-label="label"
+                :loading="albumsLoading"
+                :placeholder="
+                    albumsLoading
+                        ? 'Loading…'
+                        : albums.length === 0
+                          ? 'No assignment albums: create one in the Image Library first'
+                          : 'Select an album'
+                "
+            />
             <div
                 class="tw:mt-1 tw:flex tw:items-start tw:gap-2 tw:rounded-md tw:border tw:border-primary/20 tw:bg-primary/5 tw:px-3 tw:py-2 tw:text-xs tw:text-navy-80"
             >

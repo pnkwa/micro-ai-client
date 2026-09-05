@@ -52,12 +52,13 @@ const emit = defineEmits<{
 }>()
 
 /**
- * The source `<select>` carries a string; map it back to the id / 'all' / null the page holds.
- * An empty option value is "nothing chosen", which is the empty-library state.
+ * The source picker's options: "All images", then the albums. Nothing-chosen is the empty
+ * model-value (the placeholder), which is the empty-library state the page starts in.
  */
-const onSource = (value: string) =>
-    emit('update:source', value === '' ? null : value === 'all' ? 'all' : Number(value))
-const sourceValue = computed(() => (props.source === null ? '' : String(props.source)))
+const sourceOptions = computed(() => [
+    { value: 'all' as number | 'all', label: 'All images' },
+    ...props.albums.map((album) => ({ value: album.id as number | 'all', label: album.name })),
+])
 
 const scroller = useTemplateRef<HTMLElement>('scroller')
 const searchEl = useTemplateRef<HTMLInputElement>('searchEl')
@@ -238,18 +239,17 @@ defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
         <!-- Which pool to load. Empty until chosen, so opening the annotator never pulls the whole
              shared library; "All images" is the explicit opt-in to that. -->
         <div class="tw:shrink-0 tw:px-3 tw:pb-2">
-            <select
-                :value="sourceValue"
-                class="tw:h-[30px] tw:w-full tw:rounded-lg tw:border tw:border-an-n-200 tw:bg-an-n-50 tw:px-2 tw:text-[12px] tw:text-an-text tw:outline-none tw:focus:border-an-accent"
+            <McSelect
+                :model-value="source ?? undefined"
+                :options="sourceOptions"
+                option-value="value"
+                option-label="label"
+                placeholder="Choose an album…"
                 aria-label="Image source"
-                @change="onSource(($event.target as HTMLSelectElement).value)"
-            >
-                <option value="">Choose an album…</option>
-                <option value="all">All images</option>
-                <option v-for="album in albums" :key="album.id" :value="String(album.id)">
-                    {{ album.name }}
-                </option>
-            </select>
+                @update:model-value="
+                    emit('update:source', ($event as number | 'all' | undefined) ?? null)
+                "
+            />
         </div>
 
         <div class="tw:flex tw:shrink-0 tw:gap-1.5 tw:px-3 tw:pb-2.5">
