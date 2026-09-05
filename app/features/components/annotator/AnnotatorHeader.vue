@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, HelpCircle, PanelLeft, PanelLeftOpen, Save, Sparkles } from '@lucide/vue'
+import { HelpCircle, PanelLeft, PanelLeftOpen, Save } from '@lucide/vue'
 
 /**
  * The annotator's own 48px toolbar - the page brings its own and the app bar is hidden under it.
@@ -24,9 +24,6 @@ defineProps<{
     unsavedEdits: number
     canSave: boolean
     saving: boolean
-    canSeed: boolean
-    /** The last model seeded from, in mono, or null before anything has been. */
-    lastRun: string | null
     /**
      * Show the queue-open button. True only in the medium layout, where the queue is a drawer with
      * no docked column of its own: in full it is docked (opened from its own rail) and on the
@@ -46,7 +43,6 @@ defineProps<{
 const autoSave = defineModel<boolean>('autoSave', { required: true })
 
 const emit = defineEmits<{
-    seed: []
     save: []
     shortcuts: []
     'toggle-nav': []
@@ -113,29 +109,9 @@ const emit = defineEmits<{
 
     <div class="tw:flex-1"></div>
 
-    <!-- Page-local actions (e.g. the library annotator's import/export). Empty on pages that pass
-         nothing, so the student annotator's header is unchanged. -->
+    <!-- Page-local actions (e.g. the library annotator's import/export/seed menu). Empty on pages
+         that pass nothing, so the student annotator's header is unchanged. -->
     <slot name="actions" />
-
-    <McButton
-        variant="outline"
-        size="sm"
-        :disabled="!canSeed"
-        title="Run a model over this image and seed its boxes"
-        @click="emit('seed')"
-    >
-        <Sparkles class="tw:h-4 tw:w-4" />
-        Seed from run
-        <span
-            v-if="lastRun"
-            class="tw:ml-1 tw:max-w-28 tw:truncate tw:font-mono tw:text-[11px] tw:text-an-faint"
-        >
-            {{ lastRun }}
-        </span>
-        <ChevronDown class="tw:h-3.5 tw:w-3.5 tw:text-an-faint" />
-    </McButton>
-
-    <div class="tw:mx-1 tw:h-5 tw:w-px tw:bg-an-divider"></div>
 
     <span
         v-if="unsavedEdits > 0"

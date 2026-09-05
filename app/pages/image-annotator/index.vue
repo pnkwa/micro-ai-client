@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import {
+    ChevronDown,
     CircleCheck,
     Download,
     PanelLeft,
@@ -1381,36 +1382,84 @@ const step = (delta: number) => {
                 :unsaved-edits="unsavedEdits"
                 :can-save="canSave"
                 :saving="isSaving"
-                :can-seed="Boolean(selectedImage)"
-                :last-run="lastRun"
                 :show-queue-toggle="layout === 'medium'"
                 @toggle-nav="toggleNav"
                 @open-queue="queueSheetOpen = true"
-                @seed="seedOpen = true"
                 @save="save()"
                 @shortcuts="shortcutsOpen = true"
             >
                 <template #actions>
-                    <McButton
-                        variant="outline"
-                        size="sm"
-                        :disabled="!selectedImage"
-                        title="Import boxes from a file onto this image"
-                        @click="importInput?.click()"
-                    >
-                        <Upload class="tw:h-4 tw:w-4" />
-                        Import
-                    </McButton>
-                    <McButton
-                        variant="outline"
-                        size="sm"
-                        :disabled="!selectedImage || shapes.length === 0"
-                        title="Export this image's boxes to a file"
-                        @click="exportAnnotations"
-                    >
-                        <Download class="tw:h-4 tw:w-4" />
-                        Export
-                    </McButton>
+                    <!-- Import, Export and Seed used to be three buttons on the toolbar. They are
+                         one image's occasional data operations, not the primary loop (draw, class,
+                         save), so they fold into a single menu that says what each one does rather
+                         than spending three slots and their tooltips on the bar. -->
+                    <McDropdownMenu>
+                        <McDropdownMenuTrigger as-child>
+                            <McButton
+                                variant="outline"
+                                size="sm"
+                                title="Import, export, or seed this image's boxes"
+                            >
+                                <Shapes class="tw:h-4 tw:w-4" />
+                                Boxes
+                                <span
+                                    v-if="lastRun"
+                                    class="tw:ml-0.5 tw:max-w-24 tw:truncate tw:font-mono tw:text-[11px] tw:text-an-faint"
+                                >
+                                    {{ lastRun }}
+                                </span>
+                                <ChevronDown class="tw:h-3.5 tw:w-3.5 tw:text-an-faint" />
+                            </McButton>
+                        </McDropdownMenuTrigger>
+                        <McDropdownMenuContent align="end" class="tw:w-72">
+                            <McDropdownMenuItem
+                                class="tw:items-start tw:gap-2.5 tw:py-2"
+                                :disabled="!selectedImage"
+                                @select="seedOpen = true"
+                            >
+                                <Sparkles class="tw:mt-0.5 tw:h-4 tw:w-4" />
+                                <span class="tw:flex tw:min-w-0 tw:flex-col tw:gap-0.5">
+                                    <span class="tw:text-[12.5px] tw:font-medium tw:text-an-text">
+                                        Seed from run
+                                    </span>
+                                    <span class="tw:text-[11px] tw:text-an-faint">
+                                        Run a model over this image and place its boxes for review.
+                                    </span>
+                                </span>
+                            </McDropdownMenuItem>
+                            <McDropdownMenuSeparator />
+                            <McDropdownMenuItem
+                                class="tw:items-start tw:gap-2.5 tw:py-2"
+                                :disabled="!selectedImage"
+                                @select="importInput?.click()"
+                            >
+                                <Upload class="tw:mt-0.5 tw:h-4 tw:w-4" />
+                                <span class="tw:flex tw:min-w-0 tw:flex-col tw:gap-0.5">
+                                    <span class="tw:text-[12.5px] tw:font-medium tw:text-an-text">
+                                        Import
+                                    </span>
+                                    <span class="tw:text-[11px] tw:text-an-faint">
+                                        Load boxes from a JSON file onto this image.
+                                    </span>
+                                </span>
+                            </McDropdownMenuItem>
+                            <McDropdownMenuItem
+                                class="tw:items-start tw:gap-2.5 tw:py-2"
+                                :disabled="!selectedImage || shapes.length === 0"
+                                @select="exportAnnotations"
+                            >
+                                <Download class="tw:mt-0.5 tw:h-4 tw:w-4" />
+                                <span class="tw:flex tw:min-w-0 tw:flex-col tw:gap-0.5">
+                                    <span class="tw:text-[12.5px] tw:font-medium tw:text-an-text">
+                                        Export
+                                    </span>
+                                    <span class="tw:text-[11px] tw:text-an-faint">
+                                        Download this image's boxes to a JSON file.
+                                    </span>
+                                </span>
+                            </McDropdownMenuItem>
+                        </McDropdownMenuContent>
+                    </McDropdownMenu>
                     <input
                         ref="import-input"
                         type="file"
