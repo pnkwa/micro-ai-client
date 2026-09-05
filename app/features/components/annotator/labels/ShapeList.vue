@@ -41,7 +41,10 @@ const sorted = computed(() => {
 </script>
 
 <template>
-    <section class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col">
+    <!-- `touch-action` here, not only on the shell aside or the sheet that hosts this: iOS Safari
+         honours it on the touched element, not a distant ancestor, so a stray pinch or double-tap
+         on the list does not zoom the whole page. The scroll body below keeps `pan-y`. -->
+    <section class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:[touch-action:pan-x_pan-y]">
         <div class="tw:flex tw:shrink-0 tw:items-center tw:pt-3 tw:pr-3 tw:pb-2 tw:pl-3.5">
             <span class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text">
                 Shapes
@@ -73,7 +76,7 @@ const sorted = computed(() => {
 
         <ul
             v-if="sorted.length"
-            class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-0.5 tw:overflow-y-auto tw:px-2 tw:pb-2"
+            class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-0.5 tw:overflow-y-auto tw:px-2 tw:pb-2 tw:[touch-action:pan-y]"
             style="scrollbar-gutter: stable"
         >
             <ShapeRow

@@ -61,9 +61,12 @@ const toggle = () => {
             />
         </button>
 
+        <!-- `touch-action` on the scrollable body too, not only the section: this is the element a
+             finger lands on, and iOS Safari lets a descendant zoom the page even when an ancestor
+             forbids it. `pan-y` keeps the body scrollable while blocking pinch and double-tap. -->
         <div
             v-show="open"
-            class="tw:flex tw:max-h-[45dvh] tw:flex-col tw:gap-2.5 tw:overflow-y-auto tw:px-3.5 tw:pt-1 tw:pb-3"
+            class="tw:flex tw:max-h-[45dvh] tw:flex-col tw:gap-2.5 tw:overflow-y-auto tw:px-3.5 tw:pt-1 tw:pb-3 tw:[touch-action:pan-y]"
             :class="collapsible ? '' : 'tw:pt-3'"
         >
             <p class="tw:text-[13px] tw:leading-relaxed tw:text-an-text">

@@ -48,7 +48,11 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
 </script>
 
 <template>
-    <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col">
+    <!-- `touch-action: pan-x pan-y` on the panel itself, not only on the shell aside or the sheet
+         that hosts it: iOS Safari honours it on the touched element far more reliably than on an
+         ancestor, so the docked sidebar (landscape) and the drawer (portrait) both need it here to
+         stop a stray pinch or double-tap zooming the whole page. Scrolling the panel still works. -->
+    <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:[touch-action:pan-x_pan-y]">
         <!-- instructions -->
         <div v-if="showBrief" class="tw:flex tw:min-h-0 tw:flex-col">
             <div class="tw:flex tw:items-center tw:gap-2 tw:pt-3 tw:pr-3 tw:pl-3.5">
@@ -108,7 +112,11 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
             </div>
         </div>
 
-        <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:overflow-y-auto">
+        <!-- `pan-y` on the scroll body, the element a finger lands on, since iOS lets a descendant
+             zoom even when the panel root forbids it; it still scrolls, it just cannot zoom. -->
+        <div
+            class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:overflow-y-auto tw:[touch-action:pan-y]"
+        >
             <!-- the class picker docks here on a wide screen; on a tablet the bottom ClassStrip
                  fills this role and the slot is left empty. -->
             <slot name="classes" />

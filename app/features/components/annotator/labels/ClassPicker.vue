@@ -57,7 +57,9 @@ const submit = () => {
 </script>
 
 <template>
-    <section class="tw:flex tw:shrink-0 tw:flex-col">
+    <!-- `touch-action` on the picker itself: iOS honours it on the touched element rather than the
+         shell aside or sheet around it, so a pinch or double-tap here cannot zoom the page. -->
+    <section class="tw:flex tw:shrink-0 tw:flex-col tw:[touch-action:pan-x_pan-y]">
         <div class="tw:flex tw:items-center tw:gap-2 tw:pt-3 tw:pr-3 tw:pb-2 tw:pl-3.5">
             <span class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text">
                 Classes

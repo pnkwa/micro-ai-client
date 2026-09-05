@@ -675,6 +675,7 @@ const percent = computed(() =>
                 <AnnotateBrief
                     v-if="stacked && current"
                     :key="current.imageId"
+                    class="tw:[touch-action:pan-x_pan-y]"
                     collapsible
                     :instructions="assignment?.instructions"
                     :field-prompts="config?.field_prompts ?? []"

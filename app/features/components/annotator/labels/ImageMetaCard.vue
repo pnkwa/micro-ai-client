@@ -39,9 +39,11 @@ const name = computed(() =>
 </script>
 
 <template>
+    <!-- `touch-action` on the card, not only the aside or sheet hosting it: iOS honours it on the
+         touched element, so a pinch or double-tap on the metadata cannot zoom the page. -->
     <div
         v-if="image"
-        class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:px-3.5 tw:pt-[11px] tw:pb-3"
+        class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:px-3.5 tw:pt-[11px] tw:pb-3 tw:[touch-action:pan-x_pan-y]"
     >
         <button
             type="button"
