@@ -1107,15 +1107,17 @@ const lastRun = ref<string | null>(null)
 const runAndSeed = async ({
     model,
     segmentModel,
+    minConfidence,
 }: {
     model: string
     segmentModel?: string | null
+    minConfidence?: number
 }) => {
     const image = selectedImage.value
     if (!image || seeding.value) return
     seeding.value = true
     try {
-        const detection = await imageService.detect(image.id, model, segmentModel)
+        const detection = await imageService.detect(image.id, model, segmentModel, minConfidence)
 
         // Checked here rather than left to the server's 400, because "the model found nothing" is
         // an ordinary outcome for these detectors and deserves plain words. YOLO26m returns nothing

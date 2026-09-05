@@ -14,10 +14,13 @@ withDefaults(
         modelValue: number
         label?: string
         hint?: string
+        /** Greys out and freezes the slider, e.g. while a run is in flight. */
+        disabled?: boolean
     }>(),
     {
         label: 'Confidence threshold',
         hint: 'Boxes below this confidence are hidden on the image.',
+        disabled: false,
     },
 )
 
@@ -44,7 +47,8 @@ const percent = (value: number) => Math.round(value * 100)
             min="0"
             max="100"
             step="1"
-            class="tw:w-full tw:accent-primary"
+            :disabled="disabled"
+            class="tw:w-full tw:accent-primary tw:disabled:opacity-50 tw:disabled:cursor-not-allowed"
             @input="
                 $emit('update:modelValue', Number(($event.target as HTMLInputElement).value) / 100)
             "

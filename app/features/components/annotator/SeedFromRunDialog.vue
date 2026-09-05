@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Wand2 } from '@lucide/vue'
-import { useDetectionModels } from '~/core/composables/detectionModels'
+import { NONE_SEGMENT, useDetectionModels } from '~/core/composables/detectionModels'
 
 /**
  * Run a model over this image and seed its boxes in as editable annotations.
@@ -32,7 +32,7 @@ defineProps<{
 
 const emit = defineEmits<{
     close: []
-    seed: [payload: { model: string; segmentModel?: string | null }]
+    seed: [payload: { model: string; segmentModel?: string | null; minConfidence?: number }]
 }>()
 
 const {
@@ -47,15 +47,33 @@ const {
     load,
 } = useDetectionModels()
 
+/**
+ * Server-side response-only floor for the seeded run (0..1, 0.13.1-rc.1). Boxes below it are
+ * dropped from what comes back, so seeding starts from the confident detections and leaves the
+ * long tail of low-confidence noise out of the set the instructor then corrects. Default 0 keeps
+ * every box, which is how seeding behaved before this control existed.
+ */
+const minConfidence = ref(0)
+
 // Loaded on mount rather than watched on an `open` prop: this component only exists while the
 // dialog is open, so mounting IS opening.
-onMounted(() => {
-    if (!primaryModelOptions.value.length) void load()
+onMounted(async () => {
+    if (!primaryModelOptions.value.length) await load()
+    // Default the segmenter to none here, unlike the detection page: seeding wants the detector's
+    // own boxes to correct, and a chained segmenter's outlines are extra geometry to reject rather
+    // than the WHERE-it-was-wrong signal this flow is after (BE-ADR-030). `load` picks a real
+    // segmenter as the shared default, so override it once the manifest is in.
+    selectedSegmentModel.value = NONE_SEGMENT
 })
 
 const run = () => {
     if (!selectedModel.value) return
-    emit('seed', { model: selectedModel.value, segmentModel: segmentModelToSend.value })
+    emit('seed', {
+        model: selectedModel.value,
+        segmentModel: segmentModelToSend.value,
+        // 0 means "no floor" - omit it so the request is identical to the pre-control one.
+        minConfidence: minConfidence.value > 0 ? minConfidence.value : undefined,
+    })
 }
 </script>
 
@@ -88,6 +106,18 @@ const run = () => {
             :segment-spec="selectedSegmentSpec"
             :can-chain="canChain"
             :disabled="running || hasAnnotations"
+        />
+    </div>
+
+    <!-- Server-side floor for THIS run's response (0.13.1-rc.1). Reuses the confidence-filter
+         slider with its own words: this drops boxes at the source rather than just hiding drawn
+         ones, so the seeded set starts from the confident detections. -->
+    <div class="tw:py-1">
+        <McConfidenceThreshold
+            v-model="minConfidence"
+            :disabled="running || hasAnnotations"
+            label="Minimum confidence"
+            hint="Boxes below this are left out of the seeded set. 0% seeds every box the model returns."
         />
     </div>
 

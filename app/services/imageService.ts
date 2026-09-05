@@ -197,11 +197,17 @@ export const imageService = {
      * manifest's segmenter behind it (ML-ADR-003); `segmentModel` overrides which one, and null
      * opts out of chaining entirely. Re-running the same image under the same pair reuses the
      * stored result and skips the worker, but still records a row under the caller's name.
+     *
+     * `minConfidence` (0..1) is a RESPONSE-ONLY trim: boxes below it are dropped from what comes
+     * back, but the full result is still persisted, so the dedup cache stays complete and a later
+     * caller with a lower or absent floor gets every box back. Omitted (undefined) means no trim,
+     * which is the same as before this param existed. The server rejects a value outside [0,1].
      */
     async detect(
         id: number,
         model: string,
         segmentModel?: string | null,
+        minConfidence?: number,
     ): Promise<DetectionRecord> {
         const { $api } = useNuxtApp()
         const response = await $api(imageRoutes.detect(id), {
@@ -211,6 +217,7 @@ export const imageService = {
                 // JSON carries null, so skip travels as a real null (not an empty-string
                 // sentinel): the server reads null as "opt out of chaining".
                 ...(segmentModel !== undefined && { segment_model: segmentModel }),
+                ...(minConfidence !== undefined && { min_confidence: minConfidence }),
             },
         })
         return detectionSchema.parse(response)
