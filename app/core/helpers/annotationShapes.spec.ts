@@ -8,6 +8,7 @@ import {
     insertPointOnEdge,
     isNear,
     nearestEdge,
+    polygonSelfIntersects,
     removePolygonPoint,
     clamp01,
     cornerPoint,
@@ -717,5 +718,61 @@ describe('shouldCommit', () => {
 
     it('commits a deletion', () => {
         expect(shouldCommit([box()], [])).toBe(true)
+    })
+})
+
+describe('polygonSelfIntersects', () => {
+    it('is false for a simple square and a triangle', () => {
+        expect(
+            polygonSelfIntersects([
+                { x: 0, y: 0 },
+                { x: 1, y: 0 },
+                { x: 1, y: 1 },
+                { x: 0, y: 1 },
+            ]),
+        ).toBe(false)
+        expect(
+            polygonSelfIntersects([
+                { x: 0, y: 0 },
+                { x: 1, y: 0 },
+                { x: 0.5, y: 1 },
+            ]),
+        ).toBe(false)
+    })
+
+    it('is false for fewer than four points, which cannot cross', () => {
+        expect(polygonSelfIntersects([{ x: 0, y: 0 }])).toBe(false)
+        expect(
+            polygonSelfIntersects([
+                { x: 0, y: 0 },
+                { x: 1, y: 1 },
+            ]),
+        ).toBe(false)
+    })
+
+    it('is true for a bow-tie whose two diagonals cross', () => {
+        // (0,0)->(1,1)->(1,0)->(0,1) closed: the first edge and the third straddle each other.
+        expect(
+            polygonSelfIntersects([
+                { x: 0, y: 0 },
+                { x: 1, y: 1 },
+                { x: 1, y: 0 },
+                { x: 0, y: 1 },
+            ]),
+        ).toBe(true)
+    })
+
+    it('does not count adjacent edges merely meeting at a shared vertex', () => {
+        // An L: every corner is a shared endpoint, none is a crossing.
+        expect(
+            polygonSelfIntersects([
+                { x: 0, y: 0 },
+                { x: 1, y: 0 },
+                { x: 1, y: 0.4 },
+                { x: 0.4, y: 0.4 },
+                { x: 0.4, y: 1 },
+                { x: 0, y: 1 },
+            ]),
+        ).toBe(false)
     })
 })

@@ -223,6 +223,44 @@ export function removePolygonPoint(shape: Shape, index: number): Shape | null {
     return withDerivedBbox({ ...shape, polygon })
 }
 
+/** A PROPER crossing of segments ab and cd: the two straddle each other. A shared endpoint or a
+ *  mere touch does not count, which is what lets adjacent polygon edges meet without registering. */
+function segmentsCross(a: Point, b: Point, c: Point, d: Point): boolean {
+    const o = (p: Point, q: Point, r: Point) =>
+        (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+    const d1 = o(c, d, a)
+    const d2 = o(c, d, b)
+    const d3 = o(a, b, c)
+    const d4 = o(a, b, d)
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+}
+
+/**
+ * Does a CLOSED polygon cross over itself?
+ *
+ * A valid annotation region is a SIMPLE polygon. A freehand trace that loops back over its own path
+ * - a figure-eight, a spiral, a stray backtrack on release - is not one, and the region it claims
+ * is ambiguous both to render and to grade. Every pair of NON-ADJACENT edges is tested for a proper
+ * crossing; adjacent edges share a vertex and always meet there, so they are skipped, and fewer than
+ * four points cannot cross at all.
+ */
+export function polygonSelfIntersects(points: Point[]): boolean {
+    const n = points.length
+    if (n < 4) return false
+    for (let i = 0; i < n; i++) {
+        const a = points[i]!
+        const b = points[(i + 1) % n]!
+        for (let j = i + 1; j < n; j++) {
+            // Skip the edges sharing a vertex with edge i: its neighbour, and - the ring being
+            // closed - the wrap-around edge when i is the first one.
+            if (j === i + 1) continue
+            if (i === 0 && j === n - 1) continue
+            if (segmentsCross(a, b, points[j]!, points[(j + 1) % n]!)) return true
+        }
+    }
+    return false
+}
+
 const pointInRect = (shape: Shape, point: Point): boolean =>
     point.x >= shape.x &&
     point.x <= shape.x + shape.w &&

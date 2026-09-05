@@ -7,6 +7,7 @@ import AnnotationOverlay from '~/features/components/shared/AnnotationOverlay.vu
 import { useCanvasViewport } from '~/core/composables/useCanvasViewport'
 import {
     CORNERS,
+    bboxOfPolygon,
     clampPoint,
     cornerPoint,
     edgeAt,
@@ -14,6 +15,7 @@ import {
     isDegenerate,
     isNear,
     nearestEdge,
+    polygonSelfIntersects,
     removePolygonPoint,
     rectFromDrag,
     resizeRect,
@@ -26,7 +28,7 @@ import {
     type Shape,
 } from '~/core/helpers/annotationShapes'
 import { localId } from '~/core/helpers/localId'
-import { simplifyPath } from '~/core/helpers/pathSimplify'
+import { enforceMinSpacing, simplifyPath, smoothClosedPath } from '~/core/helpers/pathSimplify'
 import type { AnnotationLabel } from '~/services/annotationLabelService'
 // Imported explicitly rather than left to `imports.dirs: ['core/**']`, like every other helper this
 // file uses. Auto-import resolves at BUILD time: a helper added while the dev server is running is
@@ -396,8 +398,21 @@ let aimTimer: ReturnType<typeof setTimeout> | null = null
 const erasing = ref(false)
 
 const tracing = ref<Point[] | null>(null)
-/** Screen pixels between recorded points. Below this a slow finger records the same spot twice. */
-const TRACE_STEP = 3
+/** Screen pixels between recorded points. Below this a slow hand records the same spot twice, and
+ *  a little higher than the old floor so a stylus's micro-jitter is not sampled as detail. */
+const TRACE_STEP = 4
+/** Trace smoothing (pencil and the polygon tool's drag). Coarse-simplify to shed jitter vertices,
+ *  round the closed ring with Chaikin, then re-simplify tightly to keep it editable. Screen px. */
+const TRACE_COARSE_PX = 3.5
+const TRACE_SMOOTH_ITERATIONS = 2
+const TRACE_FINE_PX = 1.2
+/** Minimum node spacing, PROPORTIONAL to the drawing's size (a fraction of its bounding-box
+ *  diagonal) so a small shape keeps its nodes close and only a large one spaces them out. Bounded
+ *  by a floor, so a tiny scribble is not left with nodes on top of each other, and a cap, so a
+ *  full-image outline is not decimated to a few corners. All normalised units. */
+const TRACE_MIN_NODE_FRACTION = 0.04
+const TRACE_MIN_NODE_FLOOR = 0.006
+const TRACE_MIN_NODE_CAP = 0.05
 
 const cancelAim = () => {
     if (aimTimer) clearTimeout(aimTimer)
@@ -711,14 +726,47 @@ const onPointerUp = (event: PointerEvent) => {
         tracing.value = null
         gesture.value = { kind: 'none' }
         tapOrigin = null
-        // Tolerance in normalised units, from a screen distance, so a trace at 400% zoom keeps the
-        // detail the zoom was for and one at fit is not left with a hundred points nobody can edit.
-        const thinned = simplifyPath(path, screenTolerance(2.5))
+        // Shed the hand's jitter, round the outline, then thin it back to an editable ring.
+        // Tolerances are normalised from screen distances, so a trace at 400% zoom keeps the detail
+        // the zoom was for and one at fit is not left with a hundred points nobody can edit.
+        //  1. a coarse simplify drops the wobble RDP would otherwise keep as little angular vertices;
+        //  2. Chaikin rounds every corner of the CLOSED ring, so the edges - and the start-end
+        //     terminal, which used to close as a hard chord - come out smooth;
+        //  3. a fine simplify collapses the runs Chaikin adds, keeping the vertex count adjustable;
+        //  4. a min-spacing pass drops any node crowding the one before it, at a distance scaled to
+        //     the drawing's size so a small shape keeps closer nodes than a large one.
+        const coarse = simplifyPath(path, screenTolerance(TRACE_COARSE_PX))
         // Under three points there is no polygon: a stray flick lands here and is dropped rather
         // than leaving a sliver on the picture.
-        if (thinned.length >= 3) {
-            draftPolygon.value = thinned
-            closePolygon()
+        if (coarse.length >= 3) {
+            const smoothed = simplifyPath(
+                smoothClosedPath(coarse, TRACE_SMOOTH_ITERATIONS),
+                screenTolerance(TRACE_FINE_PX),
+            )
+            // Spacing proportional to the outline's own diagonal, so it is closer on a small trace
+            // and wider on a large one, clamped so neither extreme runs away.
+            const bbox = bboxOfPolygon(smoothed)
+            const minNodeDist = Math.min(
+                TRACE_MIN_NODE_CAP,
+                Math.max(
+                    TRACE_MIN_NODE_FLOOR,
+                    TRACE_MIN_NODE_FRACTION * Math.hypot(bbox.w, bbox.h),
+                ),
+            )
+            const spaced = enforceMinSpacing(smoothed, minNodeDist)
+            // Spacing can trim a shape smaller than the radius below a ring; drop it rather than
+            // leave a stub. A trace that loops back over itself is not a simple region, so it is
+            // refused rather than turned into a polygon whose area is ambiguous.
+            if (spaced.length >= 3) {
+                if (polygonSelfIntersects(spaced)) {
+                    toast.error(
+                        'That outline crosses over itself. Trace a loop that does not cross.',
+                    )
+                } else {
+                    draftPolygon.value = spaced
+                    closePolygon()
+                }
+            }
         }
         return
     }

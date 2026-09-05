@@ -40,6 +40,62 @@ export function simplifyPath(points: Point[], tolerance: number): Point[] {
     return [...head.slice(0, -1), ...tail]
 }
 
+/**
+ * Round the corners of a CLOSED ring by Chaikin's corner-cutting.
+ *
+ * RDP thins a trace but preserves corners, so hand wobble survives as a run of little angular
+ * vertices and the point where the trace was started and finished meets its neighbour as a hard
+ * chord. Chaikin replaces every vertex with two points set a quarter of the way in from each
+ * adjoining edge, which rounds every corner at once; two passes turn a jittery freehand outline
+ * into a smooth one. The ring is treated as closed, so the START-END join is rounded like any other
+ * corner rather than left as the sharp terminal a freehand trace tends to finish on.
+ *
+ * Each pass roughly doubles the vertex count, so callers simplify the result to keep the polygon
+ * editable. Fewer than three points is not a ring and is returned unchanged.
+ */
+export function smoothClosedPath(points: Point[], iterations = 1): Point[] {
+    if (points.length < 3) return [...points]
+    let ring = points
+    for (let pass = 0; pass < iterations; pass++) {
+        const next: Point[] = []
+        for (let i = 0; i < ring.length; i++) {
+            const a = ring[i]!
+            const b = ring[(i + 1) % ring.length]!
+            next.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 })
+            next.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 })
+        }
+        ring = next
+    }
+    return ring
+}
+
+/**
+ * Drop nodes that crowd the one before them, so an automatically traced polygon never stacks two
+ * nodes almost on top of each other.
+ *
+ * Greedy along a CLOSED ring: keep the first, then keep a node only when it is at least `minDist`
+ * from the last one kept; finally drop trailing nodes that crowd the first, so the wrap-around
+ * closing edge is not a sliver either. Distance is in the same NORMALISED units as the points. It
+ * never returns fewer than three points - a shape too small for the spacing collapses to a stub the
+ * caller then rejects, rather than being trimmed to a line here.
+ */
+export function enforceMinSpacing(points: Point[], minDist: number): Point[] {
+    if (points.length <= 3 || minDist <= 0) return [...points]
+    const kept: Point[] = [points[0]!]
+    for (let i = 1; i < points.length; i++) {
+        const p = points[i]!
+        const last = kept[kept.length - 1]!
+        if (Math.hypot(p.x - last.x, p.y - last.y) >= minDist) kept.push(p)
+    }
+    while (kept.length > 3) {
+        const first = kept[0]!
+        const last = kept[kept.length - 1]!
+        if (Math.hypot(last.x - first.x, last.y - first.y) >= minDist) break
+        kept.pop()
+    }
+    return kept
+}
+
 /** How far `point` sits off the line through `a` and `b`. Zero-length lines fall back to a radius. */
 function perpendicularDistance(point: Point, a: Point, b: Point): number {
     const dx = b.x - a.x
