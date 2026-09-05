@@ -33,7 +33,7 @@ const tools = [
 
 <template>
     <div
-        class="tw:flex tw:h-14 tw:shrink-0 tw:items-center tw:justify-around tw:border-t tw:border-an-border tw:bg-an-panel tw:px-2"
+        class="tw:flex tw:h-14 tw:shrink-0 tw:items-center tw:justify-around tw:border-t tw:border-an-border tw:bg-an-panel tw:px-2 tw:[touch-action:pan-x_pan-y]"
     >
         <button
             v-for="option in tools"

@@ -66,8 +66,13 @@ const columns = computed(() => {
         `dvh` rather than `vh` because on a phone `vh` is the LARGE viewport - the height you get
         once the browser chrome has scrolled away - which is always taller than what is on screen.
     -->
+    <!-- `touch-action: pan-x pan-y` blocks the browser's pinch- and double-tap zoom of the PAGE
+         across every annotator surface (this shell is what all of them use), while leaving
+         single-finger scrolling of the queue and panels intact. The canvas sets its own
+         `touch-action: none` and does the image's zoom itself, so this is only about the stray
+         gesture that used to zoom the whole page. Reliable where the viewport meta is not. -->
     <div
-        class="tw:grid tw:h-dvh tw:overflow-hidden"
+        class="tw:grid tw:h-dvh tw:overflow-hidden tw:[touch-action:pan-x_pan-y]"
         :class="focus ? 'tw:bg-an-canvas' : 'tw:bg-an-chrome'"
         :style="{ gridTemplateColumns: columns, gridTemplateRows: rows }"
     >
@@ -106,7 +111,12 @@ const columns = computed(() => {
 
         <!-- No padding and no border: the canvas is the picture, and a frame around it is width
              taken from the thing this rebuild exists to make bigger. -->
-        <main class="tw:relative tw:min-h-0 tw:min-w-0 tw:overflow-hidden tw:bg-an-canvas">
+        <!-- `touch-action` here too, not only on the shell: iOS Safari honours it on the touched
+             element far more reliably than on an ancestor, and the floating tool/zoom overlays live
+             in this cell OUTSIDE the canvas (which sets its own `touch-action: none`). -->
+        <main
+            class="tw:relative tw:min-h-0 tw:min-w-0 tw:overflow-hidden tw:bg-an-canvas tw:[touch-action:pan-x_pan-y]"
+        >
             <slot name="canvas" />
         </main>
 
@@ -122,7 +132,7 @@ const columns = computed(() => {
 
         <aside
             v-else-if="!stacked"
-            class="tw:flex tw:min-h-0 tw:flex-col tw:overflow-hidden tw:border-l tw:border-an-border"
+            class="tw:flex tw:min-h-0 tw:flex-col tw:overflow-hidden tw:border-l tw:border-an-border tw:[touch-action:pan-x_pan-y]"
             :class="rightOpen ? 'tw:bg-an-panel' : 'tw:bg-an-chrome'"
         >
             <slot v-if="rightOpen" name="labels" />

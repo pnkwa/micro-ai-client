@@ -1489,7 +1489,11 @@ const step = (delta: number) => {
                     is pinned to the same top-right corner as the list/grid toggle, so the two sat
                     on top of each other, and the panel's collapse button is the dismiss anyway.
                 -->
-                <McSheetContent side="left" class="tw:w-[320px] tw:p-0" hide-close>
+                <McSheetContent
+                    side="left"
+                    class="tw:w-[320px] tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                    hide-close
+                >
                     <ImageQueue
                         :images="orderedImages"
                         :views="queueViews"
@@ -1517,7 +1521,10 @@ const step = (delta: number) => {
             </McSheet>
 
             <McSheet v-model:open="shapesSheetOpen">
-                <McSheetContent side="right" class="tw:flex tw:w-[320px] tw:flex-col tw:p-0">
+                <McSheetContent
+                    side="right"
+                    class="tw:flex tw:w-[320px] tw:flex-col tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                >
                     <ShapeList
                         :shapes="shapes"
                         :palette="palette"

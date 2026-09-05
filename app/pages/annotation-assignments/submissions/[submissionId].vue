@@ -533,7 +533,11 @@ onMounted(load)
         <template #sheets>
             <!-- image list, as a drawer on tablet/phone -->
             <McSheet v-model:open="queueSheetOpen">
-                <McSheetContent side="left" class="tw:w-[280px] tw:p-0" hide-close>
+                <McSheetContent
+                    side="left"
+                    class="tw:w-[280px] tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                    hide-close
+                >
                     <ReviewQueue
                         :items="items"
                         :current-index="currentIndex"
@@ -549,7 +553,10 @@ onMounted(load)
 
             <!-- review detail, as a drawer on tablet/phone -->
             <McSheet v-model:open="panelSheetOpen">
-                <McSheetContent side="right" class="tw:flex tw:w-[340px] tw:flex-col tw:p-0">
+                <McSheetContent
+                    side="right"
+                    class="tw:flex tw:w-[340px] tw:flex-col tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                >
                     <ReviewPanel
                         :current="current"
                         :prompts="prompts"

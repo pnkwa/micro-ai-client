@@ -52,7 +52,7 @@ const submit = () => {
 
 <template>
     <div
-        class="tw:flex tw:h-14 tw:shrink-0 tw:items-center tw:gap-1.5 tw:overflow-x-auto tw:border-t tw:border-an-border tw:bg-an-panel tw:px-2"
+        class="tw:flex tw:h-14 tw:shrink-0 tw:items-center tw:gap-1.5 tw:overflow-x-auto tw:border-t tw:border-an-border tw:bg-an-panel tw:px-2 tw:[touch-action:pan-x_pan-y]"
     >
         <!-- Create mode takes the whole strip: a phone has no room for both the list and a field. -->
         <template v-if="adding">

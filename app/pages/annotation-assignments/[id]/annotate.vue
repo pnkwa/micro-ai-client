@@ -821,7 +821,11 @@ const percent = computed(() =>
 
         <template #sheets>
             <McSheet v-model:open="queueSheetOpen">
-                <McSheetContent side="left" class="tw:w-[300px] tw:p-0" hide-close>
+                <McSheetContent
+                    side="left"
+                    class="tw:w-[300px] tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                    hide-close
+                >
                     <AnnotateQueue
                         :fields="fields"
                         :palette="palette"
@@ -840,7 +844,10 @@ const percent = computed(() =>
             </McSheet>
 
             <McSheet v-model:open="panelSheetOpen">
-                <McSheetContent side="right" class="tw:flex tw:w-[320px] tw:flex-col tw:p-0">
+                <McSheetContent
+                    side="right"
+                    class="tw:flex tw:w-[320px] tw:flex-col tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                >
                     <!-- The brief (instructions, form, Mark done / Skip) is the top band above the
                          canvas on this layout, so the drawer drops it and shows classes + shapes. -->
                     <AnnotatePanel

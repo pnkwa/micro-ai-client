@@ -67,10 +67,11 @@ export default defineNuxtConfig({
                 lang: 'en',
             },
             meta: [
-                // maximum-scale + user-scalable pin the page at 1x: the annotator zooms the image
-                // itself, and a stray two-finger gesture zooming the whole page (not the picture)
-                // was the actual complaint on tablets. Note iOS Safari ignores user-scalable for
-                // accessibility, so on iPad this reins in Chrome/Android but not Safari's pinch.
+                // Belt and suspenders on page zoom: this pins the scale app-wide where the browser
+                // honours it, and the annotator surfaces additionally set `touch-action: pan-x
+                // pan-y` (AnnotatorShell), which reliably blocks pinch/double-tap page zoom on the
+                // devices - iOS Safari among them - that ignore user-scalable. The canvas keeps its
+                // own image zoom through `touch-action: none`.
                 {
                     name: 'viewport',
                     content:
