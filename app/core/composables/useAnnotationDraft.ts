@@ -3,7 +3,7 @@ import {
     buildDraftRecord,
     isUsableDraft,
     type AnnotationDraftRecord,
-    type DraftClass,
+    type AnnotationDraftClass,
     type DraftField,
 } from '~/core/helpers/annotationDraft'
 
@@ -35,7 +35,7 @@ export function useAnnotationDraft(assignmentId: number) {
     function save(input: {
         currentIndex: number
         fields: DraftField[]
-        extraClasses: DraftClass[]
+        extraClasses: AnnotationDraftClass[]
     }): void {
         store.value = buildDraftRecord(input)
     }

@@ -25,7 +25,7 @@ export interface DraftField {
 }
 
 /** A student-created label class, carried so a restored draft keeps its own vocabulary. */
-export interface DraftClass {
+export interface AnnotationDraftClass {
     id: number
     label: string
     color_hex: string
@@ -36,7 +36,7 @@ export interface AnnotationDraftRecord {
     savedAt: number
     currentIndex: number
     fields: DraftField[]
-    extraClasses: DraftClass[]
+    extraClasses: AnnotationDraftClass[]
 }
 
 /** A draft is usable only if it is the current shape and recent enough to still mean something. */
@@ -56,7 +56,7 @@ export function isUsableDraft(
 export function buildDraftRecord(input: {
     currentIndex: number
     fields: DraftField[]
-    extraClasses: DraftClass[]
+    extraClasses: AnnotationDraftClass[]
     now?: number
 }): AnnotationDraftRecord {
     return {
@@ -103,7 +103,10 @@ export function mergeDraftIntoFields(
  * The palette rows the student added beyond the assignment's fixed vocabulary (the first
  * `baseCount` rows are the config's `label_set`, seeded on load; anything after is student-created).
  */
-export function extraClassesFromPalette(palette: DraftClass[], baseCount: number): DraftClass[] {
+export function extraClassesFromPalette(
+    palette: AnnotationDraftClass[],
+    baseCount: number,
+): AnnotationDraftClass[] {
     return palette
         .slice(baseCount)
         .map((c) => ({ id: c.id, label: c.label, color_hex: c.color_hex }))
