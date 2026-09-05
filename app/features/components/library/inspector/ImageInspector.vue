@@ -5,6 +5,7 @@ import {
     ChevronRight,
     Eye,
     EyeOff,
+    FolderMinus,
     FolderPlus,
     ImageOff,
     Loader2,
@@ -74,6 +75,8 @@ const props = defineProps<{
      * the case that actually happens, which is renaming one image onto a neighbour nobody selected.
      */
     siblingNames?: string[]
+    /** The album currently being viewed, if any: names the "Remove from …" action, and gates it. */
+    albumName?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -363,10 +366,13 @@ const applyToAll = () => {
                     </button>
                 </McDropdownMenuTrigger>
                 <McDropdownMenuContent align="end">
-                    <McDropdownMenuItem @select="emit('remove-from-album')">
-                        Remove from this album
+                    <!-- Only when an album is being viewed, and named, so it is clear which one the
+                         images are leaving rather than a vague "this album". -->
+                    <McDropdownMenuItem v-if="albumName" @select="emit('remove-from-album')">
+                        <FolderMinus class="tw:h-4 tw:w-4" />
+                        Remove from {{ albumName }}
                     </McDropdownMenuItem>
-                    <McDropdownMenuSeparator />
+                    <McDropdownMenuSeparator v-if="albumName" />
                     <McDropdownMenuItem variant="destructive" @select="emit('delete')">
                         <Trash2 class="tw:h-4 tw:w-4" />
                         Delete {{ selection.length }} images

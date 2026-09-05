@@ -115,6 +115,11 @@ const debouncedSearch = refDebounced(search, 300)
 
 const activeAlbum = computed(() => albums.value.find((a) => a.id === albumId.value) ?? null)
 
+// Albums offered by the "Add to album" menus. When an album is being viewed its images are already
+// in it, so filing them into it again is a no-op: drop it from the choices. With no album active
+// (the All-images view) nothing is dropped.
+const albumsToAddTo = computed(() => albums.value.filter((a) => a.id !== albumId.value))
+
 /**
  * The status of every loaded row, from the annotator's own selector.
  *
@@ -1010,8 +1015,9 @@ const onAnnotate = (imageId: number) =>
                 <SelectionBar
                     v-if="selectedCount > 0"
                     :count="selectedCount"
-                    :albums="albums"
+                    :albums="albumsToAddTo"
                     :in-album="canUnfile"
+                    :album-name="activeAlbum?.name ?? null"
                     :layout="layout"
                     @pick-album="albumSheetOpen = true"
                     @add-to-album="addSelectedToAlbum"
@@ -1034,7 +1040,8 @@ const onAnnotate = (imageId: number) =>
                     ref="inspector"
                     :image="inspected"
                     :selection="selectedImages"
-                    :albums="albums"
+                    :albums="albumsToAddTo"
+                    :album-name="activeAlbum?.name ?? null"
                     :models="models"
                     :palette="palette"
                     :view="inspected ? (rowViews[inspected.id] ?? null) : null"
@@ -1140,7 +1147,8 @@ const onAnnotate = (imageId: number) =>
                 <ImageInspector
                     :image="inspected"
                     :selection="selectedImages"
-                    :albums="albums"
+                    :albums="albumsToAddTo"
+                    :album-name="activeAlbum?.name ?? null"
                     :models="models"
                     :palette="palette"
                     :view="inspected ? (rowViews[inspected.id] ?? null) : null"

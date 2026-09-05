@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { Download, FolderPlus, MoreHorizontal, Pencil, Play, Trash2 } from '@lucide/vue'
+import {
+    Download,
+    FolderMinus,
+    FolderPlus,
+    MoreHorizontal,
+    Pencil,
+    Play,
+    Trash2,
+} from '@lucide/vue'
 import type { Album } from '~/services/albumService'
 import type { AppLayout } from '~/core/composables/useAppLayout'
 
@@ -19,6 +27,8 @@ const props = defineProps<{
     albums: Album[]
     /** Whether every selected image sits in the album currently being viewed. */
     inAlbum?: boolean
+    /** The album being viewed, if any, so "Remove from …" names it rather than saying "this album". */
+    albumName?: string | null
     layout: AppLayout
 }>()
 
@@ -97,10 +107,11 @@ const fire = (id: 'album' | 'run' | 'annotate' | 'download') => {
                 </button>
             </McDropdownMenuTrigger>
             <McDropdownMenuContent align="end" side="top">
-                <McDropdownMenuItem :disabled="!inAlbum" @select="emit('remove-from-album')">
-                    Remove from this album
+                <McDropdownMenuItem v-if="inAlbum" @select="emit('remove-from-album')">
+                    <FolderMinus class="tw:h-4 tw:w-4" />
+                    Remove from {{ albumName }}
                 </McDropdownMenuItem>
-                <McDropdownMenuSeparator />
+                <McDropdownMenuSeparator v-if="inAlbum" />
                 <McDropdownMenuItem variant="destructive" @select="emit('delete')">
                     <Trash2 class="tw:h-4 tw:w-4" />
                     Delete {{ count }} image{{ count === 1 ? '' : 's' }}
@@ -188,10 +199,11 @@ const fire = (id: 'album' | 'run' | 'annotate' | 'download') => {
                 </button>
             </McDropdownMenuTrigger>
             <McDropdownMenuContent align="end">
-                <McDropdownMenuItem :disabled="!inAlbum" @select="emit('remove-from-album')">
-                    Remove from this album
+                <McDropdownMenuItem v-if="inAlbum" @select="emit('remove-from-album')">
+                    <FolderMinus class="tw:h-4 tw:w-4" />
+                    Remove from {{ albumName }}
                 </McDropdownMenuItem>
-                <McDropdownMenuSeparator />
+                <McDropdownMenuSeparator v-if="inAlbum" />
                 <McDropdownMenuItem variant="destructive" @select="emit('delete')">
                     <Trash2 class="tw:h-4 tw:w-4" />
                     Delete {{ count }} image{{ count === 1 ? '' : 's' }}
