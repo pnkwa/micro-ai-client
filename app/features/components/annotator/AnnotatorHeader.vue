@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, HelpCircle, PanelLeft, Save, Sparkles } from '@lucide/vue'
+import { ChevronDown, HelpCircle, PanelLeft, PanelLeftOpen, Save, Sparkles } from '@lucide/vue'
 
 /**
  * The annotator's own 48px toolbar - the page brings its own and the app bar is hidden under it.
@@ -27,6 +27,12 @@ defineProps<{
     canSeed: boolean
     /** The last model seeded from, in mono, or null before anything has been. */
     lastRun: string | null
+    /**
+     * Show the queue-open button. True only in the medium layout, where the queue is a drawer with
+     * no docked column of its own: in full it is docked (opened from its own rail) and on the
+     * stacked layouts the compact header carries the control instead, so this button would double it.
+     */
+    showQueueToggle?: boolean
 }>()
 
 /**
@@ -44,13 +50,17 @@ const emit = defineEmits<{
     save: []
     shortcuts: []
     'toggle-nav': []
+    'open-queue': []
 }>()
 </script>
 
 <template>
     <!-- The app sidebar's own toggle, reproduced because this route hides the bar that normally
-         carries it. -->
+         carries it. Only on the desktop layout: in medium the queue takes this left slot as a
+         drawer (below), the app nav starts collapsed and unwanted on a tablet, and two panel
+         buttons side by side read as a doubled pair where only one opens anything. -->
     <McButton
+        v-if="!showQueueToggle"
         variant="ghost"
         size="icon-sm"
         aria-label="Toggle the navigation sidebar"
@@ -58,6 +68,20 @@ const emit = defineEmits<{
         @click="emit('toggle-nav')"
     >
         <PanelLeft class="tw:h-4 tw:w-4" />
+    </McButton>
+
+    <!-- In the medium layout the queue is a drawer, not a docked column, so it needs a way open
+         from the toolbar. It stands in for the nav toggle above rather than beside it, so the
+         header leads with just the image-picker control the way the student annotator does. -->
+    <McButton
+        v-if="showQueueToggle"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Show the image queue"
+        title="Show the image queue"
+        @click="emit('open-queue')"
+    >
+        <PanelLeftOpen class="tw:h-4 tw:w-4" />
     </McButton>
 
     <!--

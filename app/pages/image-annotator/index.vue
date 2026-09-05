@@ -633,9 +633,10 @@ watchEffect(() => {
     document.documentElement.classList.toggle(HIDE_NAV_CLASS, focus.value)
 })
 
-// The shell decides its own columns from the same composable; the page needs only the one flag
-// the canvas keys on.
-const { isTouchLayout, stacked } = useAnnotatorLayout()
+// The shell decides its own columns from the same composable; the page needs the canvas flag plus
+// `layout`, because in medium the queue is a drawer with no docked column and so needs its own way
+// open from the header.
+const { isTouchLayout, stacked, layout } = useAnnotatorLayout()
 
 /** The queue as a drawer, and the shape list as a sheet, for the stacked layouts. */
 const queueSheetOpen = ref(false)
@@ -1382,7 +1383,9 @@ const step = (delta: number) => {
                 :saving="isSaving"
                 :can-seed="Boolean(selectedImage)"
                 :last-run="lastRun"
+                :show-queue-toggle="layout === 'medium'"
                 @toggle-nav="toggleNav"
+                @open-queue="queueSheetOpen = true"
                 @seed="seedOpen = true"
                 @save="save()"
                 @shortcuts="shortcutsOpen = true"
