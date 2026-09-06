@@ -476,9 +476,9 @@ const selectedImageId = ref<number | null>(null)
 const selectedImage = ref<LibraryImage | null>(null)
 const imageUrl = ref<string | null>(null)
 const imageError = ref<string | null>(null)
-// Full-res blobs cached by id, so a step to a PREFETCHED neighbour paints without a fetch - which is
-// what stops the canvas going dark mid-slide. The pager thumbnails keep their own thumb-size cache;
-// this one holds the few full-size images in play, windowed to the neighbours (see prefetch below).
+// The open image's full-res blob, cached by id. Only the current image is loaded - no neighbour
+// prefetch - and the previous one is forgotten as each opens, so a long batch never pins every image
+// it visited. The pager thumbnails keep their own thumb-size cache separate from this.
 const fullRes = useImageObjectUrls()
 const annotationsLoading = ref(false)
 // Only surface the "Loading annotations" line once the wait is real: stepping to a cached image
@@ -496,12 +496,16 @@ const retryImage = async () => {
 }
 
 /**
- * Put an image on the canvas from the full-res cache, loading it first if it is not already held. A
- * prefetched neighbour is a cache hit and paints in the same tick; anything else loads now.
+ * Load the open image's full-res bytes and put it on the canvas. Loads on demand - there is no
+ * neighbour prefetch - and forgets every other cached image, so only the open one is held.
  */
 const showFullRes = async (image: LibraryImage) => {
     await fullRes.load(image.id, undefined, image.content_hash)
     if (image.id !== selectedImageId.value) return // navigated on while this was loading
+    // Drop any previously-opened image so the cache holds just this one.
+    for (const id of Object.keys(fullRes.urls.value)) {
+        if (Number(id) !== image.id) fullRes.forget(Number(id))
+    }
     const failure = fullRes.errors.value[image.id]
     if (failure) {
         imageError.value =
@@ -797,9 +801,8 @@ const openImage = async (image: LibraryImage) => {
     selectedImage.value = image
     imageError.value = null
     annotationsLoading.value = true
-    // Paint straight from the cache when the neighbour was prefetched (no dark gap under the slide);
-    // otherwise clear the canvas and load below. FULL RESOLUTION, never `?size=thumb` - a 256px
-    // downscale would bake into the exported dataset.
+    // Paint from the cache on the rare hit (re-opening the same image), else clear and load below.
+    // FULL RESOLUTION, never `?size=thumb` - a 256px downscale would bake into the exported dataset.
     imageUrl.value = fullRes.urls.value[image.id] ?? null
     resetHistory([])
     // Per-image view state. Hiding is a reading aid for one picture, and a seeded review does not
@@ -1447,25 +1450,6 @@ const pagerStrip = computed(() =>
     })),
 )
 
-// Prefetch the FULL-RES neighbours so a step paints instantly under the slide instead of the canvas
-// going dark while the next blob fetches, and forget anything further out so a long batch does not
-// pin every image it visited in memory. Best-effort: a failed neighbour just loads when reached.
-watch(selectedImageId, () => {
-    const center = position.value - 1 // 0-based index of the active image
-    const neighbours = [orderedImages.value[center - 1], orderedImages.value[center + 1]]
-    const keep = new Set(
-        [selectedImageId.value, ...neighbours.map((image) => image?.id)].filter(
-            (id): id is number => id != null,
-        ),
-    )
-    for (const id of Object.keys(fullRes.urls.value)) {
-        if (!keep.has(Number(id))) fullRes.forget(Number(id))
-    }
-    for (const image of neighbours) {
-        if (image) void fullRes.load(image.id, undefined, image.content_hash)
-    }
-})
-
 // A short slide when the image changes: the new one eases in from the side it came from, so a step
 // through the batch reads as motion rather than a hard swap. Played on the canvas WRAPPER via the
 // Web Animations API so the canvas keeps its viewport and shapes - a re-key/remount would reset both.
@@ -1830,6 +1814,41 @@ const step = (delta: number) => {
             </McSheet>
         </template>
 
+        <!-- Docked pager, a full-width strip above the canvas. The shell renders this slot only on a
+             stacked phone; there the floating PagerPill in #canvas is suppressed, so the filmstrip
+             sits beside the picture instead of over its top edge. -->
+        <template #pager>
+            <PagerPill
+                v-if="selectedImage"
+                docked
+                :name="currentName"
+                :index="position"
+                :total="images.length"
+                :strip="pagerStrip"
+                @previous="step(-1)"
+                @next="step(1)"
+                @select="selectImage"
+                @reveal="revealThumb"
+            />
+        </template>
+
+        <!-- Docked zoom strip below the canvas on a stacked phone (the floating ZoomPill in #canvas
+             is suppressed there), so the controls sit beside the picture, not over its bottom edge. -->
+        <template #zoom>
+            <ZoomPill
+                v-if="selectedImage"
+                docked
+                :percent="zoomPercent"
+                :at-fit="atFit"
+                :enabled="canZoom"
+                :all-hidden="allHidden"
+                @zoom-in="canvas?.zoomIn()"
+                @zoom-out="canvas?.zoomOut()"
+                @fit="canvas?.fit()"
+                @toggle-visibility="toggleAllHidden"
+            />
+        </template>
+
         <template #queue>
             <ImageQueue
                 ref="queue"
@@ -2010,8 +2029,11 @@ const step = (delta: number) => {
                     @redo="redo"
                     @delete-selected="deleteSelected"
                 />
+                <!-- Floats over the canvas on desktop and on a wide (landscape) touch layout. On a
+                     stacked phone it is docked into its own shell row instead (see #pager), so it
+                     does not cover the top of the picture. -->
                 <PagerPill
-                    v-if="!focus"
+                    v-if="!focus && !stacked"
                     :name="currentName"
                     :index="position"
                     :total="images.length"
@@ -2032,8 +2054,10 @@ const step = (delta: number) => {
                     :selected-count="selectedShapeId ? 1 : 0"
                     :drafting="Boolean(canvas?.hasDraft)"
                 />
+                <!-- Floats over the canvas on desktop and on a wide (landscape) touch layout. On a
+                     stacked phone it is docked into its own shell row instead (see #zoom). -->
                 <ZoomPill
-                    v-if="!focus"
+                    v-if="!focus && !stacked"
                     :percent="zoomPercent"
                     :at-fit="atFit"
                     :enabled="canZoom"

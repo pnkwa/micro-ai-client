@@ -695,6 +695,35 @@ const percent = computed(() =>
             </McButton>
         </template>
 
+        <!-- Docked pager strip above the canvas, rendered by the shell only on a stacked phone (the
+             floating PagerPill in #canvas is suppressed there) so it sits beside the picture. -->
+        <template #pager>
+            <PagerPill
+                docked
+                :name="currentName"
+                :index="currentIndex + 1"
+                :total="fields.length"
+                @previous="goTo(currentIndex - 1)"
+                @next="goTo(currentIndex + 1)"
+            />
+        </template>
+
+        <!-- Docked zoom strip below the canvas on a stacked phone (the floating ZoomPill in #canvas
+             is suppressed there), so the controls sit beside the picture. -->
+        <template #zoom>
+            <ZoomPill
+                docked
+                :percent="zoomPct"
+                :at-fit="atFit"
+                :enabled="canZoom"
+                :all-hidden="allHidden"
+                @zoom-in="canvas?.zoomIn()"
+                @zoom-out="canvas?.zoomOut()"
+                @fit="canvas?.fit()"
+                @toggle-visibility="toggleAllHidden"
+            />
+        </template>
+
         <template #queue>
             <AnnotateQueue
                 :fields="fields"
@@ -780,7 +809,10 @@ const percent = computed(() =>
                         @redo="redo"
                         @delete-selected="deleteSelected"
                     />
+                    <!-- Floats over the canvas except on a stacked phone, where it docks into its
+                         own shell row (see #pager) so it does not cover the top of the picture. -->
                     <PagerPill
+                        v-if="!stacked"
                         :name="currentName"
                         :index="currentIndex + 1"
                         :total="fields.length"
@@ -793,7 +825,10 @@ const percent = computed(() =>
                         :selected-count="selectedId ? 1 : 0"
                         :drafting="Boolean(canvas?.hasDraft)"
                     />
+                    <!-- Floats over the canvas except on a stacked phone, where it docks into its
+                         own shell row (see #zoom) so it does not cover the bottom of the picture. -->
                     <ZoomPill
+                        v-if="!stacked"
                         :percent="zoomPct"
                         :at-fit="atFit"
                         :enabled="canZoom"

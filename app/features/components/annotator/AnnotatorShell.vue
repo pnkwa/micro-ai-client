@@ -38,9 +38,10 @@ const focus = computed(() => !leftOpen.value && !rightOpen.value)
 
 const rows = computed(() => {
     if (focus.value) return 'minmax(0, 1fr)'
-    // The bottom bars are rows of the grid rather than overlays, so the canvas is sized around them
-    // and the picture never sits underneath a bar it cannot be moved out from under.
-    if (stacked.value) return '48px minmax(0, 1fr) auto auto'
+    // The pager strip, the zoom strip and the bottom bars are rows of the grid rather than overlays,
+    // so the canvas is sized around them and the picture never sits underneath a bar it cannot be
+    // moved out from under. Row order: header, pager, canvas, zoom, tools, classes.
+    if (stacked.value) return '48px auto minmax(0, 1fr) auto auto auto'
     return '48px minmax(0, 1fr)'
 })
 
@@ -89,6 +90,13 @@ const columns = computed(() => {
             <slot :name="stacked ? 'header-compact' : 'header'" />
         </header>
 
+        <!-- The pager strip, only on a stacked phone: its own row above the canvas so the filmstrip
+             is beside the picture rather than floating over its top edge. On wider layouts the pager
+             floats (there is the height to spare, and the picture is not full-bleed to the top). -->
+        <div v-if="stacked && !focus" style="grid-column: 1 / -1">
+            <slot name="pager" />
+        </div>
+
         <aside
             v-if="!stacked && layout !== 'medium'"
             class="tw:flex tw:min-h-0 tw:flex-col tw:overflow-hidden"
@@ -119,6 +127,13 @@ const columns = computed(() => {
         >
             <slot name="canvas" />
         </main>
+
+        <!-- The zoom strip, only on a stacked phone: its own row below the canvas so the controls
+             are beside the picture rather than floating over its bottom edge. Wider layouts keep the
+             floating pill. -->
+        <div v-if="stacked && !focus" style="grid-column: 1 / -1">
+            <slot name="zoom" />
+        </div>
 
         <!-- Focus mode's right rail. Dark like the canvas, not a collapsed light panel: in focus
              mode the chrome is gone, and a pale strip down the edge would be the one piece of the
