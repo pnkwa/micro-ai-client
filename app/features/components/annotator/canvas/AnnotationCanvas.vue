@@ -508,6 +508,19 @@ const onPointerDown = (event: PointerEvent) => {
      * on release, where a tap can be told from the start of a pan.
      */
     if (!pointerDraws(event.pointerType, props.tool)) {
+        // Select tool on touch: a one-finger drag that STARTS ON A SHAPE moves it rather than
+        // panning, selecting that shape as it goes. Empty space still pans, a tap still selects
+        // (told on release), and two fingers still pan and zoom, so the picture stays reachable even
+        // under a box that fills the frame. Without this a finger could only ever pan in select
+        // mode, so a box could be selected but never dragged on a phone.
+        if (props.tool === 'select' && isTouchPointer(event.pointerType)) {
+            const hit = topmostAt(shapes.value, at)
+            if (hit) {
+                selectedId.value = hit.id
+                gesture.value = { kind: 'move', id: hit.id, last: at }
+                return
+            }
+        }
         gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
         // Only the polygon tool aims: it is the one that places a point at an exact spot, and the
         // one where the finger is directly on top of the thing being aimed at.
@@ -893,6 +906,39 @@ const onPointerUp = (event: PointerEvent) => {
             }
         }
         placePolygonPoint(at)
+    }
+
+    // Select tool on touch: the tap selects the shape under the finger, or clears the selection on
+    // empty space. On a touch pointer the press was taken as a pan back in onPointerDown - a finger
+    // navigates in the select tool rather than drawing - so selection has to happen here on release,
+    // the way the mouse does it on press. Without this an existing box cannot be picked by tapping
+    // the canvas on a phone; it could only be reached through the shape list, which is why a
+    // previously-drawn box could not be selected or reclassed on a touch layout.
+    if (
+        props.tool === 'select' &&
+        natural.value &&
+        wasTap(event) &&
+        isTouchPointer(event.pointerType)
+    ) {
+        const at = normalized(event)
+        // Tapping an edge of the already-selected polygon inserts a vertex there, mirroring the
+        // mouse path's ordering: the tap is inside the shape either way, so the edge would be
+        // unreachable if this ran after the plain hit test.
+        const selected = selectedId.value ? shapeById(selectedId.value) : null
+        if (selected?.polygon) {
+            const withPoint = insertPointOnEdge(selected, at, handleTolerance.value)
+            if (withPoint) {
+                replaceShape(selected.id, withPoint)
+                emit('commit')
+                tapOrigin = null
+                endGesture()
+                return
+            }
+        }
+        selectedId.value = topmostAt(shapes.value, at)?.id ?? null
+        tapOrigin = null
+        endGesture()
+        return
     }
 
     tapOrigin = null
