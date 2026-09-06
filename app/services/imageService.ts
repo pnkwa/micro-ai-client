@@ -23,6 +23,11 @@ export const imageBaseSchema = z.object({
     // Who supplied the bytes FIRST. Under the unique content hash, later uploaders of identical
     // bytes are not recorded at all, so this is provenance and NOT an ownership claim.
     created_by: z.number().nullable(),
+    // The first uploader's display name, resolved server-side from `created_by`. OPTIONAL because it
+    // is a pending backend addition (see .claude/note/2026-09-06-image-uploader-name.md): the wire
+    // carries only the id today, so the library shows "you" for your own uploads and nothing for
+    // others until this arrives. Kept in the schema now so Zod does not strip it once it does.
+    created_by_name: z.string().nullable().optional(),
     created_at: z.string(),
     updated_at: z.string(),
 })

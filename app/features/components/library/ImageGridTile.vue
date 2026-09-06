@@ -183,6 +183,18 @@ const onPointerMove = (event: PointerEvent) => {
 
 onScopeDispose(cancelPress)
 
+// Who first uploaded the image, for the footer's meta line. The server-resolved name when present,
+// else "you" for the reader's own uploads, else nothing - a bare id is not worth a line. Mirrors the
+// inspector's "Uploaded by" row (and the same pending backend note applies).
+const auth = useAuth()
+const uploadedBy = computed(() => {
+    if (props.image.created_by_name) return props.image.created_by_name
+    if (props.image.created_by != null && props.image.created_by === auth.user?.id) {
+        return [auth.user.firstname, auth.user.lastname].filter(Boolean).join(' ') || 'you'
+    }
+    return null
+})
+
 const badgeClass = computed(() => {
     switch (props.view.status) {
         case 'reviewed':
@@ -370,7 +382,8 @@ const badgeClass = computed(() => {
                     {{ caption }}
                 </p>
                 <p class="tw:truncate tw:text-[10.5px] tw:text-an-faint">
-                    {{ view.meta }} · {{ formatDayShort(image.created_at) }}
+                    {{ view.meta }} · {{ formatDayShort(image.created_at)
+                    }}<template v-if="uploadedBy"> · {{ uploadedBy }}</template>
                 </p>
             </div>
         </div>

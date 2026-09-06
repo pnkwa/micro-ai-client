@@ -258,6 +258,25 @@ const classRows = computed(() => {
 
 const filedIn = computed(() => detail.value?.albums ?? [])
 
+/**
+ * Who first uploaded the image, for the Details list.
+ *
+ * The server resolves the name into `created_by_name`; until that ships (see the backend note) the
+ * wire carries only the id, so the one name we can name without a lookup is the reader's own -
+ * "you" - when the upload is theirs. Null otherwise, and the row is hidden rather than showing a
+ * bare id nobody can read.
+ */
+const auth = useAuth()
+const uploadedBy = computed(() => {
+    const image = detail.value
+    if (!image) return null
+    if (image.created_by_name) return image.created_by_name
+    if (image.created_by != null && image.created_by === auth.user?.id) {
+        return [auth.user.firstname, auth.user.lastname].filter(Boolean).join(' ') || 'you'
+    }
+    return null
+})
+
 const addableAlbums = computed(() => {
     const already = new Set(filedIn.value.map((album) => album.id))
     return props.albums.filter((album) => !already.has(album.id))
@@ -737,6 +756,10 @@ const applyToAll = () => {
                     <dd class="tw:font-mono tw:text-an-n-700 tw:tabular-nums">
                         {{ formatDayTime(detail.created_at) }}
                     </dd>
+                    <template v-if="uploadedBy">
+                        <dt class="tw:text-an-n-500">Uploaded by</dt>
+                        <dd class="tw:text-an-n-700">{{ uploadedBy }}</dd>
+                    </template>
                     <dt class="tw:text-an-n-500">Album</dt>
                     <dd>
                         <!--
