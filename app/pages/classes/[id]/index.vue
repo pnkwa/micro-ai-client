@@ -12,10 +12,10 @@ import {
     Download,
     Shapes,
     Shield,
-    Crown,
     Check,
     X,
     Trash2,
+    Archive,
 } from '@lucide/vue'
 import {
     buildClassGradeCanvas,
@@ -61,7 +61,6 @@ const { $dayjs } = useNuxtApp()
 const authStore = useAuth()
 
 const isStudent = computed(() => authStore.user?.user_type === 'student' || !authStore.user)
-
 const classId = computed(() => Number(route.params.id))
 
 const classItem = ref<ClassItem | null>(null)
@@ -253,6 +252,8 @@ await Promise.all([
     ...(isStudent.value ? [loadMySubmissions()] : []),
 ])
 
+const isClassOwner = computed(() => classItem.value?.created_by === authStore.user?.id || false)
+
 const breadcrumb = useBreadcrumb()
 breadcrumb.setBreadcrumbs([
     isStudent.value ? { label: 'Home', to: '/' } : { label: 'Classes', to: '/classes' },
@@ -371,19 +372,24 @@ const classForm = reactive({
     name: classItem.value?.name ?? '',
     semester: classItem.value?.semester ?? '',
     code: classItem.value?.code ?? '',
-    status: (classItem.value?.status ?? 'active') as 'active' | 'closed',
+    status: (classItem.value?.status ?? 'active') as
+        | 'active'
+        | 'closed'
+        | 'archived',
 })
 const isSavingClass = ref(false)
 const isDeleteClassOpen = ref(false)
+const isArchiveClassOpen = ref(false)
 
 const statusOptions = [
     { value: 'active', label: 'Active' },
     { value: 'closed', label: 'Closed' },
+    { value: 'archived', label: 'Archived' },
 ]
 // McNativeSelect hands back a widened value; coerce it back to the literal union in the script
 // (a TS cast inside an inline template handler trips Nuxt's macro parser at build time).
 const onStatusChange = (v: unknown) => {
-    classForm.status = String(v) as 'active' | 'closed'
+    classForm.status = String(v) as 'active' | 'closed' | 'archived'
 }
 
 const handleCreate = async (values: CreateAssignmentFormData) => {
@@ -429,6 +435,22 @@ const handleDelete = async () => {
     }
 }
 
+// Archive is the softer alternative to delete: it hides the class from the lists but keeps its
+// data (students, assignments), so it works where delete would 409. Like delete, leave the page
+// afterwards since the class no longer belongs on the staff class list.
+const handleArchive = async () => {
+    if (!classItem.value) return
+    try {
+        await classService.archive(classItem.value.id)
+        toast.success('Class archived')
+        router.push('/classes')
+    } catch (e) {
+        toast.error(apiErrorMessage(e, 'Failed to archive class'))
+    } finally {
+        isArchiveClassOpen.value = false
+    }
+}
+
 // ---- Staff assignment (Manage tab, section 3) -------------------------------------------------
 // The "Add staff" row toggles into an inline email form; confirming posts the email and refreshes.
 const isAddingStaff = ref(false)
@@ -456,6 +478,17 @@ const handleAddStaff = async () => {
         toast.error(apiErrorMessage(e, 'Failed to add staff'))
     } finally {
         isSubmittingStaff.value = false
+    }
+}
+const handleRemoveStaff = async (staff_id: number) => {
+    try {
+        await classService.removeStaff(classId.value, staff_id)
+        await loadStaff()
+        toast.success('Staff unassigned')
+    } catch (e) {
+        toast.error(apiErrorMessage(e, 'Failed to unassign staff'))
+    } finally {
+        isDeleteClassOpen.value = false
     }
 }
 
@@ -794,29 +827,29 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                         <form class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="handleEdit">
                             <div class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:gap-4">
                                 <div class="tw:flex tw:flex-col tw:gap-2">
-                                    <label class="tw:text-sm tw:font-medium">Class name</label>
+                                    <label class="tw:text-sm tw:font-medium" for="input-classForm-name">Class name</label>
                                     <McInput
+                                        id="input-classForm-name"
                                         v-model="classForm.name"
                                         placeholder="e.g., BIO-301 Cell Biology"
                                     />
                                 </div>
                                 <div class="tw:flex tw:flex-col tw:gap-2">
-                                    <label class="tw:text-sm tw:font-medium">Semester</label>
+                                    <label class="tw:text-sm tw:font-medium" for="input-classForm-semester">Semester</label>
                                     <McInput
+                                        id="input-classForm-semester"
                                         v-model="classForm.semester"
                                         placeholder="e.g., Fall 2025"
                                     />
                                 </div>
                                 <div class="tw:flex tw:flex-col tw:gap-2">
-                                    <label class="tw:text-sm tw:font-medium">Class code</label>
-                                    <McInput
-                                        v-model="classForm.code"
-                                        placeholder="e.g., MICRO01"
-                                    />
+                                    <label class="tw:text-sm tw:font-medium" for="input-classForm-code">Class code</label>
+                                    <McInput id="input-classForm-code" v-model="classForm.code" placeholder="e.g., MICRO01" />
                                 </div>
                                 <div class="tw:flex tw:flex-col tw:gap-2">
-                                    <label class="tw:text-sm tw:font-medium">Status</label>
+                                    <label class="tw:text-sm tw:font-medium" for="select-classForm-status">Status</label>
                                     <McNativeSelect
+                                        id="select-classForm-status"
                                         :model-value="classForm.status"
                                         class="tw:w-full"
                                         @update:model-value="onStatusChange($event)"
@@ -831,16 +864,28 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     </McNativeSelect>
                                 </div>
                             </div>
-                            <div class="tw:flex tw:items-center tw:justify-between tw:gap-2">
-                                <McButton
-                                    type="button"
-                                    variant="ghost"
-                                    class="tw:text-red-500 tw:hover:text-red-600 tw:hover:bg-red-50"
-                                    @click="isDeleteClassOpen = true"
-                                >
-                                    <Trash2 class="tw:w-4 tw:h-4 tw:mr-1" />
-                                    Delete class
-                                </McButton>
+                            <div 
+                            v-if="isClassOwner"
+                            class="tw:flex tw:items-center tw:justify-between tw:gap-2">
+                                <div class="tw:flex tw:items-center tw:gap-2">
+                                    <McButton
+                                        type="button"
+                                        variant="ghost"
+                                        class="tw:text-red-500 tw:hover:text-red-600 tw:hover:bg-red-50"
+                                        @click="isDeleteClassOpen = true"
+                                    >
+                                        <Trash2 class="tw:w-4 tw:h-4 tw:mr-1" />
+                                        Delete class
+                                    </McButton>
+                                    <McButton
+                                        type="button"
+                                        variant="ghost"
+                                        @click="isArchiveClassOpen = true"
+                                    >
+                                        <Archive class="tw:w-4 tw:h-4 tw:mr-1" />
+                                        Archive class
+                                    </McButton>
+                                </div>
                                 <McButton type="submit" :loading="isSavingClass">
                                     Save changes
                                 </McButton>
@@ -865,150 +910,165 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     {{ students.length }} Enrolled Students
                                 </span>
                             </div>
-                    <div
-                        class="tw:flex tw:flex-col tw:gap-2 tw:sm:flex-row tw:sm:items-center tw:sm:gap-2"
-                    >
-                        <McInput
-                            v-model="studentSearch"
-                            icon-prepend="Search"
-                            placeholder="Search by name, email, or student ID"
-                            class="tw:w-full tw:sm:w-64"
-                            @update:model-value="onStudentSearch"
-                        />
-                        <div class="tw:flex tw:gap-2 tw:shrink-0">
-                            <!-- Same two-format menu as the assignment's Submissions tab. Exports
+                            <div
+                                class="tw:flex tw:flex-col tw:gap-2 tw:sm:flex-row tw:sm:items-center tw:sm:gap-2"
+                            >
+                                <!-- type="search" + autocomplete="off": keep the browser from
+                                     classifying this as an email field (its placeholder mentions
+                                     "email") and group-filling it when a suggestion is accepted on
+                                     the Add-staff email input below. -->
+                                <McInput
+                                    id="input-student-search"
+                                    v-model="studentSearch"
+                                    type="search"
+                                    autocomplete="off"
+                                    icon-prepend="Search"
+                                    placeholder="Search by name, email, or student ID"
+                                    class="tw:w-full tw:sm:w-64"
+                                    @update:model-value="onStudentSearch"
+                                />
+                                <div class="tw:flex tw:gap-2 tw:shrink-0">
+                                    <!-- Same two-format menu as the assignment's Submissions tab. Exports
                                  the whole class, not the page on screen: see collectGradeRows.
                                  Disabled while empty so it can't produce a header-only file. -->
-                            <McDropdownMenu>
-                                <McDropdownMenuTrigger as-child>
+                                    <McDropdownMenu>
+                                        <McDropdownMenuTrigger as-child>
+                                            <McButton
+                                                variant="outline"
+                                                size="sm"
+                                                class="tw:flex-1 tw:sm:flex-none"
+                                                :loading="isExportingGrades"
+                                                :disabled="studentTotal === 0"
+                                            >
+                                                <Download class="tw:w-4 tw:h-4 tw:mr-1" />
+                                                Export grades
+                                            </McButton>
+                                        </McDropdownMenuTrigger>
+                                        <McDropdownMenuContent align="end" class="tw:w-64">
+                                            <McDropdownMenuItem @select="exportGrades('xlsx')">
+                                                <div class="tw:flex tw:flex-col">
+                                                    <span class="tw:text-sm">
+                                                        Excel report (.xlsx)
+                                                    </span>
+                                                    <span class="tw:text-xs tw:text-navy-50">
+                                                        Earned, possible and percent
+                                                    </span>
+                                                </div>
+                                            </McDropdownMenuItem>
+                                            <McDropdownMenuItem @select="exportGrades('csv')">
+                                                <div class="tw:flex tw:flex-col">
+                                                    <span class="tw:text-sm">
+                                                        Canvas / Mango (.csv)
+                                                    </span>
+                                                    <span class="tw:text-xs tw:text-navy-50">
+                                                        Overall percentage, out of 100
+                                                    </span>
+                                                </div>
+                                            </McDropdownMenuItem>
+                                            <McDropdownMenuSeparator />
+                                            <div
+                                                class="tw:px-2 tw:py-1.5 tw:text-xs tw:text-navy-50"
+                                            >
+                                                All {{ studentTotal }} students
+                                            </div>
+                                        </McDropdownMenuContent>
+                                    </McDropdownMenu>
                                     <McButton
                                         variant="outline"
                                         size="sm"
                                         class="tw:flex-1 tw:sm:flex-none"
-                                        :loading="isExportingGrades"
-                                        :disabled="studentTotal === 0"
+                                        @click="isImportCsvOpen = true"
                                     >
-                                        <Download class="tw:w-4 tw:h-4 tw:mr-1" />
-                                        Export grades
+                                        <Upload class="tw:w-4 tw:h-4 tw:mr-1" />
+                                        Import CSV
                                     </McButton>
-                                </McDropdownMenuTrigger>
-                                <McDropdownMenuContent align="end" class="tw:w-64">
-                                    <McDropdownMenuItem @select="exportGrades('xlsx')">
-                                        <div class="tw:flex tw:flex-col">
-                                            <span class="tw:text-sm">Excel report (.xlsx)</span>
-                                            <span class="tw:text-xs tw:text-navy-50">
-                                                Earned, possible and percent
-                                            </span>
-                                        </div>
-                                    </McDropdownMenuItem>
-                                    <McDropdownMenuItem @select="exportGrades('csv')">
-                                        <div class="tw:flex tw:flex-col">
-                                            <span class="tw:text-sm">Canvas / Mango (.csv)</span>
-                                            <span class="tw:text-xs tw:text-navy-50">
-                                                Overall percentage, out of 100
-                                            </span>
-                                        </div>
-                                    </McDropdownMenuItem>
-                                    <McDropdownMenuSeparator />
-                                    <div class="tw:px-2 tw:py-1.5 tw:text-xs tw:text-navy-50">
-                                        All {{ studentTotal }} students
-                                    </div>
-                                </McDropdownMenuContent>
-                            </McDropdownMenu>
-                            <McButton
-                                variant="outline"
-                                size="sm"
-                                class="tw:flex-1 tw:sm:flex-none"
-                                @click="isImportCsvOpen = true"
-                            >
-                                <Upload class="tw:w-4 tw:h-4 tw:mr-1" />
-                                Import CSV
-                            </McButton>
-                            <McButton
-                                size="sm"
-                                class="tw:flex-1 tw:sm:flex-none"
-                                @click="isAddStudentOpen = true"
-                            >
-                                <UserPlus class="tw:w-4 tw:h-4 tw:mr-1" />
-                                Add Student
-                            </McButton>
+                                    <McButton
+                                        size="sm"
+                                        class="tw:flex-1 tw:sm:flex-none"
+                                        @click="isAddStudentOpen = true"
+                                    >
+                                        <UserPlus class="tw:w-4 tw:h-4 tw:mr-1" />
+                                        Add Student
+                                    </McButton>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                </div>
 
-                <div
-                    v-if="isLoadingStudents"
-                    class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
-                >
-                    Loading students…
-                </div>
+                        <div
+                            v-if="isLoadingStudents"
+                            class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:py-16 tw:text-center tw:text-sm tw:text-navy-60"
+                        >
+                            Loading students…
+                        </div>
 
-                <div
-                    v-else
-                    class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:overflow-hidden"
-                >
-                    <!-- server-side: `students` IS the page, so the table must not slice it
+                        <div
+                            v-else
+                            class="tw:bg-white tw:border tw:border-navy-10 tw:rounded-md tw:overflow-hidden"
+                        >
+                            <!-- server-side: `students` IS the page, so the table must not slice it
                          again, and `total` comes from the server's match count. -->
-                    <McDataTable
-                        v-if="students.length > 0"
-                        v-model:pagination="studentPagination"
-                        :columns="studentColumns"
-                        :data="students"
-                        :total="studentTotal"
-                        :body-height="studentTableHeight"
-                        server-side
-                    >
-                        <template #body-no="{ row }">
-                            <div class="tw:text-left tw:text-sm tw:text-navy-40 tw:pl-4">
-                                {{ (studentPage - 1) * studentPerPage + row.index + 1 }}
-                            </div>
-                        </template>
-                        <template #body-student_id="{ row }">
-                            <div class="tw:text-left tw:text-sm tw:text-navy-60">
-                                {{ row.original.student_id }}
-                            </div>
-                        </template>
-                        <template #body-name="{ row }">
-                            <div class="tw:text-left tw:text-sm tw:font-medium tw:text-navy-100">
-                                {{ row.original.user.firstname }}
-                                {{ row.original.user.lastname }}
-                            </div>
-                        </template>
-                        <template #body-email="{ row }">
-                            <div class="tw:text-left tw:text-sm tw:text-navy-60">
-                                {{ row.original.user.email }}
-                            </div>
-                        </template>
-                        <template #body-grade="{ row }">
-                            <div
-                                class="tw:pr-4 tw:text-right tw:text-sm tw:font-semibold tw:tabular-nums"
-                                :class="
-                                    grades.has(row.original.student_id)
-                                        ? 'tw:text-navy-100'
-                                        : 'tw:text-navy-40'
-                                "
+                            <McDataTable
+                                v-if="students.length > 0"
+                                v-model:pagination="studentPagination"
+                                :columns="studentColumns"
+                                :data="students"
+                                :total="studentTotal"
+                                :body-height="studentTableHeight"
+                                server-side
                             >
-                                {{ gradeText(row.original.student_id) }}
-                            </div>
-                        </template>
-                    </McDataTable>
+                                <template #body-no="{ row }">
+                                    <div class="tw:text-left tw:text-sm tw:text-navy-40 tw:pl-4">
+                                        {{ (studentPage - 1) * studentPerPage + row.index + 1 }}
+                                    </div>
+                                </template>
+                                <template #body-student_id="{ row }">
+                                    <div class="tw:text-left tw:text-sm tw:text-navy-60">
+                                        {{ row.original.student_id }}
+                                    </div>
+                                </template>
+                                <template #body-name="{ row }">
+                                    <div
+                                        class="tw:text-left tw:text-sm tw:font-medium tw:text-navy-100"
+                                    >
+                                        {{ row.original.user.firstname }}
+                                        {{ row.original.user.lastname }}
+                                    </div>
+                                </template>
+                                <template #body-email="{ row }">
+                                    <div class="tw:text-left tw:text-sm tw:text-navy-60">
+                                        {{ row.original.user.email }}
+                                    </div>
+                                </template>
+                                <template #body-grade="{ row }">
+                                    <div
+                                        class="tw:pr-4 tw:text-right tw:text-sm tw:font-semibold tw:tabular-nums"
+                                        :class="
+                                            grades.has(row.original.student_id)
+                                                ? 'tw:text-navy-100'
+                                                : 'tw:text-navy-40'
+                                        "
+                                    >
+                                        {{ gradeText(row.original.student_id) }}
+                                    </div>
+                                </template>
+                            </McDataTable>
 
-                    <!-- Centred in the full-height region rather than pinned near its top, so an
+                            <!-- Centred in the full-height region rather than pinned near its top, so an
                          empty roster reads as a deliberate state, not a cut-off table. -->
-                    <div
-                        v-else
-                        class="tw:flex tw:items-center tw:justify-center tw:text-center tw:text-sm tw:text-navy-50"
-                        :style="{ height: studentTableHeight }"
-                    >
-                        <!-- `students` is a page, so an empty one no longer distinguishes the two
+                            <div
+                                v-else
+                                class="tw:flex tw:items-center tw:justify-center tw:text-center tw:text-sm tw:text-navy-50"
+                                :style="{ height: studentTableHeight }"
+                            >
+                                <!-- `students` is a page, so an empty one no longer distinguishes the two
                              cases; the search term does. -->
-                        {{
-                            studentSearch.trim()
-                                ? 'No students match your search'
-                                : 'No students enrolled'
-                        }}
-                    </div>
-                </div>
+                                {{
+                                    studentSearch.trim()
+                                        ? 'No students match your search'
+                                        : 'No students enrolled'
+                                }}
+                            </div>
+                        </div>
                     </section>
 
                     <!-- ================= Section 3: Staff ================= -->
@@ -1020,8 +1080,7 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                             <h2 class="tw:text-lg tw:font-semibold tw:text-navy-100">Staff</h2>
                         </div>
                         <p class="tw:text-sm tw:text-navy-60">
-                            Instructors and TAs with access to this class. The creator is the
-                            owner.
+                            Instructors and TAs with access to this class. The creator is the owner.
                         </p>
 
                         <div
@@ -1049,33 +1108,43 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                         {{ member.email }}
                                     </McTableCell>
                                     <McTableCell>
-                                        <McBadge
-                                            :variant="member.is_owner ? 'success' : 'outline'"
-                                        >
-                                            <Crown
-                                                v-if="member.is_owner"
-                                                class="tw:w-3 tw:h-3 tw:mr-1"
-                                            />
+                                        <McBadge :variant="member.is_owner ? 'success' : 'outline'">
                                             {{ staffRoleLabel(member.role) }}
                                         </McBadge>
                                     </McTableCell>
                                     <McTableCell class="tw:text-navy-60">
                                         {{ formatAdded(member.added_at) }}
                                     </McTableCell>
+                                    <McTableCell >
+                                        <McButton
+                                                v-if="!member.is_owner && member.staff_id != authStore.user?.id"
+                                                size="icon"
+                                                variant="ghost"
+                                                aria-label="Cancel"
+                                                @click="handleRemoveStaff(member.staff_id)"
+                                            >
+                                                <X class="tw:w-4 tw:h-4" />
+                                            </McButton>
+                                    </McTableCell>
                                 </McTableRow>
 
                                 <!-- Add-staff row: a trigger that swaps into an inline email
                                      form (email input + confirm/cancel), posting to
                                      POST /classes/:id/staff. -->
-                                <McTableRow>
+                                <McTableRow v-if="isClassOwner">
                                     <McTableCell colspan="4" class="tw:p-2">
                                         <div
                                             v-if="isAddingStaff"
                                             class="tw:flex tw:items-center tw:gap-2"
                                         >
+                                            <!-- autocomplete="off": this is the only email field
+                                                 here, so it should not participate in profile
+                                                 group-fill that leaks into the roster search. -->
                                             <McInput
+                                                id="input-staff-addByEmail"
                                                 v-model="newStaffEmail"
                                                 type="email"
+                                                autocomplete="on"
                                                 placeholder="staff@cmu.ac.th"
                                                 class="tw:flex-1"
                                                 @keyup.enter="handleAddStaff"
@@ -1213,6 +1282,19 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                     variant="destructive"
                     @confirm="handleDelete"
                     @cancel="isDeleteClassOpen = false"
+                />
+            </McDialogContent>
+        </McDialog>
+
+        <McDialog v-model:open="isArchiveClassOpen">
+            <McDialogContent class="tw:sm:max-w-md">
+                <McConfirmModal
+                    title="Archive Class"
+                    description="Archive this class? It will be hidden from the class lists but its students and assignments are kept. You can restore it later by setting its status back to active."
+                    confirm-text="Archive"
+                    cancel-text="Cancel"
+                    @confirm="handleArchive"
+                    @cancel="isArchiveClassOpen = false"
                 />
             </McDialogContent>
         </McDialog>
