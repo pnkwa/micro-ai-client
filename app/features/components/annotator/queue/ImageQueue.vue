@@ -31,16 +31,34 @@ const props = defineProps<{
     total: number
     search: string
     filter: QueueFilter
+    /** The albums the library can be narrowed to, for the source picker. */
+    albums: { id: number; name: string }[]
+    /**
+     * Which images to load: an album id, `'all'` for the whole library, or `null` for nothing yet.
+     * The library is deliberately empty until a source is chosen, so a huge shared pool is never
+     * pulled in wholesale just to open the annotator.
+     */
+    source: number | 'all' | null
 }>()
 
 const emit = defineEmits<{
     select: [id: number]
     'update:search': [value: string]
     'update:filter': [value: QueueFilter]
+    'update:source': [value: number | 'all' | null]
     more: []
     /** Collapse the queue to its rail. Lives on the Images header rather than the top toolbar. */
     collapse: []
 }>()
+
+/**
+ * The source picker's options: "All images", then the albums. Nothing-chosen is the empty
+ * model-value (the placeholder), which is the empty-library state the page starts in.
+ */
+const sourceOptions = computed(() => [
+    { value: 'all' as number | 'all', label: 'All images' },
+    ...props.albums.map((album) => ({ value: album.id as number | 'all', label: album.name })),
+])
 
 const scroller = useTemplateRef<HTMLElement>('scroller')
 const searchEl = useTemplateRef<HTMLInputElement>('searchEl')
@@ -66,7 +84,7 @@ const columns = computed(() => (mode.value === 'grid' ? GRID_COLUMNS : 1))
  * everything touchable holds to. `stacked` is the same question the shell and the page ask, so the
  * queue cannot be a drawer while thinking it is a column.
  */
-const { stacked } = useAnnotatorLayout()
+const { stacked, layout, isTouchLayout } = useAnnotatorLayout()
 
 // Debounced because `?q=` is a server-side filter: a keystroke per request is one round trip per
 // character.
@@ -153,8 +171,12 @@ defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
         >
             <!-- The queue's own collapse. `PanelLeftClose` - a panel with an arrow - is
                  deliberately NOT the app sidebar's plain `PanelLeft`: two identical icons for two
-                 different panels is the confusion this separates. -->
+                 different panels is the confusion this separates.
+
+                 NOT on the desktop: at Full the queue is a permanent docked column, so there is no
+                 collapsing it to a rail. Below Full it is a drawer, and this is how it closes. -->
             <button
+                v-if="layout !== 'full'"
                 type="button"
                 class="tw:flex tw:items-center tw:justify-center tw:rounded-md tw:text-an-n-500 tw:hover:bg-an-n-100 tw:hover:text-an-text"
                 :class="stacked ? 'tw:h-11 tw:w-11' : 'tw:h-6 tw:w-6'"
@@ -210,12 +232,28 @@ defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
                     <X class="tw:h-3.5 tw:w-3.5" />
                 </button>
                 <kbd
-                    v-else
+                    v-else-if="!isTouchLayout"
                     class="tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-1.5 tw:py-0.5 tw:font-mono tw:text-[10px] tw:leading-none tw:text-an-muted"
                 >
                     /
                 </kbd>
             </div>
+        </div>
+
+        <!-- Which pool to load. Empty until chosen, so opening the annotator never pulls the whole
+             shared library; "All images" is the explicit opt-in to that. -->
+        <div class="tw:shrink-0 tw:px-3 tw:pb-2">
+            <McSelect
+                :model-value="source ?? undefined"
+                :options="sourceOptions"
+                option-value="value"
+                option-label="label"
+                placeholder="Choose an album…"
+                aria-label="Image source"
+                @update:model-value="
+                    emit('update:source', ($event as unknown as number | 'all' | undefined) ?? null)
+                "
+            />
         </div>
 
         <div class="tw:flex tw:shrink-0 tw:gap-1.5 tw:px-3 tw:pb-2.5">
@@ -302,8 +340,27 @@ defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
                 />
             </ul>
 
+            <!-- Nothing chosen yet: point at the picker rather than reading as an empty album.
+                 A `?image=` deep link prepends one row with no source chosen, so this hides once
+                 anything is in the strip. -->
+            <div
+                v-if="source === null && !images.length"
+                class="tw:flex tw:flex-col tw:items-center tw:gap-2 tw:px-4 tw:py-8 tw:text-center"
+            >
+                <p class="tw:text-[12px] tw:text-an-faint">
+                    Pick an album above to load its images, or show the whole library.
+                </p>
+                <button
+                    type="button"
+                    class="tw:flex tw:h-8 tw:items-center tw:rounded-md tw:border tw:border-an-n-200 tw:px-3 tw:text-[12px] tw:font-medium tw:text-an-n-700 tw:hover:bg-an-n-50"
+                    @click="emit('update:source', 'all')"
+                >
+                    Show all images
+                </button>
+            </div>
+
             <p
-                v-if="!visible.length && !loading"
+                v-else-if="!visible.length && !loading"
                 class="tw:px-2 tw:py-8 tw:text-center tw:text-[12px] tw:text-an-faint"
             >
                 {{ search ? `Nothing matches "${search}".` : 'Nothing under this filter.' }}

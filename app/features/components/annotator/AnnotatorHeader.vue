@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, HelpCircle, PanelLeft, Save, Sparkles } from '@lucide/vue'
+import { HelpCircle, Images, Menu, PanelLeft, Save } from '@lucide/vue'
 
 /**
  * The annotator's own 48px toolbar - the page brings its own and the app bar is hidden under it.
@@ -18,15 +18,18 @@ import { ChevronDown, HelpCircle, PanelLeft, Save, Sparkles } from '@lucide/vue'
  * Focus mode (F) is the separate gesture that clears both annotator panels.
  */
 defineProps<{
-    /** The queue's scope, shown after "Image Library /". Not a stored batch. */
-    scopeLabel: string
+    /** This page's name, the crumb shown after "Image Library /" (e.g. "Image Annotator"). */
+    pageLabel: string
     count: number
     unsavedEdits: number
     canSave: boolean
     saving: boolean
-    canSeed: boolean
-    /** The last model seeded from, in mono, or null before anything has been. */
-    lastRun: string | null
+    /**
+     * Show the queue-open button. True only in the medium layout, where the queue is a drawer with
+     * no docked column of its own: in full it is docked (opened from its own rail) and on the
+     * stacked layouts the compact header carries the control instead, so this button would double it.
+     */
+    showQueueToggle?: boolean
 }>()
 
 /**
@@ -40,24 +43,42 @@ defineProps<{
 const autoSave = defineModel<boolean>('autoSave', { required: true })
 
 const emit = defineEmits<{
-    seed: []
     save: []
     shortcuts: []
     'toggle-nav': []
+    'open-queue': []
 }>()
 </script>
 
 <template>
     <!-- The app sidebar's own toggle, reproduced because this route hides the bar that normally
-         carries it. -->
+         carries it. It stays on EVERY layout: on the desktop it collapses the docked sidebar (its
+         own `PanelLeft`); below Full it is the only way off this page (it opens the app-nav sheet),
+         and there it is a HAMBURGER - the ordinary "menu" affordance on a phone or tablet, and
+         distinct from the image queue's icon beside it. -->
     <McButton
         variant="ghost"
         size="icon-sm"
-        aria-label="Toggle the navigation sidebar"
-        title="Toggle the navigation sidebar"
+        :aria-label="showQueueToggle ? 'Open the navigation menu' : 'Toggle the navigation sidebar'"
+        :title="showQueueToggle ? 'Open the navigation menu' : 'Toggle the navigation sidebar'"
         @click="emit('toggle-nav')"
     >
-        <PanelLeft class="tw:h-4 tw:w-4" />
+        <Menu v-if="showQueueToggle" class="tw:h-4 tw:w-4" />
+        <PanelLeft v-else class="tw:h-4 tw:w-4" />
+    </McButton>
+
+    <!-- In the medium layout the queue is a drawer, not a docked column, so it needs a way open from
+         the toolbar. An IMAGES icon, not a panel one, so it reads as the image picker rather than a
+         second sidebar next to the navigation menu. -->
+    <McButton
+        v-if="showQueueToggle"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Show the image queue"
+        title="Show the image queue"
+        @click="emit('open-queue')"
+    >
+        <Images class="tw:h-4 tw:w-4" />
     </McButton>
 
     <!--
@@ -76,7 +97,7 @@ const emit = defineEmits<{
             <McBreadcrumbSeparator />
             <McBreadcrumbItem class="tw:min-w-0">
                 <McBreadcrumbPage class="tw:truncate tw:font-medium">
-                    {{ scopeLabel }}
+                    {{ pageLabel }}
                 </McBreadcrumbPage>
             </McBreadcrumbItem>
         </McBreadcrumbList>
@@ -89,25 +110,9 @@ const emit = defineEmits<{
 
     <div class="tw:flex-1"></div>
 
-    <McButton
-        variant="outline"
-        size="sm"
-        :disabled="!canSeed"
-        title="Run a model over this image and seed its boxes"
-        @click="emit('seed')"
-    >
-        <Sparkles class="tw:h-4 tw:w-4" />
-        Seed from run
-        <span
-            v-if="lastRun"
-            class="tw:ml-1 tw:max-w-28 tw:truncate tw:font-mono tw:text-[11px] tw:text-an-faint"
-        >
-            {{ lastRun }}
-        </span>
-        <ChevronDown class="tw:h-3.5 tw:w-3.5 tw:text-an-faint" />
-    </McButton>
-
-    <div class="tw:mx-1 tw:h-5 tw:w-px tw:bg-an-divider"></div>
+    <!-- Page-local actions (e.g. the library annotator's import/export/seed menu). Empty on pages
+         that pass nothing, so the student annotator's header is unchanged. -->
+    <slot name="actions" />
 
     <span
         v-if="unsavedEdits > 0"
@@ -129,7 +134,10 @@ const emit = defineEmits<{
     <McButton size="sm" :disabled="!canSave" :loading="saving" class="tw:m-2" @click="emit('save')">
         <Save class="tw:h-4 tw:w-4" />
         Save
+        <!-- No keycap below Full: `showQueueToggle` marks the medium (touch) layout, where there is
+             no physical keyboard to press S. -->
         <kbd
+            v-if="!showQueueToggle"
             class="tw:ml-1 tw:rounded tw:bg-white/20 tw:px-1 tw:py-0.5 tw:font-mono tw:text-[10px] tw:leading-none"
         >
             S

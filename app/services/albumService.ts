@@ -8,7 +8,9 @@ import { albumRoutes } from './routes/albumRoutes'
  * annotating an image at all (BE-ADR-030's consent question, answered by BE-ADR-032). `personal` is
  * the default precisely so a new album is never accidentally an authoring pool.
  */
-export const ALBUM_KINDS = ['curated', 'personal', 'system'] as const
+// `assignment` (BE-ADR-039) is the pool a templated annotation assignment attaches a separate gate
+// from `curated` (which is for question authoring).
+export const ALBUM_KINDS = ['curated', 'personal', 'system', 'assignment'] as const
 export const albumKindSchema = z.enum(ALBUM_KINDS)
 export type AlbumKind = z.infer<typeof albumKindSchema>
 

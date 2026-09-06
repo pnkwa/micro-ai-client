@@ -3,7 +3,11 @@ import { AlignLeft, Eye, EyeOff, Pentagon, Sparkles } from '@lucide/vue'
 import type { Shape } from '~/core/helpers/annotationShapes'
 import type { AnnotationLabel } from '~/services/annotationLabelService'
 import { colorForShape } from '~/core/helpers/annotationClasses'
+import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 import ShapeRow from './ShapeRow.vue'
+
+// No physical keyboard on a touch layout, so the shortcut keycaps are noise there.
+const { isTouchLayout } = useAnnotatorLayout()
 
 const props = defineProps<{
     shapes: Shape[]
@@ -41,7 +45,10 @@ const sorted = computed(() => {
 </script>
 
 <template>
-    <section class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col">
+    <!-- `touch-action` here, not only on the shell aside or the sheet that hosts this: iOS Safari
+         honours it on the touched element, not a distant ancestor, so a stray pinch or double-tap
+         on the list does not zoom the whole page. The scroll body below keeps `pan-y`. -->
+    <section class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:[touch-action:pan-x_pan-y]">
         <div class="tw:flex tw:shrink-0 tw:items-center tw:pt-3 tw:pr-3 tw:pb-2 tw:pl-3.5">
             <span class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text">
                 Shapes
@@ -73,7 +80,7 @@ const sorted = computed(() => {
 
         <ul
             v-if="sorted.length"
-            class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-0.5 tw:overflow-y-auto tw:px-2 tw:pb-2"
+            class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-0.5 tw:overflow-y-auto tw:px-2 tw:pb-2 tw:[touch-action:pan-y]"
             style="scrollbar-gutter: stable"
         >
             <ShapeRow
@@ -95,6 +102,7 @@ const sorted = computed(() => {
                  that it is required: an unnamed shape saves, and outlining a slide in one pass and
                  naming afterwards is how people actually work through a batch. -->
             <li
+                v-if="!isTouchLayout"
                 class="tw:flex tw:items-center tw:gap-[7px] tw:px-2.5 tw:pt-2 tw:text-[10.5px] tw:text-an-n-300"
             >
                 <Pentagon class="tw:h-[13px] tw:w-[13px] tw:shrink-0" />
@@ -143,6 +151,7 @@ const sorted = computed(() => {
                     >
                         Draw polygon
                         <kbd
+                            v-if="!isTouchLayout"
                             class="tw:ml-1 tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-[5px] tw:py-[3px] tw:font-mono tw:text-[9.5px] tw:leading-none tw:text-an-muted"
                         >
                             P

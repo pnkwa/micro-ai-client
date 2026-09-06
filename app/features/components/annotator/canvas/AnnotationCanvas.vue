@@ -7,6 +7,7 @@ import AnnotationOverlay from '~/features/components/shared/AnnotationOverlay.vu
 import { useCanvasViewport } from '~/core/composables/useCanvasViewport'
 import {
     CORNERS,
+    bboxOfPolygon,
     clampPoint,
     cornerPoint,
     edgeAt,
@@ -14,6 +15,7 @@ import {
     isDegenerate,
     isNear,
     nearestEdge,
+    polygonSelfIntersects,
     removePolygonPoint,
     rectFromDrag,
     resizeRect,
@@ -26,7 +28,7 @@ import {
     type Shape,
 } from '~/core/helpers/annotationShapes'
 import { localId } from '~/core/helpers/localId'
-import { simplifyPath } from '~/core/helpers/pathSimplify'
+import { enforceMinSpacing, simplifyPath, smoothClosedPath } from '~/core/helpers/pathSimplify'
 import type { AnnotationLabel } from '~/services/annotationLabelService'
 // Imported explicitly rather than left to `imports.dirs: ['core/**']`, like every other helper this
 // file uses. Auto-import resolves at BUILD time: a helper added while the dev server is running is
@@ -52,7 +54,7 @@ import {
  * approach - it recomputes the browser's layout and has to agree with the CSS exactly - and its
  * comments record what happens when two descriptions of one rectangle disagree.
  */
-export type Tool = 'select' | 'rectangle' | 'polygon' | 'delete'
+export type Tool = 'select' | 'rectangle' | 'polygon' | 'pencil' | 'delete'
 
 const props = withDefaults(
     defineProps<{
@@ -396,8 +398,21 @@ let aimTimer: ReturnType<typeof setTimeout> | null = null
 const erasing = ref(false)
 
 const tracing = ref<Point[] | null>(null)
-/** Screen pixels between recorded points. Below this a slow finger records the same spot twice. */
-const TRACE_STEP = 3
+/** Screen pixels between recorded points. Below this a slow hand records the same spot twice, and
+ *  a little higher than the old floor so a stylus's micro-jitter is not sampled as detail. */
+const TRACE_STEP = 4
+/** Trace smoothing (pencil and the polygon tool's drag). Coarse-simplify to shed jitter vertices,
+ *  round the closed ring with Chaikin, then re-simplify tightly to keep it editable. Screen px. */
+const TRACE_COARSE_PX = 3.5
+const TRACE_SMOOTH_ITERATIONS = 2
+const TRACE_FINE_PX = 1.2
+/** Minimum node spacing, PROPORTIONAL to the drawing's size (a fraction of its bounding-box
+ *  diagonal) so a small shape keeps its nodes close and only a large one spaces them out. Bounded
+ *  by a floor, so a tiny scribble is not left with nodes on top of each other, and a cap, so a
+ *  full-image outline is not decimated to a few corners. All normalised units. */
+const TRACE_MIN_NODE_FRACTION = 0.04
+const TRACE_MIN_NODE_FLOOR = 0.006
+const TRACE_MIN_NODE_CAP = 0.05
 
 const cancelAim = () => {
     if (aimTimer) clearTimeout(aimTimer)
@@ -466,6 +481,21 @@ const onPointerDown = (event: PointerEvent) => {
     }
 
     /*
+     * The pencil tool TRACES. A drag with any pointer records an outline that is thinned into a
+     * polygon on release (the same trace the polygon tool offers a finger, made the whole tool).
+     *
+     * Deliberately the drawing route that works with an Apple Pencil: iPadOS reports the pencil as
+     * an ordinary touch, so placing points one tap at a time inherited the finger's hold-to-aim and
+     * was unusable, but a continuous drag is a gesture a mouse, a finger and a stylus all make
+     * identically. Two fingers still pinch (handled above), so the picture is reachable mid-drawing.
+     */
+    if (props.tool === 'pencil') {
+        tracing.value = [at]
+        gesture.value = { kind: 'none' }
+        return
+    }
+
+    /*
      * A FINGER PANS, unless the rectangle tool is armed.
      *
      * A finger covers the thing it is placing, so a drag that draws means every attempt to move the
@@ -478,6 +508,19 @@ const onPointerDown = (event: PointerEvent) => {
      * on release, where a tap can be told from the start of a pan.
      */
     if (!pointerDraws(event.pointerType, props.tool)) {
+        // Select tool on touch: a one-finger drag that STARTS ON A SHAPE moves it rather than
+        // panning, selecting that shape as it goes. Empty space still pans, a tap still selects
+        // (told on release), and two fingers still pan and zoom, so the picture stays reachable even
+        // under a box that fills the frame. Without this a finger could only ever pan in select
+        // mode, so a box could be selected but never dragged on a phone.
+        if (props.tool === 'select' && isTouchPointer(event.pointerType)) {
+            const hit = topmostAt(shapes.value, at)
+            if (hit) {
+                selectedId.value = hit.id
+                gesture.value = { kind: 'move', id: hit.id, last: at }
+                return
+            }
+        }
         gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
         // Only the polygon tool aims: it is the one that places a point at an exact spot, and the
         // one where the finger is directly on top of the thing being aimed at.
@@ -637,20 +680,33 @@ const onPointerMove = (event: PointerEvent) => {
         const travelled = Math.hypot(event.clientX - tapOrigin.x, event.clientY - tapOrigin.y)
         if (travelled > TAP_SLOP) {
             cancelAim()
-            if (!draftPolygon.value?.length) {
-                tracing.value = [normalized({ clientX: tapOrigin.x, clientY: tapOrigin.y }), at]
-                // The trace owns the gesture from here, so the picture stops panning under it.
-                gesture.value = { kind: 'none' }
-            }
+            // A drag draws a STRAIGHT edge, not a freehand outline (that is the pencil's job): it
+            // runs from the last placed point - or from the press, for the very first edge - to the
+            // finger. The segment owns the gesture, so the picture stops panning under it.
+            const anchor = draftPolygon.value?.length
+                ? draftPolygon.value[draftPolygon.value.length - 1]!
+                : normalized({ clientX: tapOrigin.x, clientY: tapOrigin.y })
+            tracing.value = [anchor, at]
+            gesture.value = { kind: 'none' }
         }
     }
 
     if (tracing.value) {
         const path = tracing.value
+        // The polygon's drag is a straight edge: only the far end follows the finger, the anchor
+        // holds. The pencil keeps its freehand trace, a point every few pixels, because a finger
+        // held still would otherwise record the same spot hundreds of times.
+        if (props.tool === 'polygon') {
+            const draft = draftPolygon.value
+            // Snap the far end onto the first point when the finger nears it, so the dashed edge
+            // reads as closing the ring and lifting there completes it.
+            const snapClose =
+                !!draft && draft.length >= 3 && isNear(at, draft[0]!, closeTolerance.value)
+            tracing.value = [path[0]!, snapClose ? draft![0]! : clampPoint(at)]
+            return
+        }
         const previous = view.toScreen(path[path.length - 1]!)
         const local = view.localPoint(event)
-        // One point every few pixels: a finger held still would otherwise record the same spot
-        // hundreds of times and hand the simplifier a pile of duplicates.
         if (Math.hypot(local.x - previous.x, local.y - previous.y) >= TRACE_STEP) {
             path.push(clampPoint(at))
         }
@@ -690,20 +746,75 @@ const onPointerUp = (event: PointerEvent) => {
     active.delete(event.pointerId)
     cancelAim()
 
-    // A trace becomes a ring, thinned to the points that carry its shape.
     if (tracing.value) {
         const path = tracing.value
+
+        // The polygon's drag is a single STRAIGHT edge, not a freehand outline: drop its points into
+        // the open ring and let the rubber band run on to the next tap or drag. The first edge lays
+        // down both its ends; a later one only its far end, since the anchor is already the last
+        // placed point. No auto-close - the ring is closed by hand once its corners are in.
+        if (props.tool === 'polygon') {
+            tracing.value = null
+            gesture.value = { kind: 'none' }
+            tapOrigin = null
+            // Releasing on the first point closes the ring, the same as a tap or a click there: a
+            // drag can both draw the last edge and close the corner in one motion.
+            if (canCloseAtCursor.value) {
+                closePolygon()
+                return
+            }
+            const end = clampPoint(path[path.length - 1]!)
+            draftPolygon.value = draftPolygon.value?.length
+                ? [...draftPolygon.value, end]
+                : [clampPoint(path[0]!), end]
+            return
+        }
+
+        // A pencil trace becomes a ring, thinned to the points that carry its shape.
         tracing.value = null
         gesture.value = { kind: 'none' }
         tapOrigin = null
-        // Tolerance in normalised units, from a screen distance, so a trace at 400% zoom keeps the
-        // detail the zoom was for and one at fit is not left with a hundred points nobody can edit.
-        const thinned = simplifyPath(path, screenTolerance(2.5))
+        // Shed the hand's jitter, round the outline, then thin it back to an editable ring.
+        // Tolerances are normalised from screen distances, so a trace at 400% zoom keeps the detail
+        // the zoom was for and one at fit is not left with a hundred points nobody can edit.
+        //  1. a coarse simplify drops the wobble RDP would otherwise keep as little angular vertices;
+        //  2. Chaikin rounds every corner of the CLOSED ring, so the edges - and the start-end
+        //     terminal, which used to close as a hard chord - come out smooth;
+        //  3. a fine simplify collapses the runs Chaikin adds, keeping the vertex count adjustable;
+        //  4. a min-spacing pass drops any node crowding the one before it, at a distance scaled to
+        //     the drawing's size so a small shape keeps closer nodes than a large one.
+        const coarse = simplifyPath(path, screenTolerance(TRACE_COARSE_PX))
         // Under three points there is no polygon: a stray flick lands here and is dropped rather
         // than leaving a sliver on the picture.
-        if (thinned.length >= 3) {
-            draftPolygon.value = thinned
-            closePolygon()
+        if (coarse.length >= 3) {
+            const smoothed = simplifyPath(
+                smoothClosedPath(coarse, TRACE_SMOOTH_ITERATIONS),
+                screenTolerance(TRACE_FINE_PX),
+            )
+            // Spacing proportional to the outline's own diagonal, so it is closer on a small trace
+            // and wider on a large one, clamped so neither extreme runs away.
+            const bbox = bboxOfPolygon(smoothed)
+            const minNodeDist = Math.min(
+                TRACE_MIN_NODE_CAP,
+                Math.max(
+                    TRACE_MIN_NODE_FLOOR,
+                    TRACE_MIN_NODE_FRACTION * Math.hypot(bbox.w, bbox.h),
+                ),
+            )
+            const spaced = enforceMinSpacing(smoothed, minNodeDist)
+            // Spacing can trim a shape smaller than the radius below a ring; drop it rather than
+            // leave a stub. A trace that loops back over itself is not a simple region, so it is
+            // refused rather than turned into a polygon whose area is ambiguous.
+            if (spaced.length >= 3) {
+                if (polygonSelfIntersects(spaced)) {
+                    toast.error(
+                        'That outline crosses over itself. Trace a loop that does not cross.',
+                    )
+                } else {
+                    draftPolygon.value = spaced
+                    closePolygon()
+                }
+            }
         }
         return
     }
@@ -795,6 +906,39 @@ const onPointerUp = (event: PointerEvent) => {
             }
         }
         placePolygonPoint(at)
+    }
+
+    // Select tool on touch: the tap selects the shape under the finger, or clears the selection on
+    // empty space. On a touch pointer the press was taken as a pan back in onPointerDown - a finger
+    // navigates in the select tool rather than drawing - so selection has to happen here on release,
+    // the way the mouse does it on press. Without this an existing box cannot be picked by tapping
+    // the canvas on a phone; it could only be reached through the shape list, which is why a
+    // previously-drawn box could not be selected or reclassed on a touch layout.
+    if (
+        props.tool === 'select' &&
+        natural.value &&
+        wasTap(event) &&
+        isTouchPointer(event.pointerType)
+    ) {
+        const at = normalized(event)
+        // Tapping an edge of the already-selected polygon inserts a vertex there, mirroring the
+        // mouse path's ordering: the tap is inside the shape either way, so the edge would be
+        // unreachable if this ran after the plain hit test.
+        const selected = selectedId.value ? shapeById(selectedId.value) : null
+        if (selected?.polygon) {
+            const withPoint = insertPointOnEdge(selected, at, handleTolerance.value)
+            if (withPoint) {
+                replaceShape(selected.id, withPoint)
+                emit('commit')
+                tapOrigin = null
+                endGesture()
+                return
+            }
+        }
+        selectedId.value = topmostAt(shapes.value, at)?.id ?? null
+        tapOrigin = null
+        endGesture()
+        return
     }
 
     tapOrigin = null
@@ -1138,27 +1282,64 @@ const hitSize = computed(() => (isCoarsePointer.value || props.touchLayout ? TOU
  * with a Tailwind text class: whatever it renders at is what CSS says, with no transform between
  * the two, so "fixed size" is true by construction and not by cancellation.
  */
+/** Screen height a chip needs above its anchor to clear the top edge; below it, the chip flips under. */
+const CHIP_CLEARANCE = 26
+
+/** A label chip may run to this multiple of its shape's on-screen width before it truncates... */
+const LABEL_WIDTH_MULT = 3
+/** ...but never narrower than this, so a small box still shows a few characters and an ellipsis. */
+const LABEL_WIDTH_FLOOR = 56
+
+/** A shape's width on screen, in CSS pixels, at the current zoom (polygons measured by bbox). */
+const shapeWidthPx = (shape: Shape): number => {
+    const xs = shape.polygon?.length ? shape.polygon.map((p) => p.x) : [shape.x, shape.x + shape.w]
+    const left = view.toScreen({ x: Math.min(...xs), y: 0 }).x
+    const right = view.toScreen({ x: Math.max(...xs), y: 0 }).x
+    return right - left
+}
+
+/**
+ * The point a shape's label hangs from.
+ *
+ * A rectangle keeps its top-left corner, which is a real corner of the shape. A polygon's bbox
+ * top-left corner, though, is usually EMPTY SPACE - no vertex lives there - so a chip pinned to it
+ * floats off the outline. The highest vertex instead always sits ON an edge, which is where the
+ * name belongs.
+ */
+const topAnchor = (shape: Shape): Point => {
+    const poly = shape.polygon
+    if (!poly?.length) return { x: shape.x, y: shape.y }
+    return poly.reduce((top, p) => (p.y < top.y ? p : top), poly[0]!)
+}
+
 const labelBoxes = computed(() => {
     const nat = natural.value
     if (!nat) return []
+    const vw = viewport.value.w
     return visibleShapes.value
         .filter((shape) => shape.label || shape.id === selectedId.value)
         .map((shape) => {
-            // Anchored to the shape's top-left corner, which is where the eye looks for it.
-            const at = view.toScreen({ x: shape.x, y: shape.y })
+            const at = view.toScreen(topAnchor(shape))
             const confidence = props.seeded?.[shape.id]
             return {
                 id: shape.id,
                 label: shape.label,
-                // The detail the mockup carries: a seeded shape shows what the model thought, a
-                // selected polygon shows its point count. Neither is worth the width on every chip
-                // at once, so an unselected hand-drawn box shows nothing extra.
-                detail:
-                    confidence !== undefined
-                        ? confidence.toFixed(2)
-                        : shape.id === selectedId.value && shape.polygon
-                          ? `${shape.polygon.length} pts`
-                          : null,
+                // Centre the chip over a polygon's peak vertex (a box keeps its left-aligned
+                // corner); flip it below when the peak is too near the top to clear the chip.
+                center: !!shape.polygon,
+                below: !!shape.polygon && at.y < CHIP_CLEARANCE,
+                // A seeded shape shows what the model thought; nothing else earns the width. The
+                // polygon's point count used to show here and read as a graded score, so it is gone.
+                detail: confidence !== undefined ? confidence.toFixed(2) : null,
+                // How wide the chip may grow: at most three times the shape's own on-screen width
+                // (a floor so a tiny box still shows a few characters, and never past the old 40%
+                // cap), so a long name is truncated rather than sprawling across the picture.
+                maxWidth: Math.round(
+                    Math.min(
+                        vw * 0.4,
+                        Math.max(LABEL_WIDTH_FLOOR, LABEL_WIDTH_MULT * shapeWidthPx(shape)),
+                    ),
+                ),
                 // White when there is no class, matching the outline. The chip then needs dark
                 // text, since white on white is nothing at all.
                 color: colorForShape(props.palette, shape) ?? NEUTRAL,
@@ -1261,6 +1442,15 @@ const isCased = (shape: Shape): boolean => shape.id === selectedId.value || !sha
  * in ImageMetaCard had the same fault.
  */
 const chipText = computed(() => (isTouchCapable.value ? 'tw:text-sm' : 'tw:text-xs'))
+
+/**
+ * Where the top-centre hints and the polygon draft bar sit.
+ *
+ * Below Full the page pins the pager pill across the top edge (top-right, but wide enough on a phone
+ * to span most of the row), so a hint at `top-2` lands under it. Dropping these below the pager keeps
+ * the two off each other; on the desktop the pager is a small top-right pill and `top-2` is clear.
+ */
+const hudTop = computed(() => (props.touchLayout ? 'tw:top-20' : 'tw:top-2'))
 
 /**
  * The field's floor: one LINE tall and one CHARACTER wide.
@@ -1493,8 +1683,10 @@ defineExpose({
                         </template>
                     </g>
 
-                    <!-- The trace, while a finger is drawing it. Same white-on-black as the ring
-                         it is about to become, so nothing changes appearance on release. -->
+                    <!-- The trace, while a finger is drawing it. DASHED, so it reads as a live
+                         preview being drawn rather than a placed edge; it turns solid when the ring
+                         is committed on release. A dot rides the leading end, marking the spot the
+                         trace has reached - where lifting the finger drops the point. -->
                     <g v-if="tracing && tracing.length > 1">
                         <polyline
                             v-for="layer in DRAFT_LAYERS"
@@ -1505,6 +1697,15 @@ defineExpose({
                             :stroke-width="px(layer.width)"
                             stroke-linejoin="round"
                             stroke-linecap="round"
+                            :style="{ strokeDasharray: `${px(6)} ${px(4)}` }"
+                        />
+                        <circle
+                            :cx="tracing[tracing.length - 1]!.x * natural.w"
+                            :cy="tracing[tracing.length - 1]!.y * natural.h"
+                            :r="px(4)"
+                            :fill="DRAFT_LINE"
+                            :stroke="DRAFT_CASING"
+                            :stroke-width="px(1.5)"
                         />
                     </g>
 
@@ -1566,7 +1767,7 @@ defineExpose({
                                 create until after you have created it.
                             -->
                             <line
-                                v-if="cursor"
+                                v-if="cursor && !tracing"
                                 :x1="draftPolygon[draftPolygon.length - 1]!.x * natural.w"
                                 :y1="draftPolygon[draftPolygon.length - 1]!.y * natural.h"
                                 :x2="(canCloseAtCursor ? draftPolygon[0]!.x : cursor.x) * natural.w"
@@ -1630,8 +1831,12 @@ defineExpose({
                     top: `${entry.y}px`,
                     // Pinned OUTSIDE the shape's top edge, so a chip never covers the thing it
                     // names. Solid class colour, which is what ties it to its outline at a glance.
-                    transform: 'translateY(-100%)',
+                    // A polygon centres over its peak vertex, and flips below it near the top edge.
+                    transform: `${entry.center ? 'translateX(-50%) ' : ''}${entry.below ? 'translateY(3px)' : 'translateY(-100%)'}`,
                     background: entry.color,
+                    // Capped to a few times the shape's width so a long name truncates; lifted
+                    // while editing so a name being typed is never clipped mid-word.
+                    maxWidth: editingId === entry.id ? undefined : `${entry.maxWidth}px`,
                 }"
                 :title="entry.shape.id === selectedId ? 'Click to name this shape' : undefined"
                 @pointerdown.stop
@@ -1700,17 +1905,30 @@ defineExpose({
             -->
             <div
                 v-if="isTouchCapable && tool === 'polygon' && !draftPolygon?.length && !tracing"
-                class="tw:pointer-events-none tw:absolute tw:top-2 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-1.5 tw:rounded-lg tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[12px] tw:text-an-d-text"
+                class="tw:pointer-events-none tw:absolute tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-1.5 tw:rounded-lg tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[12px] tw:text-an-d-text"
+                :class="hudTop"
                 :style="{ left: `${viewport.w / 2}px` }"
             >
                 Drag to trace, or tap to place points
+            </div>
+
+            <!-- The pencil tool's line: a stylus (or finger) traces, so this is the tool an Apple
+                 Pencil draws with. Same placement and reason as the others. -->
+            <div
+                v-if="isTouchCapable && tool === 'pencil' && !tracing"
+                class="tw:pointer-events-none tw:absolute tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-1.5 tw:rounded-lg tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[12px] tw:text-an-d-text"
+                :class="hudTop"
+                :style="{ left: `${viewport.w / 2}px` }"
+            >
+                Drag to trace an outline
             </div>
 
             <!-- The erase tool's own line. Same place, same reason: there is no hint bar on a
                  stacked layout and no tooltip a finger can reach. -->
             <div
                 v-if="isTouchCapable && tool === 'delete' && !erasing"
-                class="tw:pointer-events-none tw:absolute tw:top-2 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-1.5 tw:rounded-lg tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[12px] tw:text-an-d-text"
+                class="tw:pointer-events-none tw:absolute tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-1.5 tw:rounded-lg tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[12px] tw:text-an-d-text"
+                :class="hudTop"
                 :style="{ left: `${viewport.w / 2}px` }"
             >
                 Press a shape or a point, then lift to erase it
@@ -1722,14 +1940,18 @@ defineExpose({
                 neither corrected nor abandoned. The keyboard and mouse gestures still work and are
                 named in the tooltips, but they are shortcuts rather than the only way in.
             -->
+            <!-- `w-max` + `whitespace-nowrap` keep it one line: positioned with `left` but no width, an
+                 absolute box is otherwise capped at the space from the centre to the edge (about half
+                 the canvas), which forced every label to wrap. `w-max` sizes it to its content. -->
             <div
                 v-if="draftPolygon?.length"
-                class="tw:absolute tw:top-2 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-2 tw:rounded-lg tw:bg-an-overlay/95 tw:text-white"
-                :class="
+                class="tw:absolute tw:flex tw:w-max tw:-translate-x-1/2 tw:items-center tw:gap-1.5 tw:rounded-lg tw:bg-an-overlay/95 tw:whitespace-nowrap tw:text-white"
+                :class="[
+                    hudTop,
                     isTouchCapable
-                        ? 'tw:px-2 tw:py-1 tw:text-[13px]'
-                        : 'tw:px-2 tw:py-1.5 tw:text-xs'
-                "
+                        ? 'tw:px-2 tw:py-1 tw:text-[10px]'
+                        : 'tw:px-2 tw:py-1.5 tw:text-[11px]',
+                ]"
                 :style="{ left: `${viewport.w / 2}px` }"
             >
                 <span>{{ draftPolygon.length }} point(s)</span>
@@ -1739,7 +1961,11 @@ defineExpose({
                 <button
                     type="button"
                     class="tw:rounded-md tw:bg-white/15 tw:hover:bg-white/25 tw:disabled:opacity-40"
-                    :class="isTouchCapable ? 'tw:h-9 tw:px-3' : 'tw:px-2 tw:py-0.5'"
+                    :class="
+                        isTouchCapable
+                            ? 'tw:h-7 tw:shrink-0 tw:px-2'
+                            : 'tw:shrink-0 tw:px-2 tw:py-0.5'
+                    "
                     :disabled="draftPolygon.length < 3"
                     title="Close the ring (or tap the first dot, double-click, or press Enter)"
                     @pointerdown.stop
@@ -1750,7 +1976,11 @@ defineExpose({
                 <button
                     type="button"
                     class="tw:rounded-md tw:bg-white/15 tw:hover:bg-white/25"
-                    :class="isTouchCapable ? 'tw:h-9 tw:px-3' : 'tw:px-2 tw:py-0.5'"
+                    :class="
+                        isTouchCapable
+                            ? 'tw:h-7 tw:shrink-0 tw:px-2'
+                            : 'tw:shrink-0 tw:px-2 tw:py-0.5'
+                    "
                     title="Remove the last point (or right-click). Right-click a vertex of a finished polygon to remove that one."
                     @pointerdown.stop
                     @click.stop="undoDraftPoint"
@@ -1760,7 +1990,11 @@ defineExpose({
                 <button
                     type="button"
                     class="tw:rounded-md tw:bg-white/15 tw:hover:bg-white/25"
-                    :class="isTouchCapable ? 'tw:h-9 tw:px-3' : 'tw:px-2 tw:py-0.5'"
+                    :class="
+                        isTouchCapable
+                            ? 'tw:h-7 tw:shrink-0 tw:px-2'
+                            : 'tw:shrink-0 tw:px-2 tw:py-0.5'
+                    "
                     title="Discard this polygon (or press Escape)"
                     @pointerdown.stop
                     @click.stop="cancelPolygon"

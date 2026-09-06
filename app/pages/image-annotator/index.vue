@@ -1,6 +1,18 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
-import { CircleCheck, PanelLeft, PanelLeftOpen, PanelRight, Shapes, Sparkles } from '@lucide/vue'
+import {
+    ChevronDown,
+    CircleCheck,
+    Download,
+    Images,
+    Menu,
+    PanelLeftOpen,
+    PanelRight,
+    Shapes,
+    Sparkles,
+    Upload,
+    X,
+} from '@lucide/vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { until, watchDebounced } from '@vueuse/core'
 import { zoomPercent as toPercent } from '~/core/helpers/viewportTransform'
@@ -14,10 +26,17 @@ import {
     toShapes,
     type Shape,
 } from '~/core/helpers/annotationShapes'
+import {
+    serializeAnnotations,
+    parseAnnotationsFile,
+    shapesFromFile,
+} from '~/core/helpers/annotationFile'
 import { imageService, type LibraryImage } from '~/services/imageService'
+import { albumService, type Album } from '~/services/albumService'
 import { annotationService } from '~/services/annotationService'
 import { annotationLabelService, type AnnotationLabel } from '~/services/annotationLabelService'
 import {
+    applyActiveLabel,
     buildClasses,
     classColorAt,
     classForDigit,
@@ -30,6 +49,18 @@ import {
 // Imported explicitly rather than left to `imports.dirs: ['core/**']`, because auto-import resolves
 // at BUILD time: a helper added while the dev server is running is typed but undefined at runtime.
 import { isConflict } from '~/core/helpers/error'
+import { localId } from '~/core/helpers/localId'
+import {
+    toDraftShapes,
+    draftShapesToShapes,
+    draftSignature,
+    type DraftClass,
+    type ImageAnnotationDraft,
+} from '~/core/helpers/imageAnnotationDraft'
+import { useImageAnnotationDraft } from '~/core/composables/useImageAnnotationDraft'
+import { useImageObjectUrls } from '~/core/composables/useImageObjectUrls'
+import { usePagedImages } from '~/core/composables/usePagedImages'
+import { useDelayedFlag } from '~/core/composables/useDelayedFlag'
 import { queueRowView, type QueueFilter } from '~/core/helpers/annotationQueue'
 import { imageDisplayName } from '~/core/helpers/imageName'
 import AnnotationCanvas, {
@@ -37,6 +68,7 @@ import AnnotationCanvas, {
 } from '~/features/components/annotator/canvas/AnnotationCanvas.vue'
 import AnnotatorShell from '~/features/components/annotator/AnnotatorShell.vue'
 import AnnotatorHeader from '~/features/components/annotator/AnnotatorHeader.vue'
+import AnnotationOverlay from '~/features/components/shared/AnnotationOverlay.vue'
 import ImageQueue from '~/features/components/annotator/queue/ImageQueue.vue'
 import FocusRail from '~/features/components/annotator/queue/FocusRail.vue'
 import FocusOverlays from '~/features/components/annotator/canvas/FocusOverlays.vue'
@@ -128,34 +160,95 @@ const defaultCurated = computed(() => (auth.jwtUserInfo?.role ?? auth.user?.role
 
 // ---- the library strip ---------------------------------------------------------------------------
 
-const images = ref<LibraryImage[]>([])
-const total = ref(0)
-const page = ref(1)
-const imagesLoading = ref(false)
+// The library is scoped to a chosen source and starts EMPTY: an album id, `'all'` for the whole
+// library, or `null` for nothing yet. The shared pool can be large, so the annotator no longer
+// pulls all of it on open; the student/instructor picks an album or opts into "All images".
+const albums = ref<Album[]>([])
+const source = ref<number | 'all' | null>(null)
 
 // ---- panels, classes, per-shape view state -------------------------------------------------------
 
 const leftOpen = ref(true)
 const rightOpen = ref(true)
-const autoSave = ref(false)
+// On by default: the local cache holds work between writes, and the server save is throttled to a
+// 20s idle so it is no longer chatty enough to want off. The header toggle still turns it off, and
+// save-on-navigate + manual Save + the local cache cover that case.
+const autoSave = ref(true)
 const search = ref('')
+
+// The strip is one paged listing (usePagedImages): images, total and the load/append/reset live
+// there, and it refetches from page 1 whenever the filters below change. `source === null` means
+// nothing is chosen yet, so it loads NOTHING rather than the whole shared pool. The chips filter what
+// is loaded, not what is fetched, so they are deliberately not part of the query.
+const {
+    images,
+    total,
+    loading: imagesLoading,
+    loadMore,
+} = usePagedImages({
+    perPage: PAGE_SIZE,
+    filters: () =>
+        source.value === null
+            ? null
+            : {
+                  ...(typeof source.value === 'number' && { album_id: source.value }),
+                  ...(search.value && { q: search.value }),
+              },
+})
+
 const queueFilter = ref<QueueFilter>('all')
 
 /**
- * The class list: the caller's own label rows, straight from the server (BE-ADR-038).
+ * The class list shown in the picker: the caller's own label rows (BE-ADR-038).
  *
- * This used to be derived from whatever text the open images carried, with the colour taken from a
- * class's POSITION in that derived list - which is why the list had to be append-only and why the
- * old comment here argued about it. None of that survives: the palette is stored, the colour is
- * authored, and both follow the person rather than the batch.
+ * It starts EMPTY and accumulates. A class enters the list the first time it is seen this session -
+ * on an opened image's boxes, an import, a seed, or a name typed on a chip - rather than the whole
+ * stored palette loading up front. The colour is still authored and the id still real; `allLabels`
+ * below is where an accumulated class finds both.
  */
 const palette = ref<AnnotationLabel[]>([])
+/**
+ * Every stored label the person owns, fetched once at setup and NOT shown directly. It is the source
+ * `accumulateClasses` copies rows out of into `palette` as their class appears on a visited image,
+ * so a box read back carries the real `label_id` and authored colour without a per-image lookup.
+ */
+const allLabels = ref<AnnotationLabel[]>([])
 const activeLabelId = ref<number | null>(null)
+
+/**
+ * A newly named class no longer costs a server POST the moment it is typed (BE-ADR-030, FE side).
+ * It lives as a LOCAL palette row with a NEGATIVE id until a save mints it (`flushPendingLabels`),
+ * which cuts label create/link calls to one batch per save. Negative ids are disjoint from the
+ * server's positive ones, so `isPending` is the whole of the distinction and lookups by text are
+ * unaffected. Because save-on-navigate stays, pending rows only ever exist on the open image.
+ */
+let pendingSeq = 0
+const isPending = (id: number | null): id is number => id !== null && id < 0
 
 const classes = computed(() => buildClasses(palette.value, shapes.value))
 
 /** The lookup `toShapes` and `shapesFromDetection` use to turn a label's text back into its id. */
 const labelIdFor = (name: string) => labelByName(palette.value, name)?.id ?? null
+
+/**
+ * Reveal in the picker every class the given names use that it does not already hold, copying the
+ * authored row out of `allLabels`. This is what grows the list with the images visited rather than
+ * loading it whole: opening an image feeds it the names its boxes carry. A name `allLabels` does not
+ * know (never saved, or minted this session) is skipped here and handled by its own mint path.
+ */
+const accumulateClasses = (names: Iterable<string | null | undefined>) => {
+    const have = new Set(palette.value.map((entry) => entry.label))
+    const added: AnnotationLabel[] = []
+    for (const name of names) {
+        const wanted = name?.trim()
+        if (!wanted || have.has(wanted)) continue
+        const row = allLabels.value.find((entry) => entry.label === wanted)
+        if (!row) continue
+        have.add(wanted)
+        added.push(row)
+    }
+    if (added.length) palette.value = [...palette.value, ...added]
+}
 
 /**
  * A label with this name, minted if the palette does not already hold one.
@@ -170,59 +263,58 @@ const labelIdFor = (name: string) => labelByName(palette.value, name)?.id ?? nul
  * re-read and the existing row used. Anything else is surfaced and the caller leaves the shape
  * unnamed rather than pretending it was labelled.
  */
-const ensureLabel = async (name: string, colorHex?: string): Promise<AnnotationLabel | null> => {
+const ensureLocalLabel = (name: string, colorHex?: string): AnnotationLabel | null => {
     const wanted = name.trim()
     if (!wanted) return null
     const held = labelByName(palette.value, wanted)
     if (held) return held
-    try {
-        // The colour offered when nobody picked one: the next one along the cycle, so two classes
-        // made back to back do not arrive the same shade.
-        const created = await annotationLabelService.create({
-            label: wanted,
-            color_hex: colorHex ?? toColorHex(classColorAt(palette.value.length)),
-        })
-        await adoptIntoPalette(created)
-        return created
-    } catch (error) {
-        if (isConflict(error)) {
-            // The name is already ours, minted in another tab or by a seed. Read the FULL palette
-            // to find it: it may well be an orphan, and the opening read filtered those out.
-            const full = await annotationLabelService.list()
-            const existing = full.find((entry) => entry.label === wanted)
-            if (existing) {
-                palette.value = keepFrom(full, existing)
-                return existing
-            }
-        }
-        toast.error(apiErrorMessage(error, 'Could not create that class'))
-        return null
+    // A pending, local-only row. No server call - the mint is deferred to the next save. The colour
+    // offered when nobody picked one is the next one along the cycle, so two classes made back to
+    // back do not arrive the same shade; `toColorHex` normalizes whatever the caller passed.
+    const created: AnnotationLabel = {
+        id: --pendingSeq,
+        label: wanted,
+        color_hex: colorHex ? toColorHex(colorHex) : toColorHex(classColorAt(palette.value.length)),
+        owner_id: null,
+        created_at: '',
+        updated_at: '',
     }
+    palette.value = [...palette.value, created]
+    return created
 }
 
 /**
- * The subset of a freshly read palette that belongs on screen, in the server's order.
- *
- * Two rules have to hold at once. The order must be the SERVER'S, because a locally appended row
- * sits at the end and the 1-9 keycaps would renumber on the next reload - seen live: "clue cell"
- * then "WBC" listed as 1 and 2, and a reload swapped them, the database sorting by byte order. And
- * nothing already on screen may disappear, because the opening read hides orphans and a class stays
- * an orphan until a box carrying it is SAVED.
- *
- * Filtering a server-ordered array satisfies both: order survives, and the kept set is whatever was
- * already shown plus whatever this call is adopting.
+ * Mint on the server the pending (local) classes these shapes carry, batched at save time, and
+ * remap their ids. This is where the deferred label create/link calls finally happen - one per new
+ * class per save instead of one the instant it was named. Holds the same 409-is-ordinary handling
+ * the old eager `ensureLabel` did: a name already ours (another tab, a seed) comes back conflicted,
+ * and the existing server row is adopted. Returns a local-id -> server-id map for `save` to apply.
  */
-const keepFrom = (full: AnnotationLabel[], ...adopting: AnnotationLabel[]): AnnotationLabel[] => {
-    const keep = new Set([...palette.value, ...adopting].map((entry) => entry.id))
-    return full.filter((entry) => keep.has(entry.id))
-}
-
-/** Put a just-created label into the palette, in the server's order. See `keepFrom`. */
-const adoptIntoPalette = async (label: AnnotationLabel) => {
-    // Falls back to appending if the read fails: a wrongly ordered palette is a far smaller problem
-    // than a class the person just made not appearing at all.
-    const full = await annotationLabelService.list().catch(() => null)
-    palette.value = full ? keepFrom(full, label) : [...palette.value, label]
+const flushPendingLabels = async (forShapes: Shape[]): Promise<Map<number, number>> => {
+    const remap = new Map<number, number>()
+    const pendingIds = [...new Set(forShapes.map((s) => s.labelId).filter(isPending))]
+    for (const pid of pendingIds) {
+        const row = palette.value.find((entry) => entry.id === pid)
+        if (!row) continue
+        let server: AnnotationLabel | null = null
+        try {
+            server = await annotationLabelService.create({
+                label: row.label,
+                color_hex: row.color_hex,
+            })
+        } catch (error) {
+            if (isConflict(error)) {
+                const full = await annotationLabelService.list()
+                server = full.find((entry) => entry.label === row.label) ?? null
+            }
+            if (!server) throw error
+        }
+        remap.set(pid, server.id)
+        // Replace the pending row in place, keeping its position so the picker does not reshuffle
+        // mid-save; other pending rows (unused classes) are left for a later save.
+        palette.value = palette.value.map((entry) => (entry.id === pid ? server! : entry))
+    }
+    return remap
 }
 
 const pickClass = (labelId: number) => {
@@ -232,25 +324,33 @@ const pickClass = (labelId: number) => {
     // draw, then press 2, without the pointer ever leaving the canvas.
     if (selectedShapeId.value)
         updateShape(selectedShapeId.value, { labelId: label.id, label: label.label })
-    else activeLabelId.value = label.id
+    // Clicking the already-active class turns it off, so the next box drawn stays unlabelled - the
+    // only way to draw without a class now that a new box inherits the active one (pick-then-draw).
+    else activeLabelId.value = activeLabelId.value === label.id ? null : label.id
 }
 
 /**
  * A class typed straight onto a shape's chip on the canvas.
  *
- * Both halves, in one gesture: the class is minted if it is new, and the shape takes it. Deliberately
- * does NOT move the active class - you named one shape, and silently re-arming the next draw with it
- * is a decision the person did not make.
+ * Both halves, in one gesture: the class is created (locally, deferred to save) if it is new, and the
+ * shape takes it. Deliberately does NOT move the active class - you named one shape, and silently
+ * re-arming the next draw with it is a decision the person did not make.
  */
-const labelShape = async (id: string, name: string) => {
-    const label = await ensureLabel(name)
-    if (!label) return
-    updateShape(id, { labelId: label.id, label: label.label })
+const labelShape = (id: string, name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) return updateShape(id, { labelId: null, label: '' })
+    const label = ensureLocalLabel(trimmed)
+    if (label) updateShape(id, { labelId: label.id, label: label.label })
 }
 
-const createClass = async (name: string, colorHex?: string) => {
-    const label = await ensureLabel(name, colorHex)
-    if (label) pickClass(label.id)
+const createClass = (name: string, colorHex?: string) => {
+    const label = ensureLocalLabel(name, colorHex)
+    if (!label) return
+    // Arm it (or reclass the selected shape). Set directly rather than through `pickClass`, whose
+    // toggle-off would turn an already-active existing name back off, which is not what "create" means.
+    if (selectedShapeId.value)
+        updateShape(selectedShapeId.value, { labelId: label.id, label: label.label })
+    else activeLabelId.value = label.id
 }
 
 /**
@@ -262,8 +362,16 @@ const createClass = async (name: string, colorHex?: string) => {
  * at once, and it is library-wide and permanent rather than a view setting.
  */
 const recolorClass = async (labelId: number, color: string) => {
-    const previous = palette.value
     const hex = toColorHex(color)
+    // A pending (local) class has no server row yet, so recolour is a local edit only - it rides
+    // along when the class is minted at save time.
+    if (isPending(labelId)) {
+        palette.value = palette.value.map((entry) =>
+            entry.id === labelId ? { ...entry, color_hex: hex } : entry,
+        )
+        return
+    }
+    const previous = palette.value
     // Optimistic, because a colour picker that lags behind the pointer feels broken. Rolled back on
     // failure rather than left showing a colour the server did not accept.
     palette.value = palette.value.map((entry) =>
@@ -275,6 +383,55 @@ const recolorClass = async (labelId: number, color: string) => {
     } catch (error) {
         palette.value = previous
         toast.error(apiErrorMessage(error, 'Could not recolour that class'))
+    }
+}
+
+/**
+ * Rename and recolour a class together, from the mobile strip's inline editor.
+ *
+ * The phone has no labels panel, so this is the whole of managing a class there: one write sets both
+ * fields (`update` keeps an omitted field, but the editor always carries both). Optimistic like
+ * `recolorClass`, and it also rewrites the DENORMALIZED label text on every shape carrying the class
+ * in the open image, so the shape list and the on-canvas chips show the new name at once. That
+ * rewrite is invisible to the dirty check: the save is keyed on `label_id` (BE-ADR-038), so
+ * `toAnnotationPayload` is unchanged and no box reads as edited.
+ */
+const editClass = async (labelId: number, label: string, colorHex: string) => {
+    const name = label.trim()
+    if (!name) return
+    const hex = toColorHex(colorHex)
+    const previousName = labelById(palette.value, labelId)?.label ?? ''
+
+    const applyLocally = (text: string, colour: string) => {
+        palette.value = palette.value.map((entry) =>
+            entry.id === labelId ? { ...entry, label: text, color_hex: colour } : entry,
+        )
+        shapes.value = shapes.value.map((shape) =>
+            shape.labelId === labelId ? { ...shape, label: text } : shape,
+        )
+    }
+
+    // A pending (local) class has no server row yet, so this is a local edit only - the name and
+    // colour ride along when the class is minted at save time.
+    if (isPending(labelId)) {
+        applyLocally(name, hex)
+        return
+    }
+
+    const previous = palette.value
+    applyLocally(name, hex)
+    try {
+        const updated = await annotationLabelService.update(labelId, {
+            label: name,
+            color_hex: hex,
+        })
+        palette.value = palette.value.map((entry) => (entry.id === labelId ? updated : entry))
+    } catch (error) {
+        palette.value = previous
+        shapes.value = shapes.value.map((shape) =>
+            shape.labelId === labelId ? { ...shape, label: previousName } : shape,
+        )
+        toast.error(apiErrorMessage(error, 'Could not update that class'))
     }
 }
 
@@ -316,70 +473,72 @@ const rejectSeeded = (id: string) => {
 /** Images seeded this session and still holding unreviewed shapes, for the queue's amber state. */
 const seededImages = ref<Set<number>>(new Set())
 
-const loadImages = async (append = false) => {
-    imagesLoading.value = true
-    try {
-        const result = await imageService.list({
-            page: page.value,
-            per_page: PAGE_SIZE,
-            ...(search.value && { q: search.value }),
-        })
-        images.value = append ? [...images.value, ...result.data] : result.data
-        total.value = result.total
-    } catch (error) {
-        toast.error(apiErrorMessage(error, 'Could not load the library'))
-    } finally {
-        imagesLoading.value = false
-    }
-}
-
-const loadMore = () => {
-    if (imagesLoading.value || images.value.length >= total.value) return
-    page.value += 1
-    void loadImages(true)
-}
-
-// Search is server-side (`?q=` over metadata.title), so a new term restarts the list. The three
-// filter chips are NOT: they read `reviewed` from metadata and `seeded` from session state, neither
-// of which `?annotated=` can express, so they narrow what is loaded rather than what is fetched.
-watch(search, () => {
-    page.value = 1
-    void loadImages()
-})
-
 // ---- the image on the canvas ---------------------------------------------------------------------
 
 const selectedImageId = ref<number | null>(null)
 const selectedImage = ref<LibraryImage | null>(null)
 const imageUrl = ref<string | null>(null)
 const imageError = ref<string | null>(null)
+// The open image's full-res blob, cached by id. Only the current image is loaded - no neighbour
+// prefetch - and the previous one is forgotten as each opens, so a long batch never pins every image
+// it visited. The pager thumbnails keep their own thumb-size cache separate from this.
+const fullRes = useImageObjectUrls()
 const annotationsLoading = ref(false)
+// Only surface the "Loading annotations" line once the wait is real: stepping to a cached image
+// resolves in a frame or two, and an overlay that blinks on and off in that time reads as a glitch.
+const showAnnotationsLoading = useDelayedFlag(annotationsLoading)
 
 /** Re-fetch the bytes for the open image, for the canvas's failure state. */
 const retryImage = async () => {
     const image = selectedImage.value
     if (!image) return
-    revokeImage()
+    imageUrl.value = null
     imageError.value = null
-    try {
-        imageUrl.value = await imageService.blobUrl(image.id, undefined, image.content_hash)
-    } catch (error) {
-        imageError.value = isForbidden(error)
-            ? 'You are not allowed to view this image.'
-            : 'Could not load this image.'
-    }
+    fullRes.forget(image.id) // drop the failed entry so this actually refetches
+    await showFullRes(image)
 }
 
-const revokeImage = () => {
-    if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
-    imageUrl.value = null
+/**
+ * Load the open image's full-res bytes and put it on the canvas. Loads on demand - there is no
+ * neighbour prefetch - and forgets every other cached image, so only the open one is held.
+ */
+const showFullRes = async (image: LibraryImage) => {
+    await fullRes.load(image.id, undefined, image.content_hash)
+    if (image.id !== selectedImageId.value) return // navigated on while this was loading
+    // Drop any previously-opened image so the cache holds just this one.
+    for (const id of Object.keys(fullRes.urls.value)) {
+        if (Number(id) !== image.id) fullRes.forget(Number(id))
+    }
+    const failure = fullRes.errors.value[image.id]
+    if (failure) {
+        imageError.value =
+            failure === 'forbidden'
+                ? 'You are not allowed to view this image.'
+                : 'Could not load this image.'
+    } else {
+        imageUrl.value = fullRes.urls.value[image.id] ?? null
+    }
 }
-onScopeDispose(revokeImage)
 
 // ---- shapes and history --------------------------------------------------------------------------
 
 const shapes = ref<Shape[]>([])
 const selectedShapeId = ref<string | null>(null)
+
+/**
+ * The class the strip highlights: a selected shape's own class, else the armed class.
+ *
+ * In the shapes sheet the strip RECLASSES the selected shape (pickClass reroutes to it), so it must
+ * mark that shape's current class rather than the armed one - and the highlight jumping to the tapped
+ * chip is the confirmation the reclass took. Null for a selected-but-unlabelled shape, which is the
+ * honest answer and leaves nothing marked.
+ */
+const selectedShapeLabelId = computed(() =>
+    selectedShapeId.value
+        ? (shapes.value.find((shape) => shape.id === selectedShapeId.value)?.labelId ?? null)
+        : activeLabelId.value,
+)
+
 const history = ref<Shape[][]>([[]])
 const historyIndex = ref(0)
 
@@ -428,6 +587,71 @@ const commit = () => {
     // abandoned branch reachable by Redo is how a redo puts back something you did not do.
     history.value = [...history.value.slice(0, historyIndex.value + 1), snapshot(shapes.value)]
     historyIndex.value = history.value.length - 1
+}
+
+// ---- pick-then-draw ------------------------------------------------------------------------------
+// The staff flow used to be name-after-draw; a new box now inherits the active class instead, the
+// way the student annotator does. `knownShapeIds` is the set that existed when the image opened (or
+// after a seed/import/restore), so only boxes drawn from here on are auto-labelled and a class
+// cleared or renamed later is left alone.
+let knownShapeIds = new Set<string>()
+const seedKnownShapes = () => {
+    knownShapeIds = new Set(shapes.value.map((shape) => shape.id))
+}
+const labelNewShapes = () => {
+    if (applyActiveLabel(shapes.value, knownShapeIds, palette.value, activeLabelId.value)) commit()
+}
+watch(shapes, labelNewShapes, { deep: true })
+
+// ---- local cache (unsaved work) ------------------------------------------------------------------
+// A per-image localStorage cache so a refresh or tab close does not lose boxes drawn inside the
+// throttled autosave window; on reopen the page offers to restore it. See useImageAnnotationDraft.
+const imgDraft = useImageAnnotationDraft()
+
+/** The pending (local, not-yet-minted) classes, for the draft so a restore keeps their colours. */
+const pendingClasses = (): DraftClass[] =>
+    palette.value
+        .filter((entry) => isPending(entry.id))
+        .map((entry) => ({ label: entry.label, color: entry.color_hex }))
+
+const writeDraft = () => {
+    const id = selectedImageId.value
+    if (id === null) return
+    // Only while there is unsaved work: a clean image needs no cache, and clearing it here means an
+    // undo back to the saved state drops the draft too.
+    if (isDirty.value)
+        imgDraft.save(id, { shapes: toDraftShapes(shapes.value), pendingClasses: pendingClasses() })
+    else imgDraft.clear(id)
+}
+
+// Cheap and frequent (localStorage only); the throttled SERVER save is separate, below.
+watchDebounced([shapes, palette], writeDraft, { deep: true, debounce: 300, maxWait: 1500 })
+
+// A cached pass waiting on the restore prompt, and whether the prompt is open.
+const pendingRestore = ref<ImageAnnotationDraft | null>(null)
+const restoreOpen = ref(false)
+
+const applyRestore = () => {
+    const cached = pendingRestore.value
+    restoreOpen.value = false
+    pendingRestore.value = null
+    if (!cached || cached.imageId !== selectedImageId.value) return
+    // Recreate the pending classes locally (dedup by name) so the boxes can resolve their ids.
+    for (const klass of cached.pendingClasses) ensureLocalLabel(klass.label, klass.color)
+    shapes.value = draftShapesToShapes(
+        cached.shapes,
+        (name) => labelByName(palette.value, name)?.id ?? null,
+        () => localId('shape'),
+    )
+    commit() // one undoable step; baseline stays the server set, so the image reads dirty
+    seedKnownShapes()
+    toast.success('Restored your unsaved work.')
+}
+
+const discardRestore = () => {
+    if (pendingRestore.value) imgDraft.clear(pendingRestore.value.imageId)
+    pendingRestore.value = null
+    restoreOpen.value = false
 }
 
 const canUndo = computed(() => historyIndex.value > 0)
@@ -496,9 +720,10 @@ watchEffect(() => {
     document.documentElement.classList.toggle(HIDE_NAV_CLASS, focus.value)
 })
 
-// The shell decides its own columns from the same composable; the page needs only the one flag
-// the canvas keys on.
-const { isTouchLayout, stacked } = useAnnotatorLayout()
+// The shell decides its own columns from the same composable; the page needs the canvas flag plus
+// `layout`, because in medium the queue is a drawer with no docked column and so needs its own way
+// open from the header.
+const { isTouchLayout, stacked, layout } = useAnnotatorLayout()
 
 /** The queue as a drawer, and the shape list as a sheet, for the stacked layouts. */
 const queueSheetOpen = ref(false)
@@ -537,9 +762,17 @@ const removeShape = (id: string) => {
  * The write is REPLACE-ALL, so leaving with unsaved shapes is not a partial save, it is no save at
  * all. `window.confirm` rather than a dialog because it also has to work from a route guard, which
  * cannot await a component that has already started unmounting.
+ *
+ * On a confirmed discard the local cache is CLEARED as well - otherwise the continuously-written
+ * cache would offer the just-discarded work back on the next open. A refresh or tab close is not a
+ * discard and keeps the cache (that is the safety net); only saying "yes, throw it away" clears it.
  */
-const confirmDiscard = () =>
-    !isDirty.value || window.confirm('You have unsaved annotations on this image. Discard them?')
+const confirmDiscard = () => {
+    if (!isDirty.value) return true
+    const discard = window.confirm('You have unsaved annotations on this image. Discard them?')
+    if (discard && selectedImageId.value !== null) imgDraft.clear(selectedImageId.value)
+    return discard
+}
 
 /**
  * Class colours seen on each image, cached the moment the image is opened.
@@ -571,30 +804,41 @@ const openImage = async (image: LibraryImage) => {
     selectedImage.value = image
     imageError.value = null
     annotationsLoading.value = true
-    revokeImage()
+    // Paint from the cache on the rare hit (re-opening the same image), else clear and load below.
+    // FULL RESOLUTION, never `?size=thumb` - a 256px downscale would bake into the exported dataset.
+    imageUrl.value = fullRes.urls.value[image.id] ?? null
     resetHistory([])
     // Per-image view state. Hiding is a reading aid for one picture, and a seeded review does not
     // carry across to the next image.
     hiddenIds.value = new Set()
     seeded.value = {}
+    // Drop any restore prompt still open for the image being left, so it cannot apply to this one.
+    restoreOpen.value = false
+    pendingRestore.value = null
+
+    void showFullRes(image)
 
     try {
-        // FULL RESOLUTION, never `?size=thumb`. Annotating a 256px downscale would bake the
-        // downscale into the exported dataset.
-        imageUrl.value = await imageService.blobUrl(image.id, undefined, image.content_hash)
-    } catch (error) {
-        imageError.value = isForbidden(error)
-            ? 'You are not allowed to view this image.'
-            : 'Could not load this image.'
-    }
-
-    try {
-        const loaded = toShapes(await annotationService.list(image.id), labelIdFor)
+        const views = await annotationService.list(image.id)
+        // Reveal the classes this image introduces before resolving its boxes, so each one finds its
+        // id and colour in the now-grown palette instead of reading back unnamed.
+        accumulateClasses(views.map((view) => view.label))
+        const loaded = toShapes(views, labelIdFor)
         resetHistory(loaded)
         // The pick follows the image. Only when the image opened with labels of its own: a blank
         // one keeps whatever was picked, which is what makes labelling a run of empty images work.
         activeLabelId.value = dominantLabelId(loaded) ?? activeLabelId.value
         rememberDots(image.id, loaded)
+        seedKnownShapes() // the loaded set is "known"; pick-then-draw only touches new boxes
+        // Unsaved work cached from a previous session? Offer to restore it, but only when it really
+        // differs from the saved set - otherwise the cache is stale and is dropped silently.
+        const cached = imgDraft.load(image.id)
+        if (cached && draftSignature(cached.shapes) !== draftSignature(toDraftShapes(loaded))) {
+            pendingRestore.value = cached
+            restoreOpen.value = true
+        } else if (cached) {
+            imgDraft.clear(image.id)
+        }
     } catch (error) {
         /*
          * A CLIENT BUG IS NOT A FAILED REQUEST, and this block used to report it as one: a
@@ -634,8 +878,8 @@ const openImage = async (image: LibraryImage) => {
  */
 const selectImage = async (id: number) => {
     if (id === selectedImageId.value) return
-    // A save already in flight - the auto-save fires 1.5s after the drawing stops, so a step lands
-    // inside one often. `save()` refuses to re-enter, so without this wait the step would see a
+    // A save already in flight - the auto-save can fire on the idle timer, so a step lands inside
+    // one occasionally. `save()` refuses to re-enter, so without this wait the step would see a
     // still-dirty image and refuse to move at all.
     if (isSaving.value) await until(isSaving).toBe(false)
     if (isDirty.value) {
@@ -653,32 +897,35 @@ const linkedImageId = computed(() => {
     return Number.isInteger(id) && id > 0 ? id : null
 })
 
-await loadImages()
+// Albums for the source picker. The strip itself stays empty until a source is chosen (or a
+// `?image=` link opens one image directly, handled below).
+try {
+    albums.value = await albumService.list()
+} catch {
+    // Non-fatal: without the list the picker just offers "All images", which still loads.
+}
 
 /*
- * The palette, before anything is drawn.
+ * The reference set of stored classes, before anything is drawn. NOT the picker: `palette` starts
+ * empty and grows as visited images reveal their classes (accumulateClasses). This list only exists
+ * so an accumulated class resolves to its authored id and colour, since an annotation read carries a
+ * label's text but not its id.
  *
- * AWAITED, unlike the export-scraping seed it replaces. Every shape resolves its class by looking
- * its text up in this list, so an image opened against an empty palette would read back as a set of
- * unnamed boxes and the save would then refuse them. Cheap enough to wait for: one person's palette
- * is a bounded list, where the old approach downloaded the entire labelled dataset to guess at the
- * same thing.
+ * AWAITED, so the first image opened during setup (the library's `?image=` deep link) already has it
+ * to draw from. Cheap enough to wait for: one person's palette is a bounded list, where the old
+ * approach downloaded the entire labelled dataset to guess at the same thing.
  *
- * `hide_orphan` keeps the picker to classes actually in use, rather than everything ever typed. It
- * is asked ONCE, here, and nowhere else: a label is an orphan until a box carrying it has been
- * SAVED, so a class created a moment ago is an orphan and so is one already applied to three
- * unsaved boxes. Re-reading with the flag mid-session would drop exactly the class being used, which
- * is why every later read is unfiltered and narrowed locally. See `keepFrom`.
+ * `hide_orphan` keeps this to classes actually in use, rather than everything ever typed. It is asked
+ * ONCE, here, and nowhere else: a label is an orphan until a box carrying it has been SAVED, and
+ * re-reading with the flag mid-session would drop exactly the class being used, which is why the
+ * later reads in `flushPendingLabels` are unfiltered. Nothing that can appear on an image is lost:
+ * every class on a saved box is by definition non-orphan and so present here.
  *
- * Nothing is lost by filtering here: the flag hides a label only when no annotation points at it, so
- * every label that can appear on an image this session is guaranteed to be in this list.
- *
- * Not fatal, though. A palette that fails to load leaves the classes empty and the drawing tools
+ * Not fatal, though. A list that fails to load leaves accumulation empty and the drawing tools
  * working, which is a worse pass but not a broken page.
  */
 try {
-    palette.value = await annotationLabelService.list({ hideOrphan: true })
-    activeLabelId.value ??= palette.value[0]?.id ?? null
+    allLabels.value = await annotationLabelService.list({ hideOrphan: true })
 } catch (error) {
     toast.error(apiErrorMessage(error, 'Could not load your classes'))
 }
@@ -725,6 +972,25 @@ const markReviewed = async (value: boolean) => {
         if (index !== -1) images.value[index] = updated
     } catch (error) {
         toast.error(apiErrorMessage(error, 'Could not update the image'))
+    }
+}
+
+/**
+ * The image's metadata bag, edited from the meta card the same way the library's detail panel edits
+ * it (BE-ADR-031). The patch is changed-keys-only (metadataPatch), a shallow merge the server
+ * applies over whatever else the bag holds, so editing here and in the library cannot clobber each
+ * other's keys.
+ */
+const saveMetadata = async (patch: Record<string, unknown>) => {
+    const image = selectedImage.value
+    if (!image) return
+    try {
+        const updated = await imageService.updateMetadata(image.id, patch)
+        selectedImage.value = updated
+        const index = images.value.findIndex((row) => row.id === image.id)
+        if (index !== -1) images.value[index] = updated
+    } catch (error) {
+        toast.error(apiErrorMessage(error, 'Could not save the metadata'))
     }
 }
 
@@ -801,8 +1067,7 @@ const save = async ({ auto = false }: { auto?: boolean } = {}) => {
     const image = selectedImage.value
     if (!image || isSaving.value) return
 
-    const payload = toAnnotationPayload(shapes.value)
-    if (payload.annotations.length > MAX_ANNOTATIONS) {
+    if (toAnnotationPayload(shapes.value).annotations.length > MAX_ANNOTATIONS) {
         toast.error(`An image is limited to ${MAX_ANNOTATIONS} annotations.`)
         return
     }
@@ -813,11 +1078,28 @@ const save = async ({ auto = false }: { auto?: boolean } = {}) => {
     // now a step that can follow the geometry, and the toast below says how many are still owed.
     isSaving.value = true
     try {
+        // Deferred label mint (BE-ADR-030, FE side): the pending (local) classes this image uses are
+        // created on the server now, batched, and their ids remapped onto the shapes before the
+        // annotation write - so a class costs one POST per save instead of one the moment it was named.
+        const remap = await flushPendingLabels(shapes.value)
+        if (remap.size) {
+            shapes.value = shapes.value.map((s) =>
+                isPending(s.labelId) && remap.has(s.labelId)
+                    ? { ...s, labelId: remap.get(s.labelId)! }
+                    : s,
+            )
+            if (isPending(activeLabelId.value) && remap.has(activeLabelId.value))
+                activeLabelId.value = remap.get(activeLabelId.value)!
+        }
         // Re-read the response rather than trusting local state: a polygon's extent is recomputed
         // server-side, so the stored box can differ from the one that was sent.
-        const saved = await annotationService.replace(image.id, payload.annotations)
+        const saved = await annotationService.replace(
+            image.id,
+            toAnnotationPayload(shapes.value).annotations,
+        )
         const reloaded = toShapes(saved, labelIdFor)
         adoptSaved(reloaded)
+        imgDraft.clear(image.id) // the work is on the server now; drop the local cache
         rememberDots(image.id, reloaded)
         // Saving ends the review: the ids the confidences were keyed to are gone, and a persisted
         // set is no longer "model output nobody has read".
@@ -847,12 +1129,13 @@ const save = async ({ auto = false }: { auto?: boolean } = {}) => {
 }
 
 /**
- * Auto-save: write a moment after the drawing stops.
+ * Auto-save: write after the drawing has been idle for a while.
  *
- * DEBOUNCED, not per-edit. The write is REPLACE-ALL over the whole set, so a request per pointer-up
- * while someone drags a box across a slide would be dozens of full-set writes in a few seconds.
- * `maxWait` still forces one through during continuous work, so a long unbroken pass is not left
- * entirely unsaved waiting for a pause that never comes.
+ * DEBOUNCED to 20s of inactivity, deliberately long. The point is to cut server calls: the local
+ * cache holds the work meanwhile (so a refresh is safe), and the write is REPLACE-ALL plus a batched
+ * label mint, so firing it per pause the way a 1.5s debounce did was needless chatter. `maxWait`
+ * still forces one through during a long unbroken pass so continuous work is not left entirely
+ * unsaved waiting for a pause that never comes.
  *
  * Guarded on `canSave`, which already covers "an image is open", "there is something to save" and
  * "a save is not already in flight", so this cannot re-enter itself: the save resets the baseline,
@@ -872,8 +1155,17 @@ watchDebounced(
     ([on, can, total, editing]) => {
         if (on && can && total > 0 && !editing) void save({ auto: true })
     },
-    { debounce: 1500, maxWait: 6000 },
+    { debounce: 20000, maxWait: 60000 },
 )
+
+// Flush the local cache synchronously if the tab is closing mid-edit - the throttled server save
+// may not have fired yet, and a beforeunload cannot await a network write. The next open recovers
+// it via the restore prompt. NOT called on unmount: an SPA route leave runs `confirmDiscard`, and
+// re-caching there would resurrect work the person just chose to discard; the 300ms writer has
+// already cached anything worth keeping.
+const flushDraftOnUnload = () => writeDraft()
+onMounted(() => window.addEventListener('beforeunload', flushDraftOnUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', flushDraftOnUnload))
 
 onBeforeRouteLeave(() => confirmDiscard())
 
@@ -896,15 +1188,17 @@ const lastRun = ref<string | null>(null)
 const runAndSeed = async ({
     model,
     segmentModel,
+    minConfidence,
 }: {
     model: string
     segmentModel?: string | null
+    minConfidence?: number
 }) => {
     const image = selectedImage.value
     if (!image || seeding.value) return
     seeding.value = true
     try {
-        const detection = await imageService.detect(image.id, model, segmentModel)
+        const detection = await imageService.detect(image.id, model, segmentModel, minConfidence)
 
         // Checked here rather than left to the server's 400, because "the model found nothing" is
         // an ordinary outcome for these detectors and deserves plain words. YOLO26m returns nothing
@@ -919,16 +1213,16 @@ const runAndSeed = async ({
         // Seeded from the run's OWN boxes rather than through the seed endpoint, because those
         // carry the confidence and annotations do not. See shapesFromDetection.
         const all = detection.steps.flatMap((step) => step.boxes)
-        // Each model class becomes a real label first, so a seeded box carries a `label_id` and is
-        // saveable the moment it is accepted. Sequential rather than parallel: two boxes of the same
-        // class would otherwise race to mint it and one would take the 409 path for nothing.
-        for (const name of new Set(all.map((box) => box.label))) await ensureLabel(name)
+        // Each model class becomes a palette label first (locally now - the server mint is deferred
+        // to save), so a seeded box carries a `label_id` from the start.
+        for (const name of new Set(all.map((box) => box.label))) ensureLocalLabel(name)
         const { shapes: seededShapes, confidence } = shapesFromDetection(
             all,
             defaultCurated.value,
             labelIdFor,
         )
         resetHistory(seededShapes)
+        seedKnownShapes() // seeded shapes already carry classes; keep pick-then-draw off them
         seeded.value = confidence
         seededImages.value = new Set(seededImages.value).add(image.id)
         lastRun.value = model
@@ -941,6 +1235,76 @@ const runAndSeed = async ({
     }
 }
 
+// ---- import / export (BE-ADR-030) ----------------------------------------------------------------
+
+/**
+ * Save one image's boxes to a portable, normalized file, and load one back onto WHATEVER image is
+ * open the "template onto any image" flow. Export is a plain client-side download; import overlays
+ * the file's boxes onto the current set and mints any label the palette does not yet hold, exactly
+ * as a seeded run does. The ordinary save path (replace-all PUT) then persists it.
+ *
+ * The dataset/training export is a different feature living server-side (COCO, many images); this is
+ * the per-image interchange a person keeps or shares.
+ */
+const importInput = useTemplateRef<HTMLInputElement>('import-input')
+
+const exportAnnotations = () => {
+    const image = selectedImage.value
+    if (!image || !shapes.value.length) return
+    const file = serializeAnnotations(
+        shapes.value,
+        image.id,
+        (shape) => colorForShape(palette.value, shape)?.replace(/^#/, '') ?? null,
+    )
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `annotations-img${image.id}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    toast.success(`Exported ${file.annotations.length} box(es).`)
+}
+
+const onImportFile = async (event: Event) => {
+    const input = event.target as HTMLInputElement
+    const picked = input.files?.[0]
+    // Cleared at once so re-importing the SAME file fires `change` again.
+    input.value = ''
+    if (!picked) return
+    const image = selectedImage.value
+    if (!image) return
+
+    let parsed
+    try {
+        parsed = parseAnnotationsFile(JSON.parse(await picked.text()))
+    } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Could not read that file.')
+        return
+    }
+    if (!parsed.annotations.length) {
+        toast.error('That file has no boxes to import.')
+        return
+    }
+    if (shapes.value.length + parsed.annotations.length > MAX_ANNOTATIONS) {
+        toast.error(`That would exceed the ${MAX_ANNOTATIONS}-box limit for one image.`)
+        return
+    }
+
+    // Create a palette label per name first (locally, keeping the file's colour), so an imported box
+    // carries a `label_id`; the server mint is deferred to save with every other pending class.
+    for (const entry of parsed.annotations) {
+        if (entry.label) ensureLocalLabel(entry.label, entry.color ?? undefined)
+    }
+    const imported = shapesFromFile(parsed.annotations, labelIdFor)
+    // Overlaid, not replaced: a template drops ON TOP of whatever is there. `commit` makes it one
+    // undoable step and marks the image dirty for the ordinary save.
+    shapes.value = [...shapes.value, ...imported]
+    commit()
+    seedKnownShapes() // imported shapes carry their own classes; keep pick-then-draw off them
+    toast.success(`Imported ${imported.length} box(es). Review, then save.`)
+}
+
 // ---- the keyboard ----------------------------------------------------------------------------------
 
 /**
@@ -950,7 +1314,7 @@ const runAndSeed = async ({
  * Disabled while a dialog is open, or `?` would close and reopen its own sheet and `s` would save
  * behind it.
  */
-const modalOpen = computed(() => seedOpen.value || shortcutsOpen.value)
+const modalOpen = computed(() => seedOpen.value || shortcutsOpen.value || restoreOpen.value)
 
 const onHotkey = (action: HotkeyAction) => {
     switch (action.type) {
@@ -1020,6 +1384,13 @@ const { spacePanning } = useAnnotatorHotkeys({
  * way out. `navWasOpen` tracks the intent so that restore is correct.
  */
 const toggleNav = () => {
+    // Below 1280 the app nav is a Sheet keyed off `openMobile`, not the docked `open` a desktop
+    // toggles - without this branch the button on a phone or tablet flipped a state nothing shows,
+    // which is why the page could only be left with the browser's back button.
+    if (sidebar.isMobile.value) {
+        sidebar.setOpenMobile(!sidebar.openMobile.value)
+        return
+    }
     const next = !sidebar.open.value
     sidebar.open.value = next
     navWasOpen = next
@@ -1066,6 +1437,40 @@ const position = computed(() =>
         : orderedImages.value.findIndex((row) => row.id === selectedImageId.value) + 1,
 )
 
+// The pager's filmstrip on a touch layout: the WHOLE loaded batch as square thumbnails, scrolled
+// like an iPhone photo strip. Thumbnails are loaded lazily as a cell scrolls into view (revealThumb)
+// rather than all at once, because a batch can run to hundreds of frames.
+const pagerThumbs = useImageObjectUrls()
+const revealThumb = (id: number) => {
+    const image = orderedImages.value.find((row) => row.id === id)
+    if (image) void pagerThumbs.load(image.id, 'thumb', image.content_hash)
+}
+const pagerStrip = computed(() =>
+    orderedImages.value.map((image) => ({
+        id: image.id,
+        thumb: pagerThumbs.urls.value[image.id] ?? null,
+        active: image.id === selectedImageId.value,
+    })),
+)
+
+// A short slide when the image changes: the new one eases in from the side it came from, so a step
+// through the batch reads as motion rather than a hard swap. Played on the canvas WRAPPER via the
+// Web Animations API so the canvas keeps its viewport and shapes - a re-key/remount would reset both.
+const canvasSlide = useTemplateRef<HTMLElement>('canvasSlide')
+watch(position, (to, from) => {
+    if (!from || !to || to === from) return
+    const el = canvasSlide.value
+    if (!el || typeof el.animate !== 'function') return
+    const from0 = to > from ? 6 : -6 // next comes in from the right, previous from the left
+    // SLIDE ONLY, no opacity fade: fading over the dark canvas ground dimmed the whole panel toward
+    // black and read as a blink. A pure push keeps the picture fully opaque the whole way in.
+    el.animate(
+        [{ transform: `translateX(${from0}%)` }, { transform: 'translateX(0)' }],
+        // Decelerates into place (easeOutQuint), a touch longer than a hard swap so it reads as motion.
+        { duration: 300, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+    )
+})
+
 const currentName = computed(() =>
     selectedImage.value
         ? imageDisplayName(selectedImage.value.metadata, selectedImage.value.id)
@@ -1096,28 +1501,112 @@ const step = (delta: number) => {
         <template #header>
             <AnnotatorHeader
                 v-model:auto-save="autoSave"
-                scope-label="All images"
+                page-label="Image Annotator"
                 :count="total"
                 :unsaved-edits="unsavedEdits"
                 :can-save="canSave"
                 :saving="isSaving"
-                :can-seed="Boolean(selectedImage)"
-                :last-run="lastRun"
+                :show-queue-toggle="layout === 'medium'"
                 @toggle-nav="toggleNav"
-                @seed="seedOpen = true"
+                @open-queue="queueSheetOpen = true"
                 @save="save()"
                 @shortcuts="shortcutsOpen = true"
-            />
+            >
+                <template #actions>
+                    <!-- Import, Export and Seed used to be three buttons on the toolbar. They are
+                         one image's occasional data operations, not the primary loop (draw, class,
+                         save), so they fold into a single menu that says what each one does rather
+                         than spending three slots and their tooltips on the bar. -->
+                    <McDropdownMenu>
+                        <McDropdownMenuTrigger as-child>
+                            <McButton
+                                variant="outline"
+                                size="sm"
+                                title="Import, export, or seed this image's boxes"
+                            >
+                                <Shapes class="tw:h-4 tw:w-4" />
+                                Boxes
+                                <span
+                                    v-if="lastRun"
+                                    class="tw:ml-0.5 tw:max-w-24 tw:truncate tw:font-mono tw:text-[11px] tw:text-an-faint"
+                                >
+                                    {{ lastRun }}
+                                </span>
+                                <ChevronDown class="tw:h-3.5 tw:w-3.5 tw:text-an-faint" />
+                            </McButton>
+                        </McDropdownMenuTrigger>
+                        <McDropdownMenuContent align="end" class="tw:w-72">
+                            <McDropdownMenuItem
+                                class="tw:items-start tw:gap-2.5 tw:py-2"
+                                :disabled="!selectedImage"
+                                @select="seedOpen = true"
+                            >
+                                <Sparkles class="tw:mt-0.5 tw:h-4 tw:w-4" />
+                                <span class="tw:flex tw:min-w-0 tw:flex-col tw:gap-0.5">
+                                    <span class="tw:text-[12.5px] tw:font-medium tw:text-an-text">
+                                        Seed from run
+                                    </span>
+                                    <span class="tw:text-[11px] tw:text-an-faint">
+                                        Run a model over this image and place its boxes for review.
+                                    </span>
+                                </span>
+                            </McDropdownMenuItem>
+                            <McDropdownMenuSeparator />
+                            <McDropdownMenuItem
+                                class="tw:items-start tw:gap-2.5 tw:py-2"
+                                :disabled="!selectedImage"
+                                @select="importInput?.click()"
+                            >
+                                <Upload class="tw:mt-0.5 tw:h-4 tw:w-4" />
+                                <span class="tw:flex tw:min-w-0 tw:flex-col tw:gap-0.5">
+                                    <span class="tw:text-[12.5px] tw:font-medium tw:text-an-text">
+                                        Import
+                                    </span>
+                                    <span class="tw:text-[11px] tw:text-an-faint">
+                                        Load boxes from a JSON file onto this image.
+                                    </span>
+                                </span>
+                            </McDropdownMenuItem>
+                            <McDropdownMenuItem
+                                class="tw:items-start tw:gap-2.5 tw:py-2"
+                                :disabled="!selectedImage || shapes.length === 0"
+                                @select="exportAnnotations"
+                            >
+                                <Download class="tw:mt-0.5 tw:h-4 tw:w-4" />
+                                <span class="tw:flex tw:min-w-0 tw:flex-col tw:gap-0.5">
+                                    <span class="tw:text-[12.5px] tw:font-medium tw:text-an-text">
+                                        Export
+                                    </span>
+                                    <span class="tw:text-[11px] tw:text-an-faint">
+                                        Download this image's boxes to a JSON file.
+                                    </span>
+                                </span>
+                            </McDropdownMenuItem>
+                        </McDropdownMenuContent>
+                    </McDropdownMenu>
+                    <input
+                        ref="import-input"
+                        type="file"
+                        accept="application/json,.json"
+                        class="tw:hidden"
+                        @change="onImportFile"
+                    />
+                    <div class="tw:mx-1 tw:h-5 tw:w-px tw:bg-an-divider"></div>
+                </template>
+            </AnnotatorHeader>
         </template>
 
         <template #header-compact>
+            <!-- App navigation: the way OFF this page. A hamburger - the ordinary "menu" affordance
+                 on a phone or tablet - distinct from the Images button beside it, so the two no
+                 longer read as one duplicated sidebar. Opens the app-nav sheet (see toggleNav). -->
             <McButton
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Show the image queue"
-                @click="queueSheetOpen = true"
+                aria-label="Open the navigation menu"
+                @click="toggleNav"
             >
-                <PanelLeft class="tw:h-4 tw:w-4" />
+                <Menu class="tw:h-4 tw:w-4" />
             </McButton>
             <div class="tw:flex tw:min-w-0 tw:flex-col">
                 <span class="tw:truncate tw:font-mono tw:text-[12px] tw:text-an-text">
@@ -1136,6 +1625,17 @@ const step = (delta: number) => {
                 @click="seedOpen = true"
             >
                 <Sparkles class="tw:h-4 tw:w-4" />
+            </McButton>
+            <!-- Grouped with Shapes on the right - the two panel-openers side by side - and off the
+                 left, where it sat next to the hamburger and read as a second navigation. The queue
+                 itself now slides up from the bottom rather than in from the left (see #sheets). -->
+            <McButton
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Show the image queue"
+                @click="queueSheetOpen = true"
+            >
+                <Images class="tw:h-4 tw:w-4" />
             </McButton>
             <McButton
                 variant="ghost"
@@ -1168,7 +1668,8 @@ const step = (delta: number) => {
                 :classes="classes"
                 :active="activeLabelId"
                 @pick="pickClass"
-                @create="toast.info('Add a class from the labels panel on a wider screen.')"
+                @create="createClass"
+                @edit="editClass"
             />
         </template>
 
@@ -1179,7 +1680,11 @@ const step = (delta: number) => {
                     is pinned to the same top-right corner as the list/grid toggle, so the two sat
                     on top of each other, and the panel's collapse button is the dismiss anyway.
                 -->
-                <McSheetContent side="left" class="tw:w-[320px] tw:p-0" hide-close>
+                <McSheetContent
+                    side="bottom"
+                    class="mc-slide-up tw:flex tw:max-h-[80dvh] tw:flex-col tw:rounded-t-2xl tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                    hide-close
+                >
                     <ImageQueue
                         :images="orderedImages"
                         :views="queueViews"
@@ -1189,6 +1694,8 @@ const step = (delta: number) => {
                         :total="total"
                         :search="search"
                         :filter="queueFilter"
+                        :albums="albums"
+                        :source="source"
                         @select="
                             (id) => {
                                 selectImage(id)
@@ -1197,6 +1704,7 @@ const step = (delta: number) => {
                         "
                         @update:search="search = $event"
                         @update:filter="queueFilter = $event"
+                        @update:source="source = $event"
                         @more="loadMore"
                         @collapse="queueSheetOpen = false"
                     />
@@ -1204,35 +1712,144 @@ const step = (delta: number) => {
             </McSheet>
 
             <McSheet v-model:open="shapesSheetOpen">
-                <McSheetContent side="right" class="tw:flex tw:w-[320px] tw:flex-col tw:p-0">
-                    <ShapeList
-                        :shapes="shapes"
-                        :palette="palette"
-                        :selected-id="selectedShapeId"
-                        :hidden-ids="hiddenIds"
-                        :seeded="seeded"
-                        :all-hidden="allHidden"
-                        @select="selectedShapeId = $event"
-                        @toggle-hidden="toggleHidden"
-                        @toggle-all="toggleAllHidden"
-                        @accept="acceptSeeded"
-                        @reject="rejectSeeded"
-                        @seed="seedOpen = true"
-                        @draw-polygon="tool = 'polygon'"
-                    />
-                    <ImageMetaCard
-                        :image="selectedImage"
-                        :reviewed="
-                            selectedImage ? selectedImage.metadata?.reviewed === true : false
-                        "
-                        :saving="isSaving"
-                        :position="position"
-                        :dimensions="canvas?.natural ?? null"
-                        :seeded-by="Object.keys(seeded).length ? lastRun : null"
-                        @update:reviewed="markReviewed"
-                    />
+                <!-- Full screen height: shape mode is where the picture is judged against the list,
+                     so it gets the whole viewport rather than a partial sheet. -->
+                <McSheetContent
+                    side="bottom"
+                    class="mc-slide-up tw:flex tw:h-dvh tw:flex-col tw:bg-black tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                    hide-close
+                >
+                    <!-- The image itself, boxes drawn on it, above the list: the sheet covers the
+                         canvas, so without this a shape is judged from its row alone. The picture is
+                         the point of the review, so it leads - the same image-plus-overlay preview
+                         the detection result and the library inspector show. A quarter of the screen,
+                         so most of the height is the list. -->
+                    <div
+                        class="tw:relative tw:h-[25dvh] tw:shrink-0 tw:overflow-hidden tw:bg-black"
+                    >
+                        <img
+                            v-if="imageUrl"
+                            :src="imageUrl"
+                            :alt="currentName"
+                            class="tw:h-full tw:w-full tw:object-contain"
+                        />
+                        <svg
+                            v-if="canvas?.natural && shapes.length"
+                            class="tw:pointer-events-none tw:absolute tw:inset-0 tw:h-full tw:w-full"
+                            :viewBox="`0 0 ${canvas.natural.w} ${canvas.natural.h}`"
+                            preserveAspectRatio="xMidYMid meet"
+                        >
+                            <AnnotationOverlay
+                                :shapes="shapes"
+                                :natural="canvas.natural"
+                                :palette="palette"
+                            />
+                        </svg>
+                        <!-- A gradient at the foot of the picture, darkening into the shape card so
+                             the seam between the two reads as one surface rather than a hard cut. -->
+                        <div
+                            class="tw:pointer-events-none tw:absolute tw:inset-x-0 tw:bottom-0 tw:h-16 tw:bg-gradient-to-t tw:from-black/55 tw:to-transparent"
+                        ></div>
+                        <!-- Close, top-right over the picture where a dismiss is looked for. -->
+                        <button
+                            type="button"
+                            class="tw:absolute tw:top-2 tw:right-2 tw:flex tw:h-8 tw:w-8 tw:items-center tw:justify-center tw:rounded-full tw:bg-black/55 tw:text-white tw:backdrop-blur tw:hover:bg-black/70"
+                            aria-label="Close shapes"
+                            @click="shapesSheetOpen = false"
+                        >
+                            <X class="tw:h-4 tw:w-4" />
+                        </button>
+                    </div>
+                    <!-- The list is the sheet's own surface: rounded at the top and pulled up over
+                         the image, with an upward shadow so the curved edge lifts off the picture -
+                         the picture full-bleed above, the shapes a card rising over it (the iOS
+                         media-then-sheet shape). -->
+                    <div
+                        class="tw:relative tw:z-10 tw:-mt-4 tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:overflow-hidden tw:rounded-t-2xl tw:bg-an-panel tw:shadow-[0_-8px_24px_rgba(0,0,0,0.22)]"
+                    >
+                        <ShapeList
+                            :shapes="shapes"
+                            :palette="palette"
+                            :selected-id="selectedShapeId"
+                            :hidden-ids="hiddenIds"
+                            :seeded="seeded"
+                            :all-hidden="allHidden"
+                            @select="selectedShapeId = $event"
+                            @toggle-hidden="toggleHidden"
+                            @toggle-all="toggleAllHidden"
+                            @accept="acceptSeeded"
+                            @reject="rejectSeeded"
+                            @seed="((shapesSheetOpen = false), (seedOpen = true))"
+                            @draw-polygon="((shapesSheetOpen = false), (tool = 'polygon'))"
+                        />
+                        <ImageMetaCard
+                            :image="selectedImage"
+                            :reviewed="
+                                selectedImage ? selectedImage.metadata?.reviewed === true : false
+                            "
+                            :saving="isSaving"
+                            :position="position"
+                            :dimensions="canvas?.natural ?? null"
+                            :seeded-by="Object.keys(seeded).length ? lastRun : null"
+                            @update:reviewed="markReviewed"
+                            @save="saveMetadata"
+                        />
+                        <!-- The class strip is covered by this full-screen sheet, so reclassing a
+                             shape - select a row, tap a class - would be unreachable without it here.
+                             `pickClass` reroutes a tap to the selected shape (BE-ADR-038), so the same
+                             strip that arms a class also reassigns the one being reviewed; the caption
+                             appears only while a shape is selected, when that is what a tap now does. -->
+                        <p
+                            v-if="selectedShapeId"
+                            class="tw:shrink-0 tw:bg-an-panel tw:px-3 tw:pt-2 tw:text-[11px] tw:font-medium tw:text-an-faint"
+                        >
+                            Tap a class to reassign the selected shape
+                        </p>
+                        <ClassStrip
+                            :classes="classes"
+                            :active="selectedShapeLabelId"
+                            @pick="pickClass"
+                            @create="createClass"
+                            @edit="editClass"
+                        />
+                    </div>
                 </McSheetContent>
             </McSheet>
+        </template>
+
+        <!-- Docked pager, a full-width strip above the canvas. The shell renders this slot only on a
+             stacked phone; there the floating PagerPill in #canvas is suppressed, so the filmstrip
+             sits beside the picture instead of over its top edge. -->
+        <template #pager>
+            <PagerPill
+                v-if="selectedImage"
+                docked
+                :name="currentName"
+                :index="position"
+                :total="images.length"
+                :strip="pagerStrip"
+                @previous="step(-1)"
+                @next="step(1)"
+                @select="selectImage"
+                @reveal="revealThumb"
+            />
+        </template>
+
+        <!-- Docked zoom strip below the canvas on a stacked phone (the floating ZoomPill in #canvas
+             is suppressed there), so the controls sit beside the picture, not over its bottom edge. -->
+        <template #zoom>
+            <ZoomPill
+                v-if="selectedImage"
+                docked
+                :percent="zoomPercent"
+                :at-fit="atFit"
+                :enabled="canZoom"
+                :all-hidden="allHidden"
+                @zoom-in="canvas?.zoomIn()"
+                @zoom-out="canvas?.zoomOut()"
+                @fit="canvas?.fit()"
+                @toggle-visibility="toggleAllHidden"
+            />
         </template>
 
         <template #queue>
@@ -1246,9 +1863,12 @@ const step = (delta: number) => {
                 :total="total"
                 :search="search"
                 :filter="queueFilter"
+                :albums="albums"
+                :source="source"
                 @select="selectImage"
                 @update:search="search = $event"
                 @update:filter="queueFilter = $event"
+                @update:source="source = $event"
                 @more="loadMore"
                 @collapse="leftOpen = false"
             />
@@ -1337,28 +1957,32 @@ const step = (delta: number) => {
         </template>
 
         <template #canvas>
-            <AnnotationCanvas
-                ref="canvas"
-                v-model:shapes="shapes"
-                v-model:selected-id="selectedShapeId"
-                :src="imageUrl"
-                :name="currentName"
-                :seeded="seeded"
-                :touch-layout="isTouchLayout"
-                :tool="tool"
-                :default-curated="defaultCurated"
-                :palette="palette"
-                :hidden-ids="hiddenIds"
-                :space-panning="spacePanning"
-                :inset-right="0"
-                @commit="commit"
-                @label-shape="labelShape"
-                @retry="retryImage"
-                @undo="undoStep"
-            />
+            <!-- Wrapper the image-change slide plays on: animating this rather than the canvas keeps
+                 the canvas mounted, so the viewport, zoom and shapes are not reset by a navigation. -->
+            <div ref="canvasSlide" class="tw:absolute tw:inset-0">
+                <AnnotationCanvas
+                    ref="canvas"
+                    v-model:shapes="shapes"
+                    v-model:selected-id="selectedShapeId"
+                    :src="imageUrl"
+                    :name="currentName"
+                    :seeded="seeded"
+                    :touch-layout="isTouchLayout"
+                    :tool="tool"
+                    :default-curated="defaultCurated"
+                    :palette="palette"
+                    :hidden-ids="hiddenIds"
+                    :space-panning="spacePanning"
+                    :inset-right="0"
+                    @commit="commit"
+                    @label-shape="labelShape"
+                    @retry="retryImage"
+                    @undo="undoStep"
+                />
+            </div>
 
             <div
-                v-if="annotationsLoading"
+                v-if="showAnnotationsLoading"
                 class="tw:pointer-events-none tw:absolute tw:inset-0 tw:z-20 tw:flex tw:items-center tw:justify-center tw:bg-an-canvas/50 tw:text-sm tw:text-an-d-text"
             >
                 Loading annotations...
@@ -1408,13 +2032,19 @@ const step = (delta: number) => {
                     @redo="redo"
                     @delete-selected="deleteSelected"
                 />
+                <!-- Floats over the canvas on desktop and on a wide (landscape) touch layout. On a
+                     stacked phone it is docked into its own shell row instead (see #pager), so it
+                     does not cover the top of the picture. -->
                 <PagerPill
-                    v-if="!focus"
+                    v-if="!focus && !stacked"
                     :name="currentName"
                     :index="position"
                     :total="images.length"
+                    :strip="pagerStrip"
                     @previous="step(-1)"
                     @next="step(1)"
+                    @select="selectImage"
+                    @reveal="revealThumb"
                 />
                 <!--
                     Not on a stacked layout. It names keys and mouse gestures a finger does not
@@ -1427,8 +2057,10 @@ const step = (delta: number) => {
                     :selected-count="selectedShapeId ? 1 : 0"
                     :drafting="Boolean(canvas?.hasDraft)"
                 />
+                <!-- Floats over the canvas on desktop and on a wide (landscape) touch layout. On a
+                     stacked phone it is docked into its own shell row instead (see #zoom). -->
                 <ZoomPill
-                    v-if="!focus"
+                    v-if="!focus && !stacked"
                     :percent="zoomPercent"
                     :at-fit="atFit"
                     :enabled="canZoom"
@@ -1459,6 +2091,22 @@ const step = (delta: number) => {
             <McDialog v-model:open="shortcutsOpen">
                 <McDialogContent class="tw:sm:max-w-2xl">
                     <ShortcutSheet @close="shortcutsOpen = false" />
+                </McDialogContent>
+            </McDialog>
+
+            <McDialog v-model:open="restoreOpen">
+                <McDialogContent>
+                    <McDialogHeader>
+                        <McDialogTitle>Restore unsaved work?</McDialogTitle>
+                    </McDialogHeader>
+                    <p class="tw:px-1 tw:text-sm tw:text-an-muted">
+                        This image has annotations you drew but did not save last time. Restore
+                        them, or discard and keep the saved version.
+                    </p>
+                    <McDialogFooter>
+                        <McButton variant="outline" @click="discardRestore">Discard</McButton>
+                        <McButton @click="applyRestore">Restore</McButton>
+                    </McDialogFooter>
                 </McDialogContent>
             </McDialog>
         </template>
@@ -1495,6 +2143,7 @@ const step = (delta: number) => {
                 :dimensions="canvas?.natural ?? null"
                 :seeded-by="Object.keys(seeded).length ? lastRun : null"
                 @update:reviewed="markReviewed"
+                @save="saveMetadata"
             />
         </template>
 

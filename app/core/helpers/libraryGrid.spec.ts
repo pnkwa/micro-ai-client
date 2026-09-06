@@ -4,8 +4,8 @@ import { gridMetrics } from './libraryGrid'
 describe('gridMetrics', () => {
     it('gives each layout its own card, gap, padding and footer', () => {
         expect(gridMetrics('full')).toEqual({ col: 208, gap: 16, pad: 20, footer: 44 })
-        expect(gridMetrics('medium')).toEqual({ col: 180, gap: 14, pad: 16, footer: 44 })
-        expect(gridMetrics('compact')).toEqual({ col: 148, gap: 10, pad: 12, footer: 40 })
+        expect(gridMetrics('medium')).toEqual({ col: 140, gap: 14, pad: 16, footer: 44 })
+        expect(gridMetrics('compact')).toEqual({ col: 116, gap: 10, pad: 12, footer: 40 })
     })
 
     it('shrinks monotonically as the screen does', () => {

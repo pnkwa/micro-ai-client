@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronUp } from '@lucide/vue'
 import type { LibraryImage } from '~/services/imageService'
-import { metadataEntries } from '~/core/helpers/imageMetadata'
 import { imageDisplayName } from '~/core/helpers/imageName'
+import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
+import MetadataEditor from '~/features/components/library/inspector/MetadataEditor.vue'
+
+// No physical keyboard on a touch layout, so the shortcut keycap is noise there.
+const { isTouchLayout } = useAnnotatorLayout()
 
 /**
- * The pinned footer: what this image is, and the one control that says it is done.
+ * The pinned footer: what this image is, its metadata, and the one control that says it is done.
  *
- * Metadata is READ-ONLY here. The library's detail panel is where the bag is edited, and two forms
- * writing one shallow-merged object is how a key gets clobbered.
+ * Metadata is EDITABLE here now, the same MetadataEditor the library's detail panel uses. The old
+ * worry was two forms clobbering one shallow-merged bag, but the patch each sends is changed-keys-
+ * only (metadataPatch), so a write here leaves the keys the library owns untouched and vice versa.
  */
 const props = defineProps<{
     image: LibraryImage | null
@@ -22,7 +27,11 @@ const props = defineProps<{
     seededBy?: string | null
 }>()
 
-const emit = defineEmits<{ 'update:reviewed': [value: boolean] }>()
+const emit = defineEmits<{
+    'update:reviewed': [value: boolean]
+    /** A metadata PATCH body (changed keys only); the page writes it and swaps the row back in. */
+    save: [patch: Record<string, unknown>]
+}>()
 
 // Open by default: it is three lines, and the answer to "which file am I looking at" should not
 // need a click.
@@ -31,22 +40,14 @@ const open = ref(true)
 const name = computed(() =>
     props.image ? imageDisplayName(props.image.metadata, props.image.id) : '',
 )
-
-/**
- * The named rows first, then whatever else the metadata bag happens to hold.
- *
- * File and dimensions are the two anyone actually reads, and `metadataEntries` would bury them
- * among arbitrary keys in alphabetical order. The rest still shows, underneath.
- */
-const extras = computed(() =>
-    metadataEntries(props.image?.metadata).filter((entry) => entry.key !== 'title'),
-)
 </script>
 
 <template>
+    <!-- `touch-action` on the card, not only the aside or sheet hosting it: iOS honours it on the
+         touched element, so a pinch or double-tap on the metadata cannot zoom the page. -->
     <div
         v-if="image"
-        class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:px-3.5 tw:pt-[11px] tw:pb-3"
+        class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:px-3.5 tw:pt-[11px] tw:pb-3 tw:[touch-action:pan-x_pan-y]"
     >
         <button
             type="button"
@@ -85,19 +86,18 @@ const extras = computed(() =>
                     {{ seededBy }}
                 </dd>
             </div>
-            <div
-                v-for="entry in extras"
-                :key="entry.key"
-                class="tw:flex tw:items-center tw:text-[10.5px]"
-            >
-                <dt class="tw:text-[10.5px] tw:w-[74px] tw:shrink-0 tw:truncate tw:text-an-faint">
-                    {{ entry.label }}
-                </dt>
-                <dd class="tw:text-[10.5px] tw:min-w-0 tw:truncate tw:text-an-n-700">
-                    {{ entry.value }}
-                </dd>
-            </div>
         </dl>
+
+        <!-- The metadata bag, edited in place, exactly as the library's detail panel does it.
+             Title lives here too (it is just a key), so this is also where the file is renamed. -->
+        <div v-if="open && image" class="tw:mb-[11px]">
+            <span
+                class="tw:mb-1.5 tw:block tw:text-[10.5px] tw:font-semibold tw:tracking-[0.06em] tw:text-an-faint tw:uppercase"
+            >
+                Metadata
+            </span>
+            <MetadataEditor :metadata="image.metadata" @save="emit('save', $event)" />
+        </div>
 
         <!--
             `M`, not `R`: R is the rectangle tool. Persisted into `images.metadata.reviewed`, which
@@ -120,6 +120,7 @@ const extras = computed(() =>
             Mark reviewed
             <div class="tw:flex-1"></div>
             <kbd
+                v-if="!isTouchLayout"
                 class="tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-[5px] tw:py-[3px] tw:font-mono tw:text-[9.5px] tw:leading-none tw:text-an-muted"
             >
                 M

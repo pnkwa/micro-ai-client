@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, ChevronDown, Folder, Search, X } from '@lucide/vue'
+import { Check, ChevronDown, Folder, Search, Upload, X } from '@lucide/vue'
 import type { QueueFilter } from '~/core/helpers/annotationQueue'
 import type { AppLayout } from '~/core/composables/useAppLayout'
 import { LIBRARY_SORTS, type LibrarySort } from '~/features/types/library'
@@ -20,8 +20,10 @@ import { LIBRARY_SORTS, type LibrarySort } from '~/features/types/library'
  */
 const props = defineProps<{
     /**
-     * Full keeps one row. Medium WRAPS to two, so search and the album chip stay reachable on the
-     * first line and the chips take the second. Compact keeps one row and scrolls it.
+     * Full keeps the four status chips inline on one row. Below Full they collapse to a single
+     * "Show" select that sits beside Sort, so the row stays one line (search, album, My uploads,
+     * then the two selects) rather than spending a second line on chips. Compact still scrolls the
+     * row sideways if what remains overflows.
      */
     layout: AppLayout
     /** The album the grid is showing, named on the chip that opens the drawer. */
@@ -57,13 +59,12 @@ const chips: { id: QueueFilter; label: string }[] = [
 const sortLabel = (id: LibrarySort) =>
     LIBRARY_SORTS.find((option) => option.id === id)?.label ?? 'Newest'
 
+const filterLabel = (id: QueueFilter) => chips.find((chip) => chip.id === id)?.label ?? 'All'
+
 /**
- * 44px is the floor for anything a finger touches, and it comes from the LAYOUT rather than a
- * global token, so the desktop's tighter controls are untouched.
- *
- * The chips grow to 34px at Medium per the spec, but their tap target is the row they sit in: the
- * row itself goes to 56px there, which is what actually decides whether a thumb hits the chip or
- * the one beside it.
+ * A finger's target comes from the LAYOUT, not a global token, so the desktop's tighter controls are
+ * untouched. The controls sit taller below Full (see `controlHeight`), and the row itself grows to
+ * 56px on a tablet, which is what actually decides whether a thumb hits a control or its neighbour.
  */
 const touch = computed(() => props.layout !== 'full')
 const compact = computed(() => props.layout === 'compact')
@@ -88,44 +89,59 @@ const closeSearch = () => {
     emit('update:q', '')
 }
 
+/**
+ * Expanded on touch once the field is focused or already holds a query; always on the desktop, where
+ * it is a permanent field. The field's width follows this, and the controls beside it step aside: on
+ * a phone the search takes the whole row, on a tablet only the filter button gives way to it.
+ */
+const searchExpanded = computed(() => (touch.value ? searchOpen.value || Boolean(props.q) : true))
+
+/** On a phone an open search owns the whole row, so the album chip and My uploads stand down too. */
+const phoneSearchTakesRow = computed(() => compact.value && searchExpanded.value)
+
 const searchInput = useTemplateRef<HTMLInputElement>('searchInput')
-const chipHeight = computed(() => (touch.value ? 'tw:h-[34px]' : 'tw:h-[26px]'))
-const controlHeight = computed(() => (touch.value ? 'tw:h-[38px]' : 'tw:h-[30px]'))
+/**
+ * One height for every control in the row - search, album, the status chips, My uploads, the selects
+ * - so nothing sits a few pixels shorter than its neighbour. Controls take a step down on a PHONE so
+ * the whole row clears the screen without a sideways scroll; the medium tablet keeps the roomier
+ * 38px, the desktop its 30px.
+ */
+const controlHeight = computed(() =>
+    compact.value ? 'tw:h-[34px]' : touch.value ? 'tw:h-[38px]' : 'tw:h-[30px]',
+)
+/** Tighter horizontal padding and gap on a phone, for the same reason. */
+const controlPad = computed(() => (compact.value ? 'tw:gap-1 tw:px-2' : 'tw:gap-1.5 tw:px-2.5'))
 </script>
 
 <template>
     <div
-        class="tw:flex tw:shrink-0 tw:items-center tw:gap-2 tw:border-b tw:border-an-border tw:bg-an-panel tw:px-3.5"
+        class="tw:flex tw:shrink-0 tw:items-center tw:border-b tw:border-an-border tw:bg-an-panel tw:px-3.5"
         :class="
             compact
-                ? 'tw:h-12 tw:overflow-x-auto tw:whitespace-nowrap'
+                ? 'tw:h-12 tw:gap-1.5 tw:overflow-x-auto tw:whitespace-nowrap'
                 : touch
-                  ? 'tw:min-h-[56px] tw:flex-wrap tw:py-2'
-                  : 'tw:h-11 tw:overflow-x-auto tw:whitespace-nowrap'
+                  ? 'tw:min-h-[56px] tw:gap-2 tw:flex-wrap tw:py-2'
+                  : 'tw:h-11 tw:gap-2 tw:overflow-x-auto tw:whitespace-nowrap'
         "
     >
-        <!-- The phone's collapsed search: a target, not a field, until someone wants it. -->
-        <button
-            v-if="compact && !searchOpen"
-            type="button"
-            class="tw:flex tw:h-11 tw:w-11 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-lg tw:text-an-n-600"
-            aria-label="Search"
-            @click="openSearch"
-        >
-            <Search class="tw:h-[18px] tw:w-[18px]" />
-        </button>
-
-        <!-- Expanded, it takes the row: `order-first` and a full-width basis put it over the chips
-             rather than beside them, which is the only way a search field is usable at 390px. -->
+        <!--
+            One field, not a button that swaps for a field. On touch it is a 44px target that grows
+            to take the room when tapped and shrinks back when left empty; `flex-grow` is what the
+            transition animates, so the width change reads as one motion rather than a pop. On the
+            desktop it is a permanent, fixed-width field. `order-first` keeps it leading the row on a
+            phone, where an expanded search sits over everything else.
+        -->
         <div
-            v-if="!compact || searchOpen"
-            class="tw:flex tw:items-center tw:gap-1.5 tw:rounded-[7px] tw:border tw:border-an-n-200 tw:bg-an-n-50 tw:px-2 tw:text-an-n-400 tw:focus-within:border-an-accent"
+            class="tw:order-first tw:flex tw:items-center tw:overflow-hidden tw:rounded-[7px] tw:border tw:border-an-n-200 tw:bg-an-n-50 tw:px-2 tw:text-an-n-400 tw:transition-[flex-grow,border-color] tw:duration-300 tw:ease-out tw:focus-within:border-an-accent"
             :class="[
                 controlHeight,
-                compact
-                    ? 'tw:order-first tw:min-w-0 tw:flex-1'
-                    : 'tw:min-w-[140px] tw:flex-[0_1_300px]',
+                !touch
+                    ? 'tw:min-w-[140px] tw:flex-[0_1_300px] tw:gap-1.5'
+                    : searchExpanded
+                      ? 'tw:min-w-0 tw:flex-[1_1_44px] tw:gap-1.5'
+                      : 'tw:flex-[0_1_44px] tw:cursor-text tw:justify-center',
             ]"
+            @click="openSearch"
         >
             <Search class="tw:h-3.5 tw:w-3.5 tw:shrink-0" />
             <input
@@ -133,8 +149,11 @@ const controlHeight = computed(() => (touch.value ? 'tw:h-[38px]' : 'tw:h-[30px]
                 :value="q"
                 type="search"
                 placeholder="Search titles"
-                class="tw:min-w-0 tw:flex-1 tw:bg-transparent tw:text-[12.5px] tw:text-an-text tw:outline-none tw:placeholder:text-an-n-300"
+                class="tw:min-w-0 tw:bg-transparent tw:text-[12.5px] tw:text-an-text tw:outline-none tw:placeholder:text-an-n-300"
+                :class="searchExpanded ? 'tw:flex-1' : 'tw:w-0 tw:flex-none'"
                 @input="emit('update:q', ($event.target as HTMLInputElement).value)"
+                @focus="searchOpen = true"
+                @blur="searchOpen = false"
                 @keydown.esc="closeSearch"
             />
             <button
@@ -142,19 +161,11 @@ const controlHeight = computed(() => (touch.value ? 'tw:h-[38px]' : 'tw:h-[30px]
                 type="button"
                 class="tw:shrink-0 tw:text-an-n-400 tw:hover:text-an-text"
                 aria-label="Clear search"
-                @click="emit('update:q', '')"
+                @click.stop="emit('update:q', '')"
             >
                 <X class="tw:h-3.5 tw:w-3.5" />
             </button>
         </div>
-        <button
-            v-if="compact && searchOpen"
-            type="button"
-            class="tw:order-first tw:h-11 tw:shrink-0 tw:px-2 tw:text-[13px] tw:font-medium tw:text-an-accent-hover"
-            @click="closeSearch"
-        >
-            Cancel
-        </button>
 
         <!--
             The album chip: what the grid is showing, and the way into the drawer.
@@ -164,11 +175,11 @@ const controlHeight = computed(() => (touch.value ? 'tw:h-[38px]' : 'tw:h-[30px]
             pictures" has to be visible without opening anything.
         -->
         <button
-            v-if="touch"
+            v-if="touch && !phoneSearchTakesRow"
             type="button"
             data-drop-spring
-            class="tw:flex tw:shrink-0 tw:items-center tw:gap-1.5 tw:rounded-md tw:border tw:border-an-n-200 tw:bg-an-panel tw:px-2.5 tw:text-[12.5px] tw:whitespace-nowrap tw:text-an-n-700 tw:hover:bg-an-n-50"
-            :class="controlHeight"
+            class="tw:flex tw:shrink-0 tw:items-center tw:rounded-md tw:border tw:border-an-n-200 tw:bg-an-panel tw:text-[12.5px] tw:whitespace-nowrap tw:text-an-n-700 tw:hover:bg-an-n-50"
+            :class="[controlHeight, controlPad]"
             @click="emit('open-albums')"
         >
             <Folder class="tw:h-3.5 tw:w-3.5 tw:text-an-n-400" />
@@ -185,23 +196,14 @@ const controlHeight = computed(() => (touch.value ? 'tw:h-[38px]' : 'tw:h-[30px]
             allowed to give way, down to 140px; past that the row scrolls sideways rather than
             folding a control in two.
         -->
-        <div
-            class="tw:flex tw:gap-1.5"
-            :class="
-                compact
-                    ? 'tw:shrink-0'
-                    : touch
-                      ? 'tw:order-1 tw:w-full tw:overflow-x-auto'
-                      : 'tw:shrink-0'
-            "
-        >
+        <div v-if="!touch" class="tw:flex tw:shrink-0 tw:gap-1.5">
             <button
                 v-for="chip in chips"
                 :key="chip.id"
                 type="button"
                 class="tw:flex tw:shrink-0 tw:items-center tw:gap-1.5 tw:rounded-md tw:border tw:px-2.5 tw:text-[12px] tw:whitespace-nowrap tw:transition-colors"
                 :class="[
-                    chipHeight,
+                    controlHeight,
                     filter === chip.id
                         ? 'tw:border-an-n-700 tw:bg-an-n-700 tw:text-white'
                         : 'tw:border-an-n-200 tw:bg-an-panel tw:text-an-n-600 tw:hover:bg-an-n-50',
@@ -220,24 +222,72 @@ const controlHeight = computed(() => (touch.value ? 'tw:h-[38px]' : 'tw:h-[30px]
         </div>
 
         <!-- A real toggle with a pressed state. It was a button before, and you could not tell
-             whether it was on. -->
+             whether it was on. On a phone it collapses to its icon: the label is the longest thing on
+             a row that has to hold search, the album and the filter too, and the pressed tint carries
+             the on/off just as well without it. -->
         <button
+            v-if="!phoneSearchTakesRow"
             type="button"
-            class="tw:flex tw:shrink-0 tw:items-center tw:gap-1.5 tw:rounded-md tw:border tw:px-2.5 tw:text-[12px] tw:whitespace-nowrap tw:transition-colors"
+            class="tw:flex tw:shrink-0 tw:items-center tw:rounded-md tw:border tw:text-[12px] tw:whitespace-nowrap tw:transition-colors"
             :class="[
-                chipHeight,
+                controlHeight,
+                controlPad,
                 mine
                     ? 'tw:border-an-accent/35 tw:bg-an-accent-tint tw:font-medium tw:text-an-accent-hover'
                     : 'tw:border-an-n-200 tw:bg-an-panel tw:text-an-n-600 tw:hover:bg-an-n-50',
             ]"
             :aria-pressed="mine"
+            :aria-label="compact ? 'My uploads' : undefined"
+            :title="compact ? 'My uploads' : undefined"
             @click="emit('update:mine', !mine)"
         >
-            <Check v-if="mine" class="tw:h-3.5 tw:w-3.5" />
-            My uploads
+            <Check v-if="mine && !compact" class="tw:h-3.5 tw:w-3.5" />
+            <Upload v-if="compact" class="tw:h-4 tw:w-4" />
+            <span v-if="!compact">My uploads</span>
         </button>
 
-        <div class="tw:min-w-2 tw:flex-1"></div>
+        <!-- Does not grow while the search is expanded, or it would split the free space with the
+             field and the search would only get half of the room it is meant to take. -->
+        <div class="tw:min-w-2" :class="touch && searchExpanded ? '' : 'tw:flex-1'"></div>
+
+        <!-- Below Full the four status chips live here as one select instead of a row of their own,
+             mirroring Sort and sitting right beside it. The current filter and its count show on the
+             trigger so the answer to "what am I looking at" survives the collapse. It steps aside
+             while the search is open, giving the field the row. -->
+        <McDropdownMenu v-if="touch && !searchExpanded">
+            <McDropdownMenuTrigger as-child>
+                <button
+                    type="button"
+                    class="tw:flex tw:shrink-0 tw:items-center tw:rounded-[7px] tw:border tw:border-an-n-200 tw:bg-an-panel tw:text-[12.5px] tw:whitespace-nowrap tw:text-an-n-700 tw:hover:bg-an-n-50"
+                    :class="[controlHeight, controlPad]"
+                >
+                    <span class="tw:text-an-n-400">Show</span>
+                    {{ filterLabel(filter) }}
+                    <span class="tw:font-mono tw:text-[11px] tw:text-an-n-400">
+                        {{ counts[filter] }}
+                    </span>
+                    <ChevronDown class="tw:h-3.5 tw:w-3.5 tw:text-an-n-400" />
+                </button>
+            </McDropdownMenuTrigger>
+            <McDropdownMenuContent align="end">
+                <McDropdownMenuItem
+                    v-for="chip in chips"
+                    :key="chip.id"
+                    @select="emit('update:filter', chip.id)"
+                >
+                    <Check
+                        class="tw:h-4 tw:w-4"
+                        :class="filter === chip.id ? '' : 'tw:invisible'"
+                    />
+                    {{ chip.label }}
+                    <span
+                        class="tw:ml-auto tw:pl-4 tw:font-mono tw:text-[11px] tw:tabular-nums tw:text-an-n-400"
+                    >
+                        {{ counts[chip.id] }}
+                    </span>
+                </McDropdownMenuItem>
+            </McDropdownMenuContent>
+        </McDropdownMenu>
 
         <McDropdownMenu v-if="!compact">
             <McDropdownMenuTrigger as-child>

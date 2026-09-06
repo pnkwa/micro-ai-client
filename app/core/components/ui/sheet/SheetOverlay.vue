@@ -15,7 +15,7 @@ const delegatedProps = reactiveOmit(props, 'class')
         data-slot="sheet-overlay"
         :class="
             cn(
-                'tw:data-[state=open]:animate-in tw:data-[state=closed]:animate-out tw:data-[state=closed]:fade-out-0 tw:data-[state=open]:fade-in-0 tw:fixed tw:inset-0 tw:z-50 tw:bg-black/80',
+                'mc-fade tw:data-[state=open]:animate-in tw:data-[state=closed]:animate-out tw:data-[state=closed]:fade-out-0 tw:data-[state=open]:fade-in-0 tw:fixed tw:inset-0 tw:z-50 tw:bg-black/80',
                 props.class,
             )
         "

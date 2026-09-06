@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eraser, MousePointer2, Pentagon, Redo2, Square, Trash2, Undo2 } from '@lucide/vue'
+import { Eraser, MousePointer2, PenTool, Pentagon, Redo2, Square, Trash2, Undo2 } from '@lucide/vue'
 import type { Tool } from './AnnotationCanvas.vue'
 
 /**
@@ -34,6 +34,9 @@ const tools = [
     { id: 'select', label: 'Select and pan', key: 'V', icon: MousePointer2 },
     { id: 'rectangle', label: 'Rectangle', key: 'R', icon: Square },
     { id: 'polygon', label: 'Polygon', key: 'P', icon: Pentagon },
+    // Trace a freehand outline that becomes a polygon. The one drawing tool a drag alone drives,
+    // so it works with a stylus (an Apple Pencil) where placing points tap by tap does not.
+    { id: 'pencil', label: 'Pencil (trace an outline)', key: 'D', icon: PenTool },
     // Erase is a MODE, not the trash button below it. Point at a shape to remove it, or at a
     // polygon's node to remove just that node, and what is about to go turns red first. The trash
     // is the other half of the same idea and not a duplicate of it: it acts on the SELECTION, which

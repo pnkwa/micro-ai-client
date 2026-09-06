@@ -5,9 +5,15 @@ import { Trash2 } from '@lucide/vue'
 
 import { classFormSchema, type EditClassFormData } from '~/features/types/forms/class'
 
-const props = defineProps<{
-    initialValues: EditClassFormData
-}>()
+// canDelete gates the Delete action: only the class's creator may delete it (the parent passes
+// the owner check). Defaults true so other callers keep the button.
+const props = withDefaults(
+    defineProps<{
+        initialValues: EditClassFormData
+        canDelete?: boolean
+    }>(),
+    { canDelete: true },
+)
 
 const emit = defineEmits<{
     save: [values: EditClassFormData]
@@ -83,6 +89,7 @@ const statusOptions = [
         class="tw:flex tw:flex-col-reverse tw:gap-3 tw:sm:flex-row tw:sm:justify-between tw:w-full"
     >
         <McButton
+            v-if="canDelete"
             variant="ghost"
             class="tw:w-full tw:sm:w-auto tw:text-red-500 tw:hover:text-red-600 tw:hover:bg-red-50"
             @click="openDeleteModal"
@@ -90,6 +97,9 @@ const statusOptions = [
             <Trash2 class="tw:w-4 tw:h-4 tw:mr-1" />
             Delete
         </McButton>
+        <!-- Empty left slot for a non-owner: keeps Cancel/Save right-aligned (footer is
+             justify-between) when there's no Delete button. -->
+        <span v-else aria-hidden="true" />
 
         <div class="tw:flex tw:flex-col tw:gap-2 tw:sm:flex-row">
             <McButton class="tw:order-2 tw:sm:order-1" variant="outline" @click="handleCancel">

@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { Plus } from '@lucide/vue'
 import { classColorAt, type AnnotationClass } from '~/core/helpers/annotationClasses'
+import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
+
+// No physical keyboard on a touch layout, so the 1-9 keycaps are noise there.
+const { isTouchLayout } = useAnnotatorLayout()
 
 /**
  * The class list, and the keyboard path from "I see a cell" to "it is labelled".
@@ -17,6 +21,11 @@ const props = defineProps<{
     classes: AnnotationClass[]
     /** The class new shapes take, by label id. Null before anything is picked. */
     active: number | null
+    /**
+     * A fixed vocabulary: the list cannot be added to and its colours cannot be changed. Used by an
+     * annotation assignment whose `label_set` the instructor authored students pick from it only.
+     */
+    fixed?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -49,19 +58,42 @@ const submit = () => {
     draft.value = ''
     adding.value = false
 }
+
+// A new class lands at the FOOT of the list (and the add field sits there too), so when the list is
+// capped and scrolled, reveal the bottom on a fresh class or when the add field opens.
+const listEl = useTemplateRef<HTMLElement>('listEl')
+const scrollToBottom = () =>
+    nextTick(() => {
+        if (listEl.value) listEl.value.scrollTop = listEl.value.scrollHeight
+    })
+watch(() => props.classes.length, scrollToBottom)
+watch(adding, (open) => {
+    if (open) void scrollToBottom()
+})
 </script>
 
 <template>
-    <section class="tw:flex tw:shrink-0 tw:flex-col">
-        <div class="tw:flex tw:items-center tw:gap-2 tw:pt-3 tw:pr-3 tw:pb-2 tw:pl-3.5">
+    <!-- `touch-action` on the picker itself: iOS honours it on the touched element rather than the
+         shell aside or sheet around it, so a pinch or double-tap here cannot zoom the page. -->
+    <!-- Its OWN capped, scrollable section: a long class vocabulary is bounded here (max-h) so it
+         never grows the picker unbounded and squeezes the Shapes list and metadata footer below it.
+         `min-h-0` lets it also give way on a short panel; either way the class list scrolls inside
+         while the "Classes" header stays pinned, so Classes and Shapes are two separate scroll areas. -->
+    <section class="tw:flex tw:max-h-[42dvh] tw:min-h-0 tw:flex-col tw:[touch-action:pan-x_pan-y]">
+        <div class="tw:flex tw:shrink-0 tw:items-center tw:gap-2 tw:pt-3 tw:pr-3 tw:pb-2 tw:pl-3.5">
             <span class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text">
                 Classes
             </span>
             <div class="tw:flex-1"></div>
-            <span class="tw:text-[10.5px] tw:text-an-faint">Click a swatch to recolour</span>
+            <span v-if="!fixed" class="tw:text-[10.5px] tw:text-an-faint">
+                Click a swatch to recolour
+            </span>
         </div>
 
-        <ul class="tw:flex tw:flex-col tw:gap-0.5 tw:px-2 tw:pb-2.5">
+        <ul
+            ref="listEl"
+            class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:gap-0.5 tw:overflow-y-auto tw:px-2 tw:pb-2.5 tw:[touch-action:pan-y]"
+        >
             <li v-for="klass in classes" :key="klass.id">
                 <div
                     class="tw:flex tw:h-8 tw:w-full tw:items-center tw:gap-[9px] tw:rounded-[7px] tw:pr-[9px] tw:pl-2 tw:transition-colors"
@@ -86,6 +118,7 @@ const submit = () => {
                             :style="{ background: klass.color }"
                         ></span>
                         <input
+                            v-if="!fixed"
                             :value="klass.color"
                             type="color"
                             class="tw:absolute tw:inset-0 tw:h-full tw:w-full tw:cursor-pointer tw:opacity-0"
@@ -115,7 +148,7 @@ const submit = () => {
                         </span>
                     </button>
                     <kbd
-                        v-if="klass.index < 9"
+                        v-if="klass.index < 9 && !isTouchLayout"
                         class="tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-[5px] tw:py-[3px] tw:font-mono tw:text-[9.5px] tw:leading-none tw:text-an-muted"
                     >
                         {{ klass.index + 1 }}
@@ -123,7 +156,7 @@ const submit = () => {
                 </div>
             </li>
 
-            <li>
+            <li v-if="!fixed">
                 <!-- The name and its colour are one gesture, because both are needed to create the
                      row and asking for the colour afterwards would mean every class is born the
                      suggested shade and recoloured immediately. Blur does not submit here, unlike

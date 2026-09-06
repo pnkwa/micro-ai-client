@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { simplifyPath } from './pathSimplify'
+import { enforceMinSpacing, simplifyPath, smoothClosedPath } from './pathSimplify'
 
 const line = (count: number) =>
     Array.from({ length: count }, (_, i) => ({ x: i / (count - 1), y: 0.5 }))
@@ -76,5 +76,89 @@ describe('simplifyPath', () => {
             { x: 0.5, y: 0.5 },
         ]
         expect(simplifyPath(loop, 0.01)).toEqual(loop)
+    })
+})
+
+describe('smoothClosedPath', () => {
+    const square = [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 1, y: 1 },
+        { x: 0, y: 1 },
+    ]
+
+    it('leaves fewer than three points alone', () => {
+        const two = [
+            { x: 0, y: 0 },
+            { x: 1, y: 1 },
+        ]
+        expect(smoothClosedPath(two, 2)).toEqual(two)
+    })
+
+    it('doubles the vertex count on each pass', () => {
+        expect(smoothClosedPath(square, 1)).toHaveLength(8)
+        expect(smoothClosedPath(square, 2)).toHaveLength(16)
+    })
+
+    it('cuts every corner, so no original sharp vertex survives, and stays inside the hull', () => {
+        const smoothed = smoothClosedPath(square, 1)
+        for (const corner of square) {
+            expect(smoothed.some((p) => p.x === corner.x && p.y === corner.y)).toBe(false)
+        }
+        // Chaikin points are convex mixes of neighbours, so none escapes the square.
+        for (const p of smoothed) {
+            expect(p.x).toBeGreaterThanOrEqual(0)
+            expect(p.x).toBeLessThanOrEqual(1)
+            expect(p.y).toBeGreaterThanOrEqual(0)
+            expect(p.y).toBeLessThanOrEqual(1)
+        }
+    })
+
+    it('rounds the closing seam like any other corner', () => {
+        // The wrap-around edge from the last vertex (0,1) back to the first (0,0) is cut too, which
+        // is what stops a freehand trace closing on a sharp terminal.
+        const smoothed = smoothClosedPath(square, 1)
+        expect(smoothed).toContainEqual({ x: 0, y: 0.75 })
+        expect(smoothed).toContainEqual({ x: 0, y: 0.25 })
+    })
+})
+
+describe('enforceMinSpacing', () => {
+    it('leaves a three-point ring and a non-positive distance alone', () => {
+        const tri = [
+            { x: 0, y: 0 },
+            { x: 1, y: 0 },
+            { x: 0.5, y: 1 },
+        ]
+        expect(enforceMinSpacing(tri, 0.5)).toEqual(tri)
+        expect(enforceMinSpacing(line(5), 0)).toEqual(line(5))
+    })
+
+    it('drops a node within minDist of the one before it', () => {
+        const path = [
+            { x: 0, y: 0 },
+            { x: 0.02, y: 0 },
+            { x: 0.5, y: 0 },
+            { x: 0.5, y: 0.5 },
+        ]
+        expect(enforceMinSpacing(path, 0.1)).toEqual([
+            { x: 0, y: 0 },
+            { x: 0.5, y: 0 },
+            { x: 0.5, y: 0.5 },
+        ])
+    })
+
+    it('drops a trailing node that crowds the first, so the closing edge is not a sliver', () => {
+        const path = [
+            { x: 0, y: 0 },
+            { x: 0.5, y: 0 },
+            { x: 0.5, y: 0.5 },
+            { x: 0.02, y: 0 },
+        ]
+        expect(enforceMinSpacing(path, 0.1)).toEqual([
+            { x: 0, y: 0 },
+            { x: 0.5, y: 0 },
+            { x: 0.5, y: 0.5 },
+        ])
     })
 })

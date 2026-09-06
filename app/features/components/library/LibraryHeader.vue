@@ -113,6 +113,18 @@ const views: { id: LibraryView; label: string; icon: typeof LayoutGrid }[] = [
 
         <div class="tw:flex-1"></div>
 
+        <!-- The phone's way INTO selection mode, top-level like the Photos app rather than buried in
+             the overflow where nobody found it. A long press still works; this is the discoverable
+             half. Hidden when the grid is empty, where there is nothing to pick. -->
+        <button
+            v-if="compact && total > 0"
+            type="button"
+            class="tw:flex tw:h-11 tw:items-center tw:rounded-lg tw:px-2 tw:text-[13px] tw:font-medium tw:text-an-accent-hover"
+            @click="emit('start-selecting')"
+        >
+            Select
+        </button>
+
         <!-- The view toggle has a row of its own on a desktop and lives in the overflow on a phone,
              where two more 44px targets would crowd out the ones people actually reach for. -->
         <div
@@ -148,8 +160,6 @@ const views: { id: LibraryView; label: string; icon: typeof LayoutGrid }[] = [
                 </button>
             </McDropdownMenuTrigger>
             <McDropdownMenuContent align="end">
-                <McDropdownMenuItem @select="emit('start-selecting')">Select</McDropdownMenuItem>
-                <McDropdownMenuSeparator />
                 <McDropdownMenuItem
                     v-for="option in views"
                     :key="option.id"

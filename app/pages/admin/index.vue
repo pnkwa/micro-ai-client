@@ -63,13 +63,15 @@ const saveConfig = async (entry: SystemConfigEntry) => {
 
 // ---- Accounts ---------------------------------------------------------------------------------
 const users = ref<AdminUser[]>([])
-const filterType = ref<'' | 'staff' | 'student'>('')
+// 'all' is a sentinel, not an empty string: reka-ui (McSelect) rejects a SelectItem whose value is
+// '', so the "no filter" option carries a real value and loadUsers maps it back to "send nothing".
+const filterType = ref<'all' | 'staff' | 'student'>('all')
 const filterQuery = ref('')
 
 const loadUsers = async () => {
     try {
         users.value = await userAdminService.list({
-            ...(filterType.value ? { user_type: filterType.value } : {}),
+            ...(filterType.value !== 'all' ? { user_type: filterType.value } : {}),
             ...(filterQuery.value ? { q: filterQuery.value } : {}),
         })
     } catch (e) {
@@ -100,7 +102,7 @@ const createForm = reactive({
  * cast inside an inline template handler trips Nuxt's macro parser at build time.
  */
 const onFilterTypeChange = (v: unknown) => {
-    filterType.value = String(v ?? '') as '' | 'staff' | 'student'
+    filterType.value = String(v) as 'all' | 'staff' | 'student'
     loadUsers()
 }
 const onKindChange = (v: unknown) => {
@@ -114,30 +116,24 @@ const onAuthProviderChange = (v: unknown) => {
 }
 
 /**
- * Options as data rather than <option> children.
+ * Options as data, fed to McSelect - the app-wide select, back here now that this page uses it like
+ * everywhere else.
  *
- * NATIVE controls here, unlike the rest of the app, and the reason is a browser rather than a
- * verdict on McSelect.
+ * HISTORY, worth keeping: these were native <select>s for a while because of a browser, not a
+ * verdict on McSelect. In Arc, using this page and then navigating away left `pointer-events: none`
+ * inline on <body> - the app rendered and scrolled but ignored every click until a reload - which
+ * looked like Arc injecting something around the overlay reka-ui mounts. Safari was always fine.
+ * If that resurfaces, the fallback is native selects on this page alone, not app-wide.
  *
- * In Arc, using this page and then navigating away left `pointer-events: none` inline on <body>:
- * the app rendered and scrolled perfectly and ignored every click until a reload. The same build in
- * Safari is fine, so this is Arc injecting something (a Boost or an extension) around the overlay
- * these selects mount, not a defect in reka-ui or in this page. Investigated at length on
- * 2026-08-23; the app-side guard written for it was deleted once Safari cleared the app.
- *
- * Native selects mount no overlay and sidestep it, which is worth more on the one console an admin
- * lives in than matching the styling. Put McSelect back once Arc is cleared - and if you do, mount
- * one at a time rather than one per account row.
- *
- * The labelled options are kept either way, which was the half worth having: "Local (password)" and
- * a capitalised role are what an admin is choosing between, not the enum values underneath.
+ * The labelled options are the half that always mattered: "Local (password)" and a capitalised role
+ * are what an admin is choosing between, not the enum values underneath.
  */
 const accountTypeOptions = [
     { value: 'staff', label: 'Staff' },
     { value: 'student', label: 'Student' },
 ]
 // A blank value, not a null: it is the "no filter" state the query already sends as an empty string.
-const filterTypeOptions = [{ value: '', label: 'All types' }, ...accountTypeOptions]
+const filterTypeOptions = [{ value: 'all', label: 'All types' }, ...accountTypeOptions]
 const roleOptions = staffRoles.map((r) => ({
     value: r,
     label: r.charAt(0).toUpperCase() + r.slice(1),
@@ -357,15 +353,14 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
                     </p>
                 </div>
                 <div class="tw:flex tw:items-center tw:gap-2">
-                    <McNativeSelect
+                    <McSelect
                         :model-value="filterType"
+                        :options="filterTypeOptions"
+                        option-value="value"
+                        option-label="label"
                         class="tw:w-36"
                         @update:model-value="onFilterTypeChange($event)"
-                    >
-                        <option v-for="o in filterTypeOptions" :key="o.value" :value="o.value">
-                            {{ o.label }}
-                        </option>
-                    </McNativeSelect>
+                    />
                     <div class="tw:w-56">
                         <McInput
                             v-model="filterQuery"
@@ -413,15 +408,14 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
                 <div class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:gap-4">
                     <div class="tw:flex tw:flex-col tw:gap-2">
                         <label class="tw:text-sm tw:font-medium">Account type</label>
-                        <McNativeSelect
+                        <McSelect
                             :model-value="createForm.kind"
+                            :options="accountTypeOptions"
+                            option-value="value"
+                            option-label="label"
                             class="tw:w-full"
                             @update:model-value="onKindChange($event)"
-                        >
-                            <option v-for="o in accountTypeOptions" :key="o.value" :value="o.value">
-                                {{ o.label }}
-                            </option>
-                        </McNativeSelect>
+                        />
                     </div>
                     <div class="tw:flex tw:flex-col tw:gap-2">
                         <label class="tw:text-sm tw:font-medium">Email</label>
@@ -441,15 +435,14 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
                     </div>
                     <div v-if="createForm.kind === 'staff'" class="tw:flex tw:flex-col tw:gap-2">
                         <label class="tw:text-sm tw:font-medium">Role</label>
-                        <McNativeSelect
+                        <McSelect
                             :model-value="createForm.role"
+                            :options="roleOptions"
+                            option-value="value"
+                            option-label="label"
                             class="tw:w-full"
                             @update:model-value="onRoleChange($event)"
-                        >
-                            <option v-for="o in roleOptions" :key="o.value" :value="o.value">
-                                {{ o.label }}
-                            </option>
-                        </McNativeSelect>
+                        />
                     </div>
                     <div v-else class="tw:flex tw:flex-col tw:gap-2">
                         <label class="tw:text-sm tw:font-medium">Student ID</label>
@@ -461,19 +454,14 @@ await Promise.all([loadConfigs(), loadUsers(), loadSystemInfo()])
                     </div>
                     <div class="tw:flex tw:flex-col tw:gap-2">
                         <label class="tw:text-sm tw:font-medium">Auth provider</label>
-                        <McNativeSelect
+                        <McSelect
                             :model-value="createForm.auth_provider"
+                            :options="authProviderOptions"
+                            option-value="value"
+                            option-label="label"
                             class="tw:w-full"
                             @update:model-value="onAuthProviderChange($event)"
-                        >
-                            <option
-                                v-for="o in authProviderOptions"
-                                :key="o.value"
-                                :value="o.value"
-                            >
-                                {{ o.label }}
-                            </option>
-                        </McNativeSelect>
+                        />
                     </div>
                     <div
                         v-if="createForm.auth_provider === 'local'"

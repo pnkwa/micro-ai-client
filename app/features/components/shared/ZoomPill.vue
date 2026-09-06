@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Eye, EyeOff, Maximize2, ZoomIn, ZoomOut } from '@lucide/vue'
+import { useAppLayout } from '~/core/composables/useAppLayout'
 
 /**
  * The zoom controls, bottom-centre. SHARED: the annotator's canvas and the library's lightbox.
@@ -13,7 +14,19 @@ import { Eye, EyeOff, Maximize2, ZoomIn, ZoomOut } from '@lucide/vue'
  * column genuinely IS 13%, and a bare "13%" reads as a bug rather than as the whole picture.
  * Clicking it returns to fit.
  */
-defineProps<{ percent: number; atFit: boolean; enabled: boolean; allHidden: boolean }>()
+const props = defineProps<{
+    percent: number
+    atFit: boolean
+    enabled: boolean
+    allHidden: boolean
+    /**
+     * Sit in the layout as a full-width strip rather than FLOAT over the picture. Used on a stacked
+     * phone, where the shell gives the zoom controls their own row so the image is never hidden under
+     * them - the same rule the pager and the bottom tool/class bars follow. The library lightbox
+     * leaves this off and keeps the floating pill.
+     */
+    docked?: boolean
+}>()
 
 const emit = defineEmits<{
     'zoom-in': []
@@ -21,12 +34,19 @@ const emit = defineEmits<{
     fit: []
     'toggle-visibility': []
 }>()
+
+// Smaller readout on a phone/tablet, where the pill has less room.
+const { isTouchLayout } = useAppLayout()
+
+const rootClass = computed(() =>
+    props.docked
+        ? 'tw:relative tw:flex tw:w-full tw:items-center tw:justify-center tw:gap-0.5 tw:border-t tw:border-white/[0.09] tw:bg-an-overlay tw:p-1'
+        : 'tw:absolute tw:bottom-3 tw:left-1/2 tw:z-10 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-0.5 tw:rounded-xl tw:border tw:border-white/[0.09] tw:bg-an-overlay/95 tw:backdrop-blur tw:p-1',
+)
 </script>
 
 <template>
-    <div
-        class="tw:absolute tw:bottom-3 tw:left-1/2 tw:z-10 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-0.5 tw:rounded-xl tw:border tw:border-white/[0.09] tw:bg-an-overlay/95 tw:backdrop-blur tw:p-1"
-    >
+    <div :class="rootClass">
         <button
             type="button"
             class="tw:flex tw:h-7 tw:w-7 tw:items-center tw:justify-center tw:rounded-lg tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-30"
@@ -40,13 +60,25 @@ const emit = defineEmits<{
 
         <button
             type="button"
-            class="tw:min-w-[68px] tw:rounded-lg tw:px-2 tw:py-1 tw:font-mono tw:text-[11.5px] tw:tabular-nums tw:text-an-d-text tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-30"
+            class="tw:inline-flex tw:items-baseline tw:justify-center tw:gap-1 tw:rounded-lg tw:px-2 tw:py-1 tw:font-mono tw:tabular-nums tw:whitespace-nowrap tw:text-an-d-text tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-30"
+            :class="isTouchLayout ? 'tw:min-w-[54px]' : 'tw:min-w-[68px]'"
             :disabled="!enabled"
             title="Fit to viewport (0)"
             @click="emit('fit')"
         >
-            <span v-if="atFit" class="tw:text-an-d-rail-icon">Fit</span>
-            {{ percent }}%
+            <!-- Explicit size on EACH piece, not inherited: something in the annotator was rendering
+                 "Fit" larger than the number when the size only lived on the button. Both now carry
+                 the same text size so the label and the percent read as one. -->
+            <span
+                v-if="atFit"
+                class="tw:text-an-d-rail-icon"
+                :class="isTouchLayout ? 'tw:text-[10.5px]' : 'tw:text-[11.5px]'"
+            >
+                Fit
+            </span>
+            <span :class="isTouchLayout ? 'tw:text-[10.5px]' : 'tw:text-[11.5px]'">
+                {{ percent }}%
+            </span>
         </button>
 
         <button

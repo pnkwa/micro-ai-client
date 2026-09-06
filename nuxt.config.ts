@@ -67,7 +67,16 @@ export default defineNuxtConfig({
                 lang: 'en',
             },
             meta: [
-                { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+                // Belt and suspenders on page zoom: this pins the scale app-wide where the browser
+                // honours it, and the annotator surfaces additionally set `touch-action: pan-x
+                // pan-y` (AnnotatorShell), which reliably blocks pinch/double-tap page zoom on the
+                // devices - iOS Safari among them - that ignore user-scalable. The canvas keeps its
+                // own image zoom through `touch-action: none`.
+                {
+                    name: 'viewport',
+                    content:
+                        'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no',
+                },
                 { charset: 'utf-8' },
                 { name: 'format-detection', content: 'telephone=no' },
             ],

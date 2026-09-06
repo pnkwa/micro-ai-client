@@ -33,19 +33,17 @@ const emit = defineEmits<{
 }>()
 
 /**
- * Geometry, then provenance: `polygon · 6 pts · seeded 0.91` or `· drawn by you`.
+ * Geometry, then provenance: `polygon, seeded 0.91` or `rectangle, drawn by you`.
  *
  * Provenance is the half that decides what to do with the row. A seeded shape is a claim to check;
  * one you drew is already checked, and saying so is what stops the two blurring together in a list
- * of twenty.
+ * of twenty. The node count is deliberately gone: "6 pts" beside a label read as a graded score.
  */
 const meta = computed(() => {
-    const geometry = props.shape.polygon
-        ? `polygon · ${props.shape.polygon.length} pts`
-        : 'rectangle'
+    const geometry = props.shape.polygon ? 'polygon' : 'rectangle'
     const origin =
         props.confidence !== null ? `seeded ${props.confidence.toFixed(2)}` : 'drawn by you'
-    return `${geometry} · ${origin}`
+    return `${geometry}, ${origin}`
 })
 
 /**

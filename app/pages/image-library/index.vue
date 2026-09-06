@@ -20,6 +20,7 @@ import { useAlbumDrag } from '~/core/composables/useAlbumDrag'
 import { useAppLayout } from '~/core/composables/useAppLayout'
 import { gridMetrics } from '~/core/helpers/libraryGrid'
 import { useImageUpload } from '~/core/composables/useImageUpload'
+import { usePagedImages } from '~/core/composables/usePagedImages'
 import SelectionBar from '~/features/components/library/SelectionBar.vue'
 import DragGhost from '~/features/components/library/DragGhost.vue'
 import Lightbox from '~/features/components/library/Lightbox.vue'
@@ -68,11 +69,6 @@ const models = ref<ModelSpec[]>([])
  */
 const palette = ref<AnnotationLabel[]>([])
 
-const images = ref<LibraryImage[]>([])
-const total = ref(0)
-const imagesLoading = ref(true)
-const page = ref(1)
-
 // ---- what the grid shows -------------------------------------------------------------------------
 
 const albumId = ref<number | null>(null)
@@ -113,7 +109,35 @@ const albumPendingDelete = ref<Album | null>(null)
 // A keystroke per request would be one round trip per character on a server-side search.
 const debouncedSearch = refDebounced(search, 300)
 
+// The grid is one paged listing (usePagedImages): images, total and the load/append/reset live
+// there. Only the SERVER-side half of the view is a filter - the chips and the sort are applied to
+// what is already loaded, so putting them here would refetch for nothing. It watches a serialised
+// key of these, so a change touching two at once is still a single request from page 1.
+const {
+    images,
+    total,
+    page,
+    loading: imagesLoading,
+    hasMore,
+    load: loadImages,
+    loadMore,
+} = usePagedImages({
+    perPage: LIBRARY_PAGE_SIZE,
+    initialLoading: true,
+    clearOnError: true,
+    filters: () => ({
+        ...(albumId.value !== null && { album_id: albumId.value }),
+        ...(debouncedSearch.value && { q: debouncedSearch.value }),
+        ...(mine.value && { mine: true }),
+    }),
+})
+
 const activeAlbum = computed(() => albums.value.find((a) => a.id === albumId.value) ?? null)
+
+// Albums offered by the "Add to album" menus. When an album is being viewed its images are already
+// in it, so filing them into it again is a no-op: drop it from the choices. With no album active
+// (the All-images view) nothing is dropped.
+const albumsToAddTo = computed(() => albums.value.filter((a) => a.id !== albumId.value))
 
 /**
  * The status of every loaded row, from the annotator's own selector.
@@ -326,43 +350,6 @@ const step = (delta: number) => {
 // ---- loading -------------------------------------------------------------------------------------
 
 /**
- * Lazy, appending, one page at a time.
- *
- * `append` is what the sentinel at the foot of the grid asks for. A fresh query resets the list
- * instead, because page 3 of the previous filter has nothing to do with page 1 of this one.
- */
-const loadImages = async (append = false) => {
-    imagesLoading.value = true
-    try {
-        const result = await imageService.list({
-            ...(albumId.value !== null && { album_id: albumId.value }),
-            ...(debouncedSearch.value && { q: debouncedSearch.value }),
-            ...(mine.value && { mine: true }),
-            page: page.value,
-            per_page: LIBRARY_PAGE_SIZE,
-        })
-        images.value = append ? [...images.value, ...result.data] : result.data
-        total.value = result.total
-    } catch (error) {
-        toast.error(apiErrorMessage(error, 'Could not load the library'))
-        if (!append) {
-            images.value = []
-            total.value = 0
-        }
-    } finally {
-        imagesLoading.value = false
-    }
-}
-
-const hasMore = computed(() => images.value.length < total.value)
-
-const loadMore = () => {
-    if (imagesLoading.value || !hasMore.value) return
-    page.value += 1
-    void loadImages(true)
-}
-
-/**
  * How many images each album holds.
  *
  * `GET /albums` carries no count, so this is one `per_page: 1` listing per album, read for its
@@ -404,18 +391,6 @@ const loadAlbums = async () => {
         albumsLoading.value = false
     }
 }
-
-// The query the listing is a function of, and only the SERVER-side half of it: the chips and the
-// sort are applied to what is already loaded, so putting them here would refetch for nothing.
-// Watching one key rather than three refs means a change touching two of them is still one request.
-const query = computed(() => JSON.stringify([albumId.value, debouncedSearch.value, mine.value]))
-
-watch(query, () => {
-    // Back to the first page: appending page 4 of the old query onto the new one would interleave
-    // two different result sets.
-    page.value = 1
-    void loadImages()
-})
 
 await Promise.all([
     loadAlbums(),
@@ -1010,8 +985,9 @@ const onAnnotate = (imageId: number) =>
                 <SelectionBar
                     v-if="selectedCount > 0"
                     :count="selectedCount"
-                    :albums="albums"
+                    :albums="albumsToAddTo"
                     :in-album="canUnfile"
+                    :album-name="activeAlbum?.name ?? null"
                     :layout="layout"
                     @pick-album="albumSheetOpen = true"
                     @add-to-album="addSelectedToAlbum"
@@ -1034,7 +1010,8 @@ const onAnnotate = (imageId: number) =>
                     ref="inspector"
                     :image="inspected"
                     :selection="selectedImages"
-                    :albums="albums"
+                    :albums="albumsToAddTo"
+                    :album-name="activeAlbum?.name ?? null"
                     :models="models"
                     :palette="palette"
                     :view="inspected ? (rowViews[inspected.id] ?? null) : null"
@@ -1070,7 +1047,10 @@ const onAnnotate = (imageId: number) =>
             wanted. There is no sidebar to drag onto at this width and no drag to do it with.
         -->
         <McSheet v-model:open="albumSheetOpen">
-            <McSheetContent side="bottom" class="tw:max-h-[70dvh] tw:p-0">
+            <McSheetContent
+                side="bottom"
+                class="mc-slide-up tw:max-h-[70dvh] tw:rounded-t-2xl tw:p-0"
+            >
                 <McSheetHeader class="tw:border-b tw:border-an-divider tw:px-4 tw:py-3">
                     <McSheetTitle class="tw:text-[14px]">
                         Add {{ selectedCount }} image(s) to
@@ -1105,8 +1085,15 @@ const onAnnotate = (imageId: number) =>
             </McSheetContent>
         </McSheet>
 
+        <!-- Albums open as a bottom sheet, iOS-style: a card that slides up over a dimmed grid,
+             rather than a drawer flying in from the left edge. It is the phone/tablet's route into an
+             album (there is no docked rail below Full), and a sheet from the bottom is where a thumb
+             already is. `mc-slide-up` carries the motion; selecting an album closes it. -->
         <McSheet v-model:open="drawerOpen">
-            <McSheetContent side="left" class="tw:w-[280px] tw:p-0">
+            <McSheetContent
+                side="bottom"
+                class="mc-slide-up tw:flex tw:max-h-[75dvh] tw:flex-col tw:rounded-t-2xl tw:p-0"
+            >
                 <AlbumRail
                     :albums="albums"
                     :loading="albumsLoading"
@@ -1128,6 +1115,11 @@ const onAnnotate = (imageId: number) =>
             Below 1280 the same panel becomes an overlay sheet, which is what the old detail panel
             was at EVERY width. The order of sacrifice is the album sidebar first, then the docking,
             never the grid's columns.
+
+            FULL WIDTH, not a 380px rail. A tablet gets the same full-screen inspector a phone does:
+            capping it at 380px on an iPad left a narrow strip beside a dimmed grid that was too tight
+            for the image, its details and the metadata form. The docked panel at >=1280 is the only
+            place this is a side-by-side column.
         -->
         <McSheet
             :open="inspectorOpen && !canDock && selectedCount > 0"
@@ -1135,12 +1127,14 @@ const onAnnotate = (imageId: number) =>
         >
             <McSheetContent
                 side="right"
-                class="tw:flex tw:w-full tw:flex-col tw:gap-0 tw:p-0 tw:sm:max-w-[380px]"
+                hide-close
+                class="tw:flex tw:w-full tw:max-w-none tw:flex-col tw:gap-0 tw:p-0 tw:sm:max-w-none"
             >
                 <ImageInspector
                     :image="inspected"
                     :selection="selectedImages"
-                    :albums="albums"
+                    :albums="albumsToAddTo"
+                    :album-name="activeAlbum?.name ?? null"
                     :models="models"
                     :palette="palette"
                     :view="inspected ? (rowViews[inspected.id] ?? null) : null"

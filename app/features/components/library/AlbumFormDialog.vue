@@ -46,7 +46,9 @@ const kindOptions = ALBUM_KINDS.map((value) => ({
             ? 'Curated (vetted: usable for question authoring)'
             : value === 'personal'
               ? 'Personal (a working set)'
-              : 'System',
+              : value === 'assignment'
+                ? 'Assignment (an annotation-assignment pool)'
+                : 'System',
 }))
 </script>
 

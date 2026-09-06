@@ -508,6 +508,197 @@ html.mc-scroll-lock body {
     }
 }
 
+/*
+ * The side drawer, same curve as the bottom sheet but on the X axis: used by the mobile/tablet main
+ * navigation, which is a Sheet rather than the desktop width-collapse. The reka `slide-in-from-left`
+ * utilities it shipped with are inert here (no animate plugin), so without this the drawer popped in.
+ */
+@keyframes mc-slide-left-in {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes mc-slide-left-out {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-100%);
+    }
+}
+
+@keyframes mc-slide-right-in {
+    from {
+        transform: translateX(100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes mc-slide-right-out {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(100%);
+    }
+}
+
+.mc-slide-left[data-state='open'] {
+    animation: mc-slide-left-in 320ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mc-slide-left[data-state='closed'] {
+    animation: mc-slide-left-out 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mc-slide-right[data-state='open'] {
+    animation: mc-slide-right-in 320ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mc-slide-right[data-state='closed'] {
+    animation: mc-slide-right-out 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mc-slide-left[data-state='open'],
+    .mc-slide-left[data-state='closed'],
+    .mc-slide-right[data-state='open'],
+    .mc-slide-right[data-state='closed'] {
+        animation: none;
+    }
+}
+
+/**
+ * The pop that every select, menu and popover shares when its options open.
+ *
+ * Same reason as the sheet above: the shadcn content components ship `animate-in` / `zoom-in-95`
+ * utilities, but with no animate plugin installed those classes are inert and the options appeared
+ * in one frame. This is the one small grow-and-fade, keyed off the `data-state` reka-ui writes so the
+ * close half plays too (its presence handling waits for `animationend` before unmounting).
+ *
+ * The scale grows from the trigger: each content element already sets `transform-origin` to reka's
+ * own `--reka-*-content-transform-origin`, so the menu unfolds from the corner it is anchored to
+ * rather than its own middle. The exit is quicker than the entrance, so a dismissed menu is gone.
+ */
+@keyframes mc-pop-in {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes mc-pop-out {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+}
+
+.mc-pop[data-state='open'] {
+    animation: mc-pop-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mc-pop[data-state='closed'] {
+    animation: mc-pop-out 110ms ease-in;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mc-pop[data-state='open'],
+    .mc-pop[data-state='closed'] {
+        animation: none;
+    }
+}
+
+/**
+ * The modal's grow-and-fade, and its backdrop's fade.
+ *
+ * ONLY scale and opacity move here - deliberately NOT translate. The dialog is centred with Tailwind
+ * v4's `translate-x/y-[-50%]`, which compile to the standalone `translate` PROPERTY, not `transform`.
+ * A keyframe that also translated inside `transform` stacked a second -50%/-50% on top of that for
+ * the length of the animation, so the box opened off to the top-left and snapped to centre when it
+ * ended. Scaling about the box's own centre (`transform` is free) leaves the `translate` property to
+ * do the centring, so it grows in place. `mc-fade` is the overlay, opacity alone, so the dim comes
+ * up with the box.
+ */
+@keyframes mc-dialog-in {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes mc-dialog-out {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+}
+
+@keyframes mc-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes mc-fade-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+.mc-dialog[data-state='open'] {
+    animation: mc-dialog-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mc-dialog[data-state='closed'] {
+    animation: mc-dialog-out 130ms ease-in;
+}
+
+.mc-fade[data-state='open'] {
+    animation: mc-fade-in 180ms ease-out;
+}
+
+.mc-fade[data-state='closed'] {
+    animation: mc-fade-out 130ms ease-in;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mc-dialog[data-state='open'],
+    .mc-dialog[data-state='closed'],
+    .mc-fade[data-state='open'],
+    .mc-fade[data-state='closed'] {
+        animation: none;
+    }
+}
+
 /**
  * Take the sidebar trigger out of the app bar so a page can own it.
  *

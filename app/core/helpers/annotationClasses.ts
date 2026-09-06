@@ -48,6 +48,24 @@ export function colorOf(label: AnnotationLabel): string {
     return `#${label.color_hex}`
 }
 
+/** Fallback for a student box whose label isn't in the instructor's palette (the legend's purple). */
+export const DEFAULT_REVIEW_BOX_COLOR = '#7c5ce0'
+
+/**
+ * Colour for a student's box in instructor review (BE-ADR-039): the instructor's own class colour
+ * from their `annotation_labels` palette when the student's label matches one (case-insensitive),
+ * otherwise a default. `labelColors` maps the instructor's label to its bare six-hex colour. Returns
+ * CSS hex (with `#`).
+ */
+export function reviewBoxColor(label: string | null, labelColors: Record<string, string>): string {
+    const key = (label ?? '').trim().toLowerCase()
+    if (!key) return DEFAULT_REVIEW_BOX_COLOR
+    for (const name in labelColors) {
+        if (name.trim().toLowerCase() === key) return `#${labelColors[name]!.replace('#', '')}`
+    }
+    return DEFAULT_REVIEW_BOX_COLOR
+}
+
 export interface AnnotationClass {
     /** The label row's server id. This is what a write sends and what a pick emits. */
     id: number
@@ -143,4 +161,34 @@ export function dominantLabelId(shapes: Shape[]): number | null {
 export function classForDigit(classes: AnnotationClass[], digit: number): AnnotationClass | null {
     if (!Number.isInteger(digit) || digit < 1 || digit > 9) return null
     return classes[digit - 1] ?? null
+}
+
+/**
+ * Give any newly drawn shape the active class (pick-then-draw).
+ *
+ * Only shapes NOT already in `knownIds` are touched, and each is added to it, so a class cleared or
+ * renamed later stays that way and restored work is left alone. A shape that already carries a class
+ * (`labelId`) or any text is skipped, and nothing happens when no class is active (`activeLabelId`
+ * null) - which is how drawing an unlabelled box stays possible. Mutates the shapes in place and
+ * returns whether anything changed, so the caller can commit one history step.
+ */
+export function applyActiveLabel(
+    shapes: Shape[],
+    knownIds: Set<string>,
+    palette: AnnotationLabel[],
+    activeLabelId: number | null,
+): boolean {
+    let changed = false
+    for (const shape of shapes) {
+        if (knownIds.has(shape.id)) continue
+        knownIds.add(shape.id)
+        if (activeLabelId === null || shape.labelId !== null || shape.label) continue
+        const label = palette.find((entry) => entry.id === activeLabelId)
+        if (label) {
+            shape.labelId = label.id
+            shape.label = label.label
+            changed = true
+        }
+    }
+    return changed
 }

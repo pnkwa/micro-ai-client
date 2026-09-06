@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { Download, FolderPlus, MoreHorizontal, Pencil, Play, Trash2 } from '@lucide/vue'
+import {
+    Download,
+    FolderMinus,
+    FolderPlus,
+    MoreHorizontal,
+    Pencil,
+    Play,
+    Trash2,
+} from '@lucide/vue'
 import type { Album } from '~/services/albumService'
 import type { AppLayout } from '~/core/composables/useAppLayout'
 
@@ -19,6 +27,8 @@ const props = defineProps<{
     albums: Album[]
     /** Whether every selected image sits in the album currently being viewed. */
     inAlbum?: boolean
+    /** The album being viewed, if any, so "Remove from …" names it rather than saying "this album". */
+    albumName?: string | null
     layout: AppLayout
 }>()
 
@@ -34,6 +44,13 @@ const emit = defineEmits<{
 }>()
 
 const compact = computed(() => props.layout === 'compact')
+
+/**
+ * The floating pill carries a label on every button at full width, but on a medium window the whole
+ * strip (count + four actions + overflow + Clear) runs wider than the viewport and the labels wrap.
+ * There it drops to icons - each keeps its title/aria-label - so the bar stays one compact row.
+ */
+const dense = computed(() => props.layout === 'medium')
 
 /**
  * Four actions, icon over an 11px label, evenly flexed, plus the overflow.
@@ -97,10 +114,11 @@ const fire = (id: 'album' | 'run' | 'annotate' | 'download') => {
                 </button>
             </McDropdownMenuTrigger>
             <McDropdownMenuContent align="end" side="top">
-                <McDropdownMenuItem :disabled="!inAlbum" @select="emit('remove-from-album')">
-                    Remove from this album
+                <McDropdownMenuItem v-if="inAlbum" @select="emit('remove-from-album')">
+                    <FolderMinus class="tw:h-4 tw:w-4" />
+                    Remove from {{ albumName }}
                 </McDropdownMenuItem>
-                <McDropdownMenuSeparator />
+                <McDropdownMenuSeparator v-if="inAlbum" />
                 <McDropdownMenuItem variant="destructive" @select="emit('delete')">
                     <Trash2 class="tw:h-4 tw:w-4" />
                     Delete {{ count }} image{{ count === 1 ? '' : 's' }}
@@ -113,7 +131,9 @@ const fire = (id: 'album' | 'run' | 'annotate' | 'download') => {
         v-else
         class="tw:absolute tw:bottom-[22px] tw:left-1/2 tw:z-20 tw:flex tw:h-11 tw:-translate-x-1/2 tw:items-center tw:gap-1 tw:rounded-[10px] tw:border tw:border-white/[0.09] tw:bg-an-text tw:pr-2 tw:pl-3.5 tw:shadow-[0_8px_30px_rgba(13,17,23,0.28)]"
     >
-        <span class="tw:mr-2 tw:font-mono tw:text-[12px] tw:text-white tw:tabular-nums">
+        <span
+            class="tw:mr-2 tw:shrink-0 tw:font-mono tw:text-[12px] tw:whitespace-nowrap tw:text-white tw:tabular-nums"
+        >
             {{ count }} selected
         </span>
 
@@ -121,10 +141,12 @@ const fire = (id: 'album' | 'run' | 'annotate' | 'download') => {
             <McDropdownMenuTrigger as-child>
                 <button
                     type="button"
-                    class="tw:flex tw:h-[30px] tw:items-center tw:gap-1.5 tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:text-an-d-strong tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white"
+                    class="tw:flex tw:h-[30px] tw:shrink-0 tw:items-center tw:gap-1.5 tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:whitespace-nowrap tw:text-an-d-strong tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white"
+                    :aria-label="dense ? 'Add to album' : undefined"
+                    :title="dense ? 'Add to album' : undefined"
                 >
                     <FolderPlus class="tw:h-3.5 tw:w-3.5" />
-                    Add to album
+                    <span v-if="!dense">Add to album</span>
                 </button>
             </McDropdownMenuTrigger>
             <McDropdownMenuContent align="start">
@@ -152,46 +174,52 @@ const fire = (id: 'album' | 'run' | 'annotate' | 'download') => {
         <button
             type="button"
             disabled
-            class="tw:flex tw:h-[30px] tw:cursor-not-allowed tw:items-center tw:gap-1.5 tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:text-white/35"
+            class="tw:flex tw:h-[30px] tw:shrink-0 tw:cursor-not-allowed tw:items-center tw:gap-1.5 tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:whitespace-nowrap tw:text-white/35"
+            aria-label="Run model"
             title="Running a model over a batch needs an endpoint that takes a list. Coming soon."
         >
             <Play class="tw:h-3.5 tw:w-3.5" />
-            Run model
+            <span v-if="!dense">Run model</span>
         </button>
 
         <button
             type="button"
-            class="tw:flex tw:h-[30px] tw:items-center tw:gap-1.5 tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:text-an-d-strong tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white"
+            class="tw:flex tw:h-[30px] tw:shrink-0 tw:items-center tw:gap-1.5 tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:whitespace-nowrap tw:text-an-d-strong tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white"
+            :aria-label="dense ? 'Annotate' : undefined"
+            :title="dense ? 'Annotate' : undefined"
             @click="emit('annotate')"
         >
             <Pencil class="tw:h-3.5 tw:w-3.5" />
-            Annotate
+            <span v-if="!dense">Annotate</span>
         </button>
 
         <button
             type="button"
-            class="tw:flex tw:h-[30px] tw:items-center tw:gap-1.5 tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:text-an-d-strong tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white"
+            class="tw:flex tw:h-[30px] tw:shrink-0 tw:items-center tw:gap-1.5 tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:whitespace-nowrap tw:text-an-d-strong tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white"
+            :aria-label="dense ? 'Download' : undefined"
+            :title="dense ? 'Download' : undefined"
             @click="emit('download')"
         >
             <Download class="tw:h-3.5 tw:w-3.5" />
-            Download
+            <span v-if="!dense">Download</span>
         </button>
 
         <McDropdownMenu>
             <McDropdownMenuTrigger as-child>
                 <button
                     type="button"
-                    class="tw:flex tw:h-[30px] tw:items-center tw:rounded-md tw:px-2 tw:text-an-d-strong tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white"
+                    class="tw:flex tw:h-[30px] tw:shrink-0 tw:items-center tw:rounded-md tw:px-2 tw:text-an-d-strong tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white"
                     aria-label="More actions"
                 >
                     <MoreHorizontal class="tw:h-3.5 tw:w-3.5" />
                 </button>
             </McDropdownMenuTrigger>
             <McDropdownMenuContent align="end">
-                <McDropdownMenuItem :disabled="!inAlbum" @select="emit('remove-from-album')">
-                    Remove from this album
+                <McDropdownMenuItem v-if="inAlbum" @select="emit('remove-from-album')">
+                    <FolderMinus class="tw:h-4 tw:w-4" />
+                    Remove from {{ albumName }}
                 </McDropdownMenuItem>
-                <McDropdownMenuSeparator />
+                <McDropdownMenuSeparator v-if="inAlbum" />
                 <McDropdownMenuItem variant="destructive" @select="emit('delete')">
                     <Trash2 class="tw:h-4 tw:w-4" />
                     Delete {{ count }} image{{ count === 1 ? '' : 's' }}
@@ -199,11 +227,11 @@ const fire = (id: 'album' | 'run' | 'annotate' | 'download') => {
             </McDropdownMenuContent>
         </McDropdownMenu>
 
-        <span class="tw:mx-1 tw:h-5 tw:w-px tw:bg-white/15"></span>
+        <span class="tw:mx-1 tw:h-5 tw:w-px tw:shrink-0 tw:bg-white/15"></span>
 
         <button
             type="button"
-            class="tw:flex tw:h-[30px] tw:items-center tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:text-an-d-strong tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white"
+            class="tw:flex tw:h-[30px] tw:shrink-0 tw:items-center tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:whitespace-nowrap tw:text-an-d-strong tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white"
             @click="emit('clear')"
         >
             Clear

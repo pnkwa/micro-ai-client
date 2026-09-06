@@ -23,6 +23,11 @@ export const imageBaseSchema = z.object({
     // Who supplied the bytes FIRST. Under the unique content hash, later uploaders of identical
     // bytes are not recorded at all, so this is provenance and NOT an ownership claim.
     created_by: z.number().nullable(),
+    // The first uploader's display name, resolved server-side from `created_by`. OPTIONAL because it
+    // is a pending backend addition (see .claude/note/2026-09-06-image-uploader-name.md): the wire
+    // carries only the id today, so the library shows "you" for your own uploads and nothing for
+    // others until this arrives. Kept in the schema now so Zod does not strip it once it does.
+    created_by_name: z.string().nullable().optional(),
     created_at: z.string(),
     updated_at: z.string(),
 })
@@ -197,18 +202,27 @@ export const imageService = {
      * manifest's segmenter behind it (ML-ADR-003); `segmentModel` overrides which one, and null
      * opts out of chaining entirely. Re-running the same image under the same pair reuses the
      * stored result and skips the worker, but still records a row under the caller's name.
+     *
+     * `minConfidence` (0..1) is a RESPONSE-ONLY trim: boxes below it are dropped from what comes
+     * back, but the full result is still persisted, so the dedup cache stays complete and a later
+     * caller with a lower or absent floor gets every box back. Omitted (undefined) means no trim,
+     * which is the same as before this param existed. The server rejects a value outside [0,1].
      */
     async detect(
         id: number,
         model: string,
         segmentModel?: string | null,
+        minConfidence?: number,
     ): Promise<DetectionRecord> {
         const { $api } = useNuxtApp()
         const response = await $api(imageRoutes.detect(id), {
             method: 'POST',
             body: {
                 model,
-                ...(segmentModel !== undefined && { segment_model: segmentModel ?? '' }),
+                // JSON carries null, so skip travels as a real null (not an empty-string
+                // sentinel): the server reads null as "opt out of chaining".
+                ...(segmentModel !== undefined && { segment_model: segmentModel }),
+                ...(minConfidence !== undefined && { min_confidence: minConfidence }),
             },
         })
         return detectionSchema.parse(response)

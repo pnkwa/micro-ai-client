@@ -4,6 +4,7 @@ import { AlertCircle, Check, CircleDot, ImageOff, Loader2, Search, Upload } from
 import type { LibraryImage } from '~/services/imageService'
 import type { QueueRowView } from '~/core/helpers/annotationQueue'
 import { useImageObjectUrls } from '~/core/composables/useImageObjectUrls'
+import { useDelayedFlag } from '~/core/composables/useDelayedFlag'
 import { carriesFiles } from '~/core/composables/useAlbumDrag'
 import type { UploadItem } from '~/core/composables/useImageUpload'
 import ImageGridTile from './ImageGridTile.vue'
@@ -83,6 +84,13 @@ const emit = defineEmits<{
     upload: []
     'clear-filters': []
 }>()
+
+// The APPEND skeletons (the row under existing content, on a fast filter change or scroll-append)
+// show only once the load is genuinely slow: a row that flashes in and out within a couple of frames
+// reads as a glitch. The FIRST-load skeleton grid stays immediate - with nothing on screen yet, its
+// shape IS the feedback, and delaying it would flash the empty state instead. The infinite-scroll
+// guard below stays on the REAL `loading`, so a fast load still blocks a second `more` request.
+const showSkeletons = useDelayedFlag(computed(() => !!props.loading))
 
 /**
  * The FILE drop, which is the only native drag-and-drop left on this page.
@@ -180,18 +188,23 @@ useIntersectionObserver(
 /**
  * The grid's own geometry, all four numbers from one table.
  *
- * *** FIXED WIDTH, NOT `minmax(x, 1fr)`. *** With `1fr` every card stretches to share the row, so
- * opening the inspector - which takes 400px off the grid - resized every picture on screen at the
- * moment someone clicked one. A click should indicate, not reflow. At a fixed width the grid drops
- * a column instead and every remaining card is the size it was, which also means the card you just
- * clicked stays under your cursor.
+ * *** FIXED WIDTH ON THE DESKTOP, `minmax(col, 1fr)` ON TOUCH. *** With `1fr` every card stretches
+ * to share the row. On the desktop that is a trap: the docked inspector takes 400px off the grid, so
+ * stretched cards all resized the instant someone clicked one, and a click should indicate, not
+ * reflow. Fixed, the grid drops a column instead and the card you clicked stays under the cursor.
  *
- * `auto-fill` still does the responsive work, so one number covers a 1400px screen and a 900px one
- * without a breakpoint per size. The cost is a ribbon of space at the right edge when the container
- * does not divide evenly, which is a fair trade for pictures that hold still.
+ * Below Full the inspector is a full-screen overlay, not a docked column, so the grid's width never
+ * changes under a click - there is nothing to hold still. The cards fill the row there instead,
+ * which is what removes the ribbon of dead space at the right edge on a tablet or phone. `col` is
+ * the minimum, so `auto-fill` still packs as many as fit before stretching the remainder.
+ *
+ * `auto-fill` (not `auto-fit`) either way, so a short last row keeps the card size rather than
+ * blowing two pictures up to half the screen each.
  */
 const gridStyle = computed(() => ({
-    gridTemplateColumns: `repeat(auto-fill, ${props.metrics.col}px)`,
+    gridTemplateColumns: props.touch
+        ? `repeat(auto-fill, minmax(${props.metrics.col}px, 1fr))`
+        : `repeat(auto-fill, ${props.metrics.col}px)`,
     gap: `${props.metrics.gap}px`,
 }))
 </script>
@@ -346,7 +359,7 @@ const gridStyle = computed(() => ({
         </div>
 
         <!-- Appending, rather than a first load: a row of skeletons under what is already there. -->
-        <ul v-if="images.length && loading" class="tw:mt-4 tw:grid" :style="gridStyle">
+        <ul v-if="images.length && showSkeletons" class="tw:mt-4 tw:grid" :style="gridStyle">
             <li v-for="n in 4" :key="n">
                 <McSkeleton class="tw:aspect-[4/3] tw:w-full tw:rounded-lg" />
             </li>

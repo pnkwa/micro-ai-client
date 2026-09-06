@@ -5,6 +5,7 @@ import {
     ChevronRight,
     Eye,
     EyeOff,
+    FolderMinus,
     FolderPlus,
     ImageOff,
     Loader2,
@@ -27,6 +28,8 @@ import { toShapes, type Shape } from '~/core/helpers/annotationShapes'
 import { colorForShape } from '~/core/helpers/annotationClasses'
 import type { QueueRowView } from '~/core/helpers/annotationQueue'
 import { formatDayTime } from '~/core/helpers/dateFormat'
+import { modelLabel } from '~/core/helpers/modelLabel'
+import { useDelayedFlag } from '~/core/composables/useDelayedFlag'
 import {
     duplicateNote,
     imageDisplayName,
@@ -74,6 +77,8 @@ const props = defineProps<{
      * the case that actually happens, which is renaming one image onto a neighbour nobody selected.
      */
     siblingNames?: string[]
+    /** The album currently being viewed, if any: names the "Remove from …" action, and gates it. */
+    albumName?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -97,6 +102,10 @@ const multi = computed(() => props.selection.length > 1)
 const detail = ref<LibraryImage | null>(null)
 const imageUrl = ref<string | null>(null)
 const imageError = ref<'forbidden' | 'unavailable' | null>(null)
+// True while the full-res blob is being fetched. Delayed for the spinner so a CACHED image, which
+// resolves in a frame or two, does not blink the spinner on before showing the picture.
+const imageLoading = ref(false)
+const showSpinner = useDelayedFlag(imageLoading)
 const shapes = ref<Shape[]>([])
 const natural = ref<{ w: number; h: number } | null>(null)
 const fileSize = ref<number | null>(null)
@@ -125,6 +134,7 @@ const loadImage = async (row: LibraryImage) => {
     natural.value = null
     fileSize.value = null
     fileType.value = null
+    imageLoading.value = true
     try {
         const url = await imageService.blobUrl(row.id, undefined, row.content_hash)
         imageUrl.value = url
@@ -136,6 +146,8 @@ const loadImage = async (row: LibraryImage) => {
         fileType.value = blob.type
     } catch (error) {
         imageError.value = isForbidden(error) ? 'forbidden' : 'unavailable'
+    } finally {
+        imageLoading.value = false
     }
 }
 
@@ -246,6 +258,25 @@ const classRows = computed(() => {
 
 const filedIn = computed(() => detail.value?.albums ?? [])
 
+/**
+ * Who first uploaded the image, for the Details list.
+ *
+ * The server resolves the name into `created_by_name`; until that ships (see the backend note) the
+ * wire carries only the id, so the one name we can name without a lookup is the reader's own -
+ * "you" - when the upload is theirs. Null otherwise, and the row is hidden rather than showing a
+ * bare id nobody can read.
+ */
+const auth = useAuth()
+const uploadedBy = computed(() => {
+    const image = detail.value
+    if (!image) return null
+    if (image.created_by_name) return image.created_by_name
+    if (image.created_by != null && image.created_by === auth.user?.id) {
+        return [auth.user.firstname, auth.user.lastname].filter(Boolean).join(' ') || 'you'
+    }
+    return null
+})
+
 const addableAlbums = computed(() => {
     const already = new Set(filedIn.value.map((album) => album.id))
     return props.albums.filter((album) => !already.has(album.id))
@@ -254,7 +285,7 @@ const addableAlbums = computed(() => {
 const detectors = computed(() =>
     props.models
         .filter((model) => model.task === 'detect' || model.task === 'classify')
-        .map((model) => ({ value: model.name, label: model.displayName })),
+        .map((model) => ({ value: model.name, label: modelLabel(model.displayName) })),
 )
 
 /**
@@ -363,10 +394,13 @@ const applyToAll = () => {
                     </button>
                 </McDropdownMenuTrigger>
                 <McDropdownMenuContent align="end">
-                    <McDropdownMenuItem @select="emit('remove-from-album')">
-                        Remove from this album
+                    <!-- Only when an album is being viewed, and named, so it is clear which one the
+                         images are leaving rather than a vague "this album". -->
+                    <McDropdownMenuItem v-if="albumName" @select="emit('remove-from-album')">
+                        <FolderMinus class="tw:h-4 tw:w-4" />
+                        Remove from {{ albumName }}
                     </McDropdownMenuItem>
-                    <McDropdownMenuSeparator />
+                    <McDropdownMenuSeparator v-if="albumName" />
                     <McDropdownMenuItem variant="destructive" @select="emit('delete')">
                         <Trash2 class="tw:h-4 tw:w-4" />
                         Delete {{ selection.length }} images
@@ -608,9 +642,13 @@ const applyToAll = () => {
                     A SPINNER on the dark ground, not a skeleton. This is the FULL-RESOLUTION
                     picture - multi-megabyte microscopy frames - so the wait is seconds rather than
                     a flicker, and a shimmer over black reads as a panel that has failed rather than
-                    one that is working.
+                    one that is working. Held back until the wait is real (showSpinner), so a cached
+                    picture just appears rather than flashing the spinner first.
                 -->
-                <div v-else class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center">
+                <div
+                    v-else-if="showSpinner"
+                    class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center"
+                >
                     <Loader2 class="tw:h-6 tw:w-6 tw:animate-spin tw:text-an-d-disabled" />
                 </div>
 
@@ -718,6 +756,10 @@ const applyToAll = () => {
                     <dd class="tw:font-mono tw:text-an-n-700 tw:tabular-nums">
                         {{ formatDayTime(detail.created_at) }}
                     </dd>
+                    <template v-if="uploadedBy">
+                        <dt class="tw:text-an-n-500">Uploaded by</dt>
+                        <dd class="tw:text-an-n-700">{{ uploadedBy }}</dd>
+                    </template>
                     <dt class="tw:text-an-n-500">Album</dt>
                     <dd>
                         <!--
