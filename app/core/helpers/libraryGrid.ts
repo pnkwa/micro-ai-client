@@ -8,9 +8,12 @@ import type { AppLayout } from '~/core/composables/useAppLayout'
  * touching every other page to change this one. Every number the grid uses comes from here, so a
  * layout that looks wrong is wrong in one table rather than in six class strings.
  *
- * The card width is FIXED at each mode rather than `minmax(x, 1fr)`: cards that stretch to fill a
- * row all resize the moment the inspector opens, which turns a click into a reflow of the whole
- * screen. Fixed, the grid drops a column and everything else holds still.
+ * On the DESKTOP the card width is used FIXED rather than `minmax(x, 1fr)`: cards that stretch to
+ * fill a row all resize the moment the docked inspector opens, which turns a click into a reflow of
+ * the whole screen. Fixed, the grid drops a column and everything else holds still. Below Full the
+ * inspector is a full-screen overlay, not a docked column, so the grid there uses `col` as a MINIMUM
+ * and fills the row (see ImageGrid) - which is why the touch cards are set smaller here, to pack more
+ * of them across a tablet or phone instead of stranding a ribbon of dead space at the right edge.
  */
 export interface GridMetrics {
     /** Card width in px. `auto-fill` decides how many fit. */
@@ -24,8 +27,10 @@ export interface GridMetrics {
 
 const BASE: Record<AppLayout, GridMetrics> = {
     full: { col: 208, gap: 16, pad: 20, footer: 44 },
-    medium: { col: 180, gap: 14, pad: 16, footer: 44 },
-    compact: { col: 148, gap: 10, pad: 12, footer: 40 },
+    // `col` is a MINIMUM below Full (the grid fills the row), so these are set small on purpose: ~5
+    // across a portrait tablet and ~3 across a phone, then stretched to leave no right-edge ribbon.
+    medium: { col: 140, gap: 14, pad: 16, footer: 44 },
+    compact: { col: 116, gap: 10, pad: 12, footer: 40 },
 }
 
 /**

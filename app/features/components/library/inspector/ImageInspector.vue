@@ -28,6 +28,8 @@ import { toShapes, type Shape } from '~/core/helpers/annotationShapes'
 import { colorForShape } from '~/core/helpers/annotationClasses'
 import type { QueueRowView } from '~/core/helpers/annotationQueue'
 import { formatDayTime } from '~/core/helpers/dateFormat'
+import { modelLabel } from '~/core/helpers/modelLabel'
+import { useDelayedFlag } from '~/core/composables/useDelayedFlag'
 import {
     duplicateNote,
     imageDisplayName,
@@ -100,6 +102,10 @@ const multi = computed(() => props.selection.length > 1)
 const detail = ref<LibraryImage | null>(null)
 const imageUrl = ref<string | null>(null)
 const imageError = ref<'forbidden' | 'unavailable' | null>(null)
+// True while the full-res blob is being fetched. Delayed for the spinner so a CACHED image, which
+// resolves in a frame or two, does not blink the spinner on before showing the picture.
+const imageLoading = ref(false)
+const showSpinner = useDelayedFlag(imageLoading)
 const shapes = ref<Shape[]>([])
 const natural = ref<{ w: number; h: number } | null>(null)
 const fileSize = ref<number | null>(null)
@@ -128,6 +134,7 @@ const loadImage = async (row: LibraryImage) => {
     natural.value = null
     fileSize.value = null
     fileType.value = null
+    imageLoading.value = true
     try {
         const url = await imageService.blobUrl(row.id, undefined, row.content_hash)
         imageUrl.value = url
@@ -139,6 +146,8 @@ const loadImage = async (row: LibraryImage) => {
         fileType.value = blob.type
     } catch (error) {
         imageError.value = isForbidden(error) ? 'forbidden' : 'unavailable'
+    } finally {
+        imageLoading.value = false
     }
 }
 
@@ -257,7 +266,7 @@ const addableAlbums = computed(() => {
 const detectors = computed(() =>
     props.models
         .filter((model) => model.task === 'detect' || model.task === 'classify')
-        .map((model) => ({ value: model.name, label: model.displayName })),
+        .map((model) => ({ value: model.name, label: modelLabel(model.displayName) })),
 )
 
 /**
@@ -614,9 +623,13 @@ const applyToAll = () => {
                     A SPINNER on the dark ground, not a skeleton. This is the FULL-RESOLUTION
                     picture - multi-megabyte microscopy frames - so the wait is seconds rather than
                     a flicker, and a shimmer over black reads as a panel that has failed rather than
-                    one that is working.
+                    one that is working. Held back until the wait is real (showSpinner), so a cached
+                    picture just appears rather than flashing the spinner first.
                 -->
-                <div v-else class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center">
+                <div
+                    v-else-if="showSpinner"
+                    class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center"
+                >
                     <Loader2 class="tw:h-6 tw:w-6 tw:animate-spin tw:text-an-d-disabled" />
                 </div>
 
