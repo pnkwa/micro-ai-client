@@ -34,9 +34,23 @@ export const studentGradeSchema = z.object({
     possible: z.number(),
 })
 
+// A staff member on a class, flattened by the API for the Manage tab's staff table. `role` is
+// derived server-side: 'owner' for the class creator, otherwise the staff's global role with
+// 'admin' shown as 'instructor'. `added_at` is when they were linked to the class.
+export const classStaffMemberSchema = z.object({
+    staff_id: z.number(),
+    firstname: z.string(),
+    lastname: z.string(),
+    email: z.string(),
+    role: z.enum(['owner', 'instructor', 'ta']),
+    is_owner: z.boolean(),
+    added_at: z.string(),
+})
+
 export type ClassItem = z.infer<typeof classSchema>
 export type StudentRosterItem = z.infer<typeof studentRosterSchema>
 export type StudentGrade = z.infer<typeof studentGradeSchema>
+export type ClassStaffMember = z.infer<typeof classStaffMemberSchema>
 
 export interface EnrollStudentInput {
     student_id: string
@@ -104,6 +118,20 @@ export const classService = {
         const { $api } = useNuxtApp()
         const response = await $api(classRoutes.grades(id))
         return z.array(studentGradeSchema).parse(response)
+    },
+
+    // The class's staff, flattened for the Manage tab (owner first). Any authed user can read.
+    async getStaff(id: number): Promise<ClassStaffMember[]> {
+        const { $api } = useNuxtApp()
+        const response = await $api(classRoutes.staff(id))
+        return z.array(classStaffMemberSchema).parse(response)
+    },
+
+    // Assign a staff member by email. The API resolves it (404 unknown / 400 non-staff / 409
+    // already assigned) — the caller surfaces those via apiErrorMessage.
+    async addStaff(id: number, email: string): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(classRoutes.staff(id), { method: 'POST', body: { email } })
     },
 
     async enroll(id: number, students: EnrollStudentInput[]): Promise<void> {
