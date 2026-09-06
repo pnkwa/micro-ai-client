@@ -508,6 +508,72 @@ html.mc-scroll-lock body {
     }
 }
 
+/*
+ * The side drawer, same curve as the bottom sheet but on the X axis: used by the mobile/tablet main
+ * navigation, which is a Sheet rather than the desktop width-collapse. The reka `slide-in-from-left`
+ * utilities it shipped with are inert here (no animate plugin), so without this the drawer popped in.
+ */
+@keyframes mc-slide-left-in {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes mc-slide-left-out {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-100%);
+    }
+}
+
+@keyframes mc-slide-right-in {
+    from {
+        transform: translateX(100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes mc-slide-right-out {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(100%);
+    }
+}
+
+.mc-slide-left[data-state='open'] {
+    animation: mc-slide-left-in 320ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mc-slide-left[data-state='closed'] {
+    animation: mc-slide-left-out 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mc-slide-right[data-state='open'] {
+    animation: mc-slide-right-in 320ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mc-slide-right[data-state='closed'] {
+    animation: mc-slide-right-out 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mc-slide-left[data-state='open'],
+    .mc-slide-left[data-state='closed'],
+    .mc-slide-right[data-state='open'],
+    .mc-slide-right[data-state='closed'] {
+        animation: none;
+    }
+}
+
 /**
  * The pop that every select, menu and popover shares when its options open.
  *

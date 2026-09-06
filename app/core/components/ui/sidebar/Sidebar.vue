@@ -41,7 +41,10 @@ const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
             data-slot="sidebar"
             data-mobile="true"
             :side="side"
-            class="tw:bg-sidebar tw:text-sidebar-foreground tw:w-(--sidebar-width) tw:p-0 tw:[&>button]:hidden"
+            :class="[
+                'tw:bg-sidebar tw:text-sidebar-foreground tw:w-(--sidebar-width) tw:p-0 tw:[&>button]:hidden',
+                side === 'right' ? 'mc-slide-right' : 'mc-slide-left',
+            ]"
             :style="{
                 '--sidebar-width': SIDEBAR_WIDTH_MOBILE,
             }"
@@ -69,7 +72,7 @@ const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
         <div
             :class="
                 cn(
-                    'tw:relative tw:w-(--sidebar-width) tw:bg-transparent tw:transition-[width] tw:duration-200 tw:ease-linear',
+                    'tw:relative tw:w-(--sidebar-width) tw:bg-transparent tw:transition-[width] tw:duration-300 tw:ease-[cubic-bezier(0.32,0.72,0,1)]',
                     'tw:group-data-[collapsible=offcanvas]:w-0',
                     'tw:group-data-[side=right]:rotate-180',
                     variant === 'floating' || variant === 'inset'
@@ -81,7 +84,7 @@ const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
         <div
             :class="
                 cn(
-                    'tw:fixed tw:inset-y-0 tw:z-10 tw:hidden tw:h-svh tw:w-(--sidebar-width) tw:transition-[left,right,width] tw:duration-200 tw:ease-linear tw:md:flex',
+                    'tw:fixed tw:inset-y-0 tw:z-10 tw:hidden tw:h-svh tw:w-(--sidebar-width) tw:transition-[left,right,width] tw:duration-300 tw:ease-[cubic-bezier(0.32,0.72,0,1)] tw:md:flex',
                     side === 'left'
                         ? 'tw:left-0 tw:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]'
                         : 'tw:right-0 tw:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]',
