@@ -191,20 +191,20 @@ const removeUser = async (user: AdminUser) => {
                             <McBadge variant="outline">{{ u.user_type }}</McBadge>
                         </McTableCell>
                         <McTableCell>
-                            <!-- Native, matching the rest of this console. See the note in
-                                 pages/admin/index.vue: Arc leaves a body pointer-events lock behind
-                                 around these overlays, Safari does not. One per account row made it
-                                 the easiest place to hit. -->
-                            <McNativeSelect
+                            <!-- McSelect, matching the rest of the app. Only the OPEN select mounts
+                                 an overlay, so one trigger per row is still one overlay at a time -
+                                 see the Arc history note in pages/admin/index.vue if the body
+                                 pointer-events lock ever resurfaces. -->
+                            <McSelect
                                 v-if="u.user_type === 'staff'"
-                                :model-value="u.role ?? ''"
+                                :model-value="u.role ?? undefined"
+                                :options="roleOptions"
+                                option-value="value"
+                                option-label="label"
+                                placeholder="Role"
                                 class="tw:w-32"
                                 @update:model-value="changeRole(u, String($event))"
-                            >
-                                <option v-for="r in roleOptions" :key="r.value" :value="r.value">
-                                    {{ r.label }}
-                                </option>
-                            </McNativeSelect>
+                            />
                             <span v-else class="tw:text-sm tw:text-navy-60">
                                 {{ u.student_id ?? '-' }}
                             </span>

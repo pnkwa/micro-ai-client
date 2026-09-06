@@ -383,7 +383,7 @@ const statusOptions = [
     { value: 'closed', label: 'Closed' },
     { value: 'archived', label: 'Archived' },
 ]
-// McNativeSelect hands back a widened value; coerce it back to the literal union in the script
+// McSelect hands back a widened AcceptableValue; coerce it back to the literal union in the script
 // (a TS cast inside an inline template handler trips Nuxt's macro parser at build time).
 const onStatusChange = (v: unknown) => {
     classForm.status = String(v) as 'active' | 'closed' | 'archived'
@@ -869,20 +869,15 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     >
                                         Status
                                     </label>
-                                    <McNativeSelect
+                                    <McSelect
                                         id="select-classForm-status"
                                         :model-value="classForm.status"
+                                        :options="statusOptions"
+                                        option-value="value"
+                                        option-label="label"
                                         class="tw:w-full"
                                         @update:model-value="onStatusChange($event)"
-                                    >
-                                        <option
-                                            v-for="o in statusOptions"
-                                            :key="o.value"
-                                            :value="o.value"
-                                        >
-                                            {{ o.label }}
-                                        </option>
-                                    </McNativeSelect>
+                                    />
                                 </div>
                             </div>
                             <div
