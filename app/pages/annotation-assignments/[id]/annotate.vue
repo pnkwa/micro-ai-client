@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import { watchDebounced } from '@vueuse/core'
-import { ArrowLeft, PanelLeft, Send, Shapes, SkipForward, Undo2 } from '@lucide/vue'
+import { ArrowLeft, Images, Menu, Send, Shapes, SkipForward, Undo2 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -51,6 +51,15 @@ const leftOpen = ref(true)
 const rightOpen = ref(true)
 const queueSheetOpen = ref(false)
 const panelSheetOpen = ref(false)
+
+// This route hides the app bar, so below 1280 - where the app nav is a Sheet keyed off `openMobile`
+// - there is no trigger for it and the page could only be left with Back or the browser. A hamburger
+// in the header opens it. On the desktop the sidebar is docked and visible, so this is not needed.
+const sidebar = useSidebar()
+const openNav = () => {
+    if (sidebar.isMobile.value) sidebar.setOpenMobile(!sidebar.openMobile.value)
+    else sidebar.open.value = !sidebar.open.value
+}
 
 // Full-bleed, like /image-annotator: drop the app container's padding and the app bar so the
 // picture owns the viewport. Both are removed on the way out.
@@ -474,6 +483,21 @@ function recolorClass(labelId: number, color: string) {
     if (klass) klass.color_hex = toColorHex(color)
 }
 
+// Editing a class from the mobile strip: rename and recolour together. The student's palette is
+// local to this submission, so there is no server write - but the label TEXT is denormalized onto
+// each shape and the save sends that text, not an id (unlike the staff annotator), so a rename must
+// rewrite every shape carrying the class across ALL images or the save would keep the old name.
+function editClass(labelId: number, name: string, colorHex: string) {
+    const label = name.trim()
+    if (!label) return
+    const klass = palette.value.find((l) => l.id === labelId)
+    if (!klass) return
+    klass.label = label
+    klass.color_hex = toColorHex(colorHex)
+    for (const field of fields.value)
+        for (const shape of field.shapes) if (shape.labelId === labelId) shape.label = label
+}
+
 // The per-image form (AnnotatePanel) writes back through here so it never mutates a prop directly.
 function setResponse(key: string, value: string) {
     if (current.value) current.value.responses[key] = value
@@ -564,7 +588,18 @@ const percent = computed(() =>
             <McButton variant="ghost" size="icon-sm" aria-label="Back" @click="router.back()">
                 <ArrowLeft class="tw:size-4" />
             </McButton>
-            <!-- In medium the queue is a drawer, not a docked column, so it needs a way open. -->
+            <!-- In medium the app nav is a sheet with no trigger of its own, so a hamburger opens it;
+                 the queue is a drawer too and takes the Images icon. Neither is needed at Full, where
+                 the sidebar is docked and the queue a column. -->
+            <McButton
+                v-if="layout === 'medium'"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Open the navigation menu"
+                @click="openNav"
+            >
+                <Menu class="tw:size-4" />
+            </McButton>
             <McButton
                 v-if="layout === 'medium'"
                 variant="ghost"
@@ -572,7 +607,7 @@ const percent = computed(() =>
                 aria-label="Show the image queue"
                 @click="queueSheetOpen = true"
             >
-                <PanelLeft class="tw:size-4" />
+                <Images class="tw:size-4" />
             </McButton>
             <span class="tw:min-w-0 tw:truncate tw:text-sm tw:font-medium tw:text-an-text">
                 {{ assignment?.name ?? 'Annotate' }}
@@ -613,10 +648,18 @@ const percent = computed(() =>
             <McButton
                 variant="ghost"
                 size="icon-sm"
+                aria-label="Open the navigation menu"
+                @click="openNav"
+            >
+                <Menu class="tw:size-4" />
+            </McButton>
+            <McButton
+                variant="ghost"
+                size="icon-sm"
                 aria-label="Show the image queue"
                 @click="queueSheetOpen = true"
             >
-                <PanelLeft class="tw:size-4" />
+                <Images class="tw:size-4" />
             </McButton>
             <div class="tw:flex tw:min-w-0 tw:flex-col">
                 <span class="tw:truncate tw:font-mono tw:text-[12px] tw:text-an-text">
@@ -817,6 +860,7 @@ const percent = computed(() =>
                 :fixed="fixedLabelSet"
                 @pick="pickClass"
                 @create="createClass"
+                @edit="editClass"
             />
         </template>
 

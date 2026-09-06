@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Eye, EyeOff, Maximize2, ZoomIn, ZoomOut } from '@lucide/vue'
+import { useAppLayout } from '~/core/composables/useAppLayout'
 
 /**
  * The zoom controls, bottom-centre. SHARED: the annotator's canvas and the library's lightbox.
@@ -21,6 +22,9 @@ const emit = defineEmits<{
     fit: []
     'toggle-visibility': []
 }>()
+
+// Smaller readout on a phone/tablet, where the pill has less room.
+const { isTouchLayout } = useAppLayout()
 </script>
 
 <template>
@@ -40,13 +44,25 @@ const emit = defineEmits<{
 
         <button
             type="button"
-            class="tw:min-w-[68px] tw:rounded-lg tw:px-2 tw:py-1 tw:font-mono tw:text-[11.5px] tw:tabular-nums tw:text-an-d-text tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-30"
+            class="tw:inline-flex tw:items-baseline tw:justify-center tw:gap-1 tw:rounded-lg tw:px-2 tw:py-1 tw:font-mono tw:tabular-nums tw:whitespace-nowrap tw:text-an-d-text tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-30"
+            :class="isTouchLayout ? 'tw:min-w-[54px]' : 'tw:min-w-[68px]'"
             :disabled="!enabled"
             title="Fit to viewport (0)"
             @click="emit('fit')"
         >
-            <span v-if="atFit" class="tw:text-an-d-rail-icon">Fit</span>
-            {{ percent }}%
+            <!-- Explicit size on EACH piece, not inherited: something in the annotator was rendering
+                 "Fit" larger than the number when the size only lived on the button. Both now carry
+                 the same text size so the label and the percent read as one. -->
+            <span
+                v-if="atFit"
+                class="tw:text-an-d-rail-icon"
+                :class="isTouchLayout ? 'tw:text-[10.5px]' : 'tw:text-[11.5px]'"
+            >
+                Fit
+            </span>
+            <span :class="isTouchLayout ? 'tw:text-[10.5px]' : 'tw:text-[11.5px]'">
+                {{ percent }}%
+            </span>
         </button>
 
         <button

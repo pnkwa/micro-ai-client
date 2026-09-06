@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { HelpCircle, PanelLeft, PanelLeftOpen, Save } from '@lucide/vue'
+import { HelpCircle, Images, Menu, PanelLeft, Save } from '@lucide/vue'
 
 /**
  * The annotator's own 48px toolbar - the page brings its own and the app bar is hidden under it.
@@ -18,8 +18,8 @@ import { HelpCircle, PanelLeft, PanelLeftOpen, Save } from '@lucide/vue'
  * Focus mode (F) is the separate gesture that clears both annotator panels.
  */
 defineProps<{
-    /** The queue's scope, shown after "Image Library /". Not a stored batch. */
-    scopeLabel: string
+    /** This page's name, the crumb shown after "Image Library /" (e.g. "Image Annotator"). */
+    pageLabel: string
     count: number
     unsavedEdits: number
     canSave: boolean
@@ -52,23 +52,24 @@ const emit = defineEmits<{
 
 <template>
     <!-- The app sidebar's own toggle, reproduced because this route hides the bar that normally
-         carries it. Only on the desktop layout: in medium the queue takes this left slot as a
-         drawer (below), the app nav starts collapsed and unwanted on a tablet, and two panel
-         buttons side by side read as a doubled pair where only one opens anything. -->
+         carries it. It stays on EVERY layout: on the desktop it collapses the docked sidebar (its
+         own `PanelLeft`); below Full it is the only way off this page (it opens the app-nav sheet),
+         and there it is a HAMBURGER - the ordinary "menu" affordance on a phone or tablet, and
+         distinct from the image queue's icon beside it. -->
     <McButton
-        v-if="!showQueueToggle"
         variant="ghost"
         size="icon-sm"
-        aria-label="Toggle the navigation sidebar"
-        title="Toggle the navigation sidebar"
+        :aria-label="showQueueToggle ? 'Open the navigation menu' : 'Toggle the navigation sidebar'"
+        :title="showQueueToggle ? 'Open the navigation menu' : 'Toggle the navigation sidebar'"
         @click="emit('toggle-nav')"
     >
-        <PanelLeft class="tw:h-4 tw:w-4" />
+        <Menu v-if="showQueueToggle" class="tw:h-4 tw:w-4" />
+        <PanelLeft v-else class="tw:h-4 tw:w-4" />
     </McButton>
 
-    <!-- In the medium layout the queue is a drawer, not a docked column, so it needs a way open
-         from the toolbar. It stands in for the nav toggle above rather than beside it, so the
-         header leads with just the image-picker control the way the student annotator does. -->
+    <!-- In the medium layout the queue is a drawer, not a docked column, so it needs a way open from
+         the toolbar. An IMAGES icon, not a panel one, so it reads as the image picker rather than a
+         second sidebar next to the navigation menu. -->
     <McButton
         v-if="showQueueToggle"
         variant="ghost"
@@ -77,7 +78,7 @@ const emit = defineEmits<{
         title="Show the image queue"
         @click="emit('open-queue')"
     >
-        <PanelLeftOpen class="tw:h-4 tw:w-4" />
+        <Images class="tw:h-4 tw:w-4" />
     </McButton>
 
     <!--
@@ -96,7 +97,7 @@ const emit = defineEmits<{
             <McBreadcrumbSeparator />
             <McBreadcrumbItem class="tw:min-w-0">
                 <McBreadcrumbPage class="tw:truncate tw:font-medium">
-                    {{ scopeLabel }}
+                    {{ pageLabel }}
                 </McBreadcrumbPage>
             </McBreadcrumbItem>
         </McBreadcrumbList>
@@ -133,7 +134,10 @@ const emit = defineEmits<{
     <McButton size="sm" :disabled="!canSave" :loading="saving" class="tw:m-2" @click="emit('save')">
         <Save class="tw:h-4 tw:w-4" />
         Save
+        <!-- No keycap below Full: `showQueueToggle` marks the medium (touch) layout, where there is
+             no physical keyboard to press S. -->
         <kbd
+            v-if="!showQueueToggle"
             class="tw:ml-1 tw:rounded tw:bg-white/20 tw:px-1 tw:py-0.5 tw:font-mono tw:text-[10px] tw:leading-none"
         >
             S

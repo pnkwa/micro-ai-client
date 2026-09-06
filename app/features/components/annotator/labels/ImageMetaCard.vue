@@ -2,7 +2,11 @@
 import { ChevronDown, ChevronUp } from '@lucide/vue'
 import type { LibraryImage } from '~/services/imageService'
 import { imageDisplayName } from '~/core/helpers/imageName'
+import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 import MetadataEditor from '~/features/components/library/inspector/MetadataEditor.vue'
+
+// No physical keyboard on a touch layout, so the shortcut keycap is noise there.
+const { isTouchLayout } = useAnnotatorLayout()
 
 /**
  * The pinned footer: what this image is, its metadata, and the one control that says it is done.
@@ -116,6 +120,7 @@ const name = computed(() =>
             Mark reviewed
             <div class="tw:flex-1"></div>
             <kbd
+                v-if="!isTouchLayout"
                 class="tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-[5px] tw:py-[3px] tw:font-mono tw:text-[9.5px] tw:leading-none tw:text-an-muted"
             >
                 M

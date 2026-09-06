@@ -84,7 +84,7 @@ const columns = computed(() => (mode.value === 'grid' ? GRID_COLUMNS : 1))
  * everything touchable holds to. `stacked` is the same question the shell and the page ask, so the
  * queue cannot be a drawer while thinking it is a column.
  */
-const { stacked } = useAnnotatorLayout()
+const { stacked, layout, isTouchLayout } = useAnnotatorLayout()
 
 // Debounced because `?q=` is a server-side filter: a keystroke per request is one round trip per
 // character.
@@ -171,8 +171,12 @@ defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
         >
             <!-- The queue's own collapse. `PanelLeftClose` - a panel with an arrow - is
                  deliberately NOT the app sidebar's plain `PanelLeft`: two identical icons for two
-                 different panels is the confusion this separates. -->
+                 different panels is the confusion this separates.
+
+                 NOT on the desktop: at Full the queue is a permanent docked column, so there is no
+                 collapsing it to a rail. Below Full it is a drawer, and this is how it closes. -->
             <button
+                v-if="layout !== 'full'"
                 type="button"
                 class="tw:flex tw:items-center tw:justify-center tw:rounded-md tw:text-an-n-500 tw:hover:bg-an-n-100 tw:hover:text-an-text"
                 :class="stacked ? 'tw:h-11 tw:w-11' : 'tw:h-6 tw:w-6'"
@@ -228,7 +232,7 @@ defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
                     <X class="tw:h-3.5 tw:w-3.5" />
                 </button>
                 <kbd
-                    v-else
+                    v-else-if="!isTouchLayout"
                     class="tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-1.5 tw:py-0.5 tw:font-mono tw:text-[10px] tw:leading-none tw:text-an-muted"
                 >
                     /
@@ -247,7 +251,7 @@ defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
                 placeholder="Choose an album…"
                 aria-label="Image source"
                 @update:model-value="
-                    emit('update:source', ($event as number | 'all' | undefined) ?? null)
+                    emit('update:source', ($event as unknown as number | 'all' | undefined) ?? null)
                 "
             />
         </div>
