@@ -271,7 +271,7 @@ const formatSubmittedAt = (dateString: string) => dayjs(dateString).fromNow()
                 option-value="value"
                 option-label="label"
                 placeholder="All Classes"
-                class="tw:w-100"
+                class="tw:w-48 tw:sm:w-100"
             />
         </div>
 
