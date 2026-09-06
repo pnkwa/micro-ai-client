@@ -421,7 +421,10 @@ const editClass = async (labelId: number, label: string, colorHex: string) => {
     const previous = palette.value
     applyLocally(name, hex)
     try {
-        const updated = await annotationLabelService.update(labelId, { label: name, color_hex: hex })
+        const updated = await annotationLabelService.update(labelId, {
+            label: name,
+            color_hex: hex,
+        })
         palette.value = palette.value.map((entry) => (entry.id === labelId ? updated : entry))
     } catch (error) {
         palette.value = previous

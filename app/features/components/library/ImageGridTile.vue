@@ -382,8 +382,8 @@ const badgeClass = computed(() => {
                     {{ caption }}
                 </p>
                 <p class="tw:truncate tw:text-[10.5px] tw:text-an-faint">
-                    {{ view.meta }} · {{ formatDayShort(image.created_at)
-                    }}<template v-if="uploadedBy"> · {{ uploadedBy }}</template>
+                    {{ view.meta }} · {{ formatDayShort(image.created_at) }}
+                    <template v-if="uploadedBy">· {{ uploadedBy }}</template>
                 </p>
             </div>
         </div>
