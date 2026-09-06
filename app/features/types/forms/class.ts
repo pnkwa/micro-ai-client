@@ -7,10 +7,14 @@ const baseClassSchema = z.object({
     status: z.enum(['active', 'closed']),
 })
 
+// Create never produces an archived class - status stays active/closed.
 export const createClassFormSchema = baseClassSchema
 
+// Edit tolerates a loaded 'archived' class (set via the Archive action, not this dropdown, which
+// still only offers active/closed) so its initial values satisfy the form type.
 export const classFormSchema = baseClassSchema.extend({
     id: z.number(),
+    status: z.enum(['active', 'closed', 'archived']),
 })
 
 export type ClassFormData = z.infer<typeof classFormSchema>

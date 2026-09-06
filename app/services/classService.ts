@@ -6,7 +6,15 @@ export const classSchema = z.object({
     name: z.string(),
     semester: z.string(),
     code: z.string(),
-    status: z.enum(['active', 'closed']),
+    // The staff user who created the class (drives isClassOwner). Nullable: the server column is
+    // nullable (older rows backfilled from class_staff), so a null must parse rather than throw.
+    created_by: z.number().nullable(),
+    // JSON has no Date type - the API sends an ISO string, so this must be z.string() (z.date()
+    // expects a real Date and would throw on every class fetch). Matches every other _at schema.
+    created_at: z.string(),
+    // 'archived' is a soft-hidden class: absent from the lists, but a direct fetch (byId) can
+    // still return one, so the schema must accept it.
+    status: z.enum(['active', 'closed', 'archived']),
 })
 
 export const studentRosterSchema = z.object({
@@ -34,9 +42,23 @@ export const studentGradeSchema = z.object({
     possible: z.number(),
 })
 
+// A staff member on a class, flattened by the API for the Manage tab's staff table. `role` is
+// derived server-side: 'owner' for the class creator, otherwise the staff's global role with
+// 'admin' shown as 'instructor'. `added_at` is when they were linked to the class.
+export const classStaffMemberSchema = z.object({
+    staff_id: z.number(),
+    firstname: z.string(),
+    lastname: z.string(),
+    email: z.string(),
+    role: z.enum(['owner', 'instructor', 'ta']),
+    is_owner: z.boolean(),
+    added_at: z.string(),
+})
+
 export type ClassItem = z.infer<typeof classSchema>
 export type StudentRosterItem = z.infer<typeof studentRosterSchema>
 export type StudentGrade = z.infer<typeof studentGradeSchema>
+export type ClassStaffMember = z.infer<typeof classStaffMemberSchema>
 
 export interface EnrollStudentInput {
     student_id: string
@@ -56,7 +78,7 @@ export interface UpdateClassPayload {
     name?: string
     semester?: string
     code?: string
-    status?: 'active' | 'closed'
+    status?: 'active' | 'closed' | 'archived'
 }
 
 export const classService = {
@@ -106,6 +128,27 @@ export const classService = {
         return z.array(studentGradeSchema).parse(response)
     },
 
+    // The class's staff, flattened for the Manage tab (owner first). Any authed user can read.
+    async getStaff(id: number): Promise<ClassStaffMember[]> {
+        const { $api } = useNuxtApp()
+        const response = await $api(classRoutes.staff(id))
+        return z.array(classStaffMemberSchema).parse(response)
+    },
+
+    // Assign a staff member by email. The API resolves it (404 unknown / 400 non-staff / 409
+    // already assigned) — the caller surfaces those via apiErrorMessage.
+    async addStaff(id: number, email: string): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(classRoutes.staff(id), { method: 'POST', body: { email } })
+    },
+    async removeStaff(class_id: number, staff_id: number): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(classRoutes.removeStaff(class_id, staff_id), {
+            method: 'DELETE',
+            body: { staff_id },
+        })
+    },
+
     async enroll(id: number, students: EnrollStudentInput[]): Promise<void> {
         const { $api } = useNuxtApp()
         await $api(classRoutes.students(id), { method: 'POST', body: { students } })
@@ -126,5 +169,13 @@ export const classService = {
     async remove(id: number): Promise<void> {
         const { $api } = useNuxtApp()
         await $api(classRoutes.byId(id), { method: 'DELETE' })
+    },
+
+    // Archive (soft-hide) a class instead of deleting it - the server flips its status to
+    // 'archived', dropping it from the class lists without the cascade-delete 409 that DELETE
+    // hits once a class has students or assignments. Creator-only (or admin) server-side.
+    async archive(id: number): Promise<void> {
+        const { $api } = useNuxtApp()
+        await $api(classRoutes.archive(id), { method: 'PATCH' })
     },
 }
