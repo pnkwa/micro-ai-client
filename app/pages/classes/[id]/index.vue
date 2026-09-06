@@ -372,10 +372,7 @@ const classForm = reactive({
     name: classItem.value?.name ?? '',
     semester: classItem.value?.semester ?? '',
     code: classItem.value?.code ?? '',
-    status: (classItem.value?.status ?? 'active') as
-        | 'active'
-        | 'closed'
-        | 'archived',
+    status: (classItem.value?.status ?? 'active') as 'active' | 'closed' | 'archived',
 })
 const isSavingClass = ref(false)
 const isDeleteClassOpen = ref(false)
@@ -827,7 +824,12 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                         <form class="tw:flex tw:flex-col tw:gap-4" @submit.prevent="handleEdit">
                             <div class="tw:grid tw:grid-cols-1 tw:sm:grid-cols-2 tw:gap-4">
                                 <div class="tw:flex tw:flex-col tw:gap-2">
-                                    <label class="tw:text-sm tw:font-medium" for="input-classForm-name">Class name</label>
+                                    <label
+                                        class="tw:text-sm tw:font-medium"
+                                        for="input-classForm-name"
+                                    >
+                                        Class name
+                                    </label>
                                     <McInput
                                         id="input-classForm-name"
                                         v-model="classForm.name"
@@ -835,7 +837,12 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     />
                                 </div>
                                 <div class="tw:flex tw:flex-col tw:gap-2">
-                                    <label class="tw:text-sm tw:font-medium" for="input-classForm-semester">Semester</label>
+                                    <label
+                                        class="tw:text-sm tw:font-medium"
+                                        for="input-classForm-semester"
+                                    >
+                                        Semester
+                                    </label>
                                     <McInput
                                         id="input-classForm-semester"
                                         v-model="classForm.semester"
@@ -843,11 +850,25 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     />
                                 </div>
                                 <div class="tw:flex tw:flex-col tw:gap-2">
-                                    <label class="tw:text-sm tw:font-medium" for="input-classForm-code">Class code</label>
-                                    <McInput id="input-classForm-code" v-model="classForm.code" placeholder="e.g., MICRO01" />
+                                    <label
+                                        class="tw:text-sm tw:font-medium"
+                                        for="input-classForm-code"
+                                    >
+                                        Class code
+                                    </label>
+                                    <McInput
+                                        id="input-classForm-code"
+                                        v-model="classForm.code"
+                                        placeholder="e.g., MICRO01"
+                                    />
                                 </div>
                                 <div class="tw:flex tw:flex-col tw:gap-2">
-                                    <label class="tw:text-sm tw:font-medium" for="select-classForm-status">Status</label>
+                                    <label
+                                        class="tw:text-sm tw:font-medium"
+                                        for="select-classForm-status"
+                                    >
+                                        Status
+                                    </label>
                                     <McNativeSelect
                                         id="select-classForm-status"
                                         :model-value="classForm.status"
@@ -864,9 +885,10 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     </McNativeSelect>
                                 </div>
                             </div>
-                            <div 
-                            v-if="isClassOwner"
-                            class="tw:flex tw:items-center tw:justify-between tw:gap-2">
+                            <div
+                                v-if="isClassOwner"
+                                class="tw:flex tw:items-center tw:justify-between tw:gap-2"
+                            >
                                 <div class="tw:flex tw:items-center tw:gap-2">
                                     <McButton
                                         type="button"
@@ -1115,16 +1137,19 @@ const studentColumns: ColumnDef<StudentRosterItem>[] = [
                                     <McTableCell class="tw:text-navy-60">
                                         {{ formatAdded(member.added_at) }}
                                     </McTableCell>
-                                    <McTableCell >
+                                    <McTableCell>
                                         <McButton
-                                                v-if="!member.is_owner && member.staff_id != authStore.user?.id"
-                                                size="icon"
-                                                variant="ghost"
-                                                aria-label="Cancel"
-                                                @click="handleRemoveStaff(member.staff_id)"
-                                            >
-                                                <X class="tw:w-4 tw:h-4" />
-                                            </McButton>
+                                            v-if="
+                                                !member.is_owner &&
+                                                member.staff_id != authStore.user?.id
+                                            "
+                                            size="icon"
+                                            variant="ghost"
+                                            aria-label="Cancel"
+                                            @click="handleRemoveStaff(member.staff_id)"
+                                        >
+                                            <X class="tw:w-4 tw:h-4" />
+                                        </McButton>
                                     </McTableCell>
                                 </McTableRow>
 

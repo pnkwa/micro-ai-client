@@ -51,9 +51,7 @@ const editFormValues = computed<EditClassFormData>(() => {
 // Only the class's creator may delete it (mirrors the server's @IsCreator guard on DELETE
 // /classes/:id); everyone else gets the edit form without a Delete action. created_by is the
 // creator's user id, authStore.user.id is the current user's - same id space.
-const isSelectedClassOwner = computed(
-    () => selectedClass.value?.created_by === authStore.user?.id,
-)
+const isSelectedClassOwner = computed(() => selectedClass.value?.created_by === authStore.user?.id)
 
 const openEditDialog = (classItem: ClassItem) => {
     selectedClass.value = classItem
