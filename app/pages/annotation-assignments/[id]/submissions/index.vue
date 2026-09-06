@@ -20,6 +20,12 @@ const names = ref<Map<string, string>>(new Map())
 const loading = ref(true)
 const search = ref('')
 const statusFilter = ref<'all' | 'submitted' | 'graded' | 'rejected'>('all')
+const STATUS_OPTIONS = [
+    { value: 'all', label: 'All statuses' },
+    { value: 'submitted', label: 'Submitted' },
+    { value: 'graded', label: 'Graded' },
+    { value: 'rejected', label: 'Returned' },
+]
 
 onMounted(async () => {
     try {
@@ -86,15 +92,7 @@ const openReview = (id: number) => router.push(`/annotation-assignments/submissi
         <div class="tw:flex tw:flex-wrap tw:items-center tw:justify-between tw:gap-3">
             <span class="tw:text-sm tw:text-navy-60">{{ rows.length }} submitted</span>
             <div class="tw:flex tw:items-center tw:gap-2">
-                <select
-                    v-model="statusFilter"
-                    class="tw:h-8 tw:rounded-md tw:border tw:border-border tw:bg-white tw:px-2 tw:text-sm"
-                >
-                    <option value="all">All statuses</option>
-                    <option value="submitted">Submitted</option>
-                    <option value="graded">Graded</option>
-                    <option value="rejected">Returned</option>
-                </select>
+                <McSelect v-model="statusFilter" :options="STATUS_OPTIONS" class="tw:w-40" />
                 <div
                     class="tw:flex tw:h-8 tw:w-56 tw:items-center tw:gap-2 tw:rounded-md tw:border tw:border-navy-20 tw:bg-white tw:px-3"
                 >

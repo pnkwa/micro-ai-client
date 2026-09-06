@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
-import { ArrowLeft, ChevronLeft, ChevronRight, Eye, PanelLeft, Shapes, Undo2 } from '@lucide/vue'
+import { ArrowLeft, ChevronLeft, ChevronRight, Eye, Images, Menu, Shapes, Undo2 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -61,6 +61,15 @@ const leftOpen = ref(true)
 const rightOpen = ref(true)
 const queueSheetOpen = ref(false)
 const panelSheetOpen = ref(false)
+
+// This route hides the app bar, so below 1280 - where the app nav is a Sheet keyed off `openMobile`
+// - there is no trigger for it and the page could only be left with Back or the browser. A hamburger
+// in the header opens it. On the desktop the sidebar is docked and visible, so this is not needed.
+const sidebar = useSidebar()
+const openNav = () => {
+    if (sidebar.isMobile.value) sidebar.setOpenMobile(!sidebar.openMobile.value)
+    else sidebar.open.value = !sidebar.open.value
+}
 
 // Review is numbered over the ALBUM images (the same order and count the student saw), not over
 // submission.fields the server returns fields only for images the student addressed, so a pending
@@ -288,7 +297,18 @@ onMounted(load)
             >
                 <ArrowLeft class="tw:size-4" />
             </button>
-            <!-- In medium the queue is a drawer, not a docked column, so it needs a way open. -->
+            <!-- In medium the app nav is a sheet with no trigger of its own, so a hamburger opens it;
+                 the image list is a drawer too and takes the Images icon. Neither is needed at Full,
+                 where the sidebar is docked and the list a column. -->
+            <McButton
+                v-if="layout === 'medium'"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Open the navigation menu"
+                @click="openNav"
+            >
+                <Menu class="tw:size-4" />
+            </McButton>
             <McButton
                 v-if="layout === 'medium'"
                 variant="ghost"
@@ -296,7 +316,7 @@ onMounted(load)
                 aria-label="Show the image list"
                 @click="queueSheetOpen = true"
             >
-                <PanelLeft class="tw:size-4" />
+                <Images class="tw:size-4" />
             </McButton>
 
             <template v-if="isStaff">
@@ -376,10 +396,18 @@ onMounted(load)
             <McButton
                 variant="ghost"
                 size="icon-sm"
+                aria-label="Open the navigation menu"
+                @click="openNav"
+            >
+                <Menu class="tw:size-4" />
+            </McButton>
+            <McButton
+                variant="ghost"
+                size="icon-sm"
                 aria-label="Show the image list"
                 @click="queueSheetOpen = true"
             >
-                <PanelLeft class="tw:size-4" />
+                <Images class="tw:size-4" />
             </McButton>
             <div class="tw:flex tw:min-w-0 tw:flex-col">
                 <span class="tw:truncate tw:text-[13px] tw:font-semibold tw:text-an-text">
