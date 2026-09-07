@@ -87,6 +87,9 @@ interface FieldState {
 
 const assignment = ref<AnnotationAssignment | null>(null)
 const fields = ref<FieldState[]>([])
+// Flips true once loadThumbs has settled, so the filmstrip can tell a thumb still loading (skeleton)
+// from one whose fetch failed (broken tile) - both leave `thumb` null.
+const thumbsLoaded = ref(false)
 const currentIndex = ref(0)
 const loading = ref(true)
 const submitting = ref(false)
@@ -108,6 +111,18 @@ const config = computed(() => assignment.value?.annotation ?? null)
 const fixedLabelSet = computed(() => (config.value?.label_set.length ?? 0) > 0)
 const current = computed<FieldState | null>(() => fields.value[currentIndex.value] ?? null)
 const currentName = computed(() => `Image ${String(currentIndex.value + 1).padStart(2, '0')}`)
+
+// The touch filmstrip: the whole batch as square thumbnails, built from the thumbs loadThumbs
+// already fetched into each field. `failed` only once loading has settled, so an in-flight thumb
+// shows a skeleton rather than a broken tile.
+const pagerStrip = computed(() =>
+    fields.value.map((f, i) => ({
+        id: f.imageId,
+        thumb: f.thumb,
+        active: i === currentIndex.value,
+        failed: thumbsLoaded.value && !f.thumb,
+    })),
+)
 
 const tool = ref<Tool>('rectangle')
 const selectedId = ref<string | null>(null)
@@ -344,10 +359,11 @@ async function loadThumbs() {
             try {
                 f.thumb = await imageService.blobUrl(f.imageId, 'thumb')
             } catch {
-                /* the row falls back to a blank dark tile */
+                /* a failed thumb stays null; the filmstrip shows a broken tile once settled */
             }
         }),
     )
+    thumbsLoaded.value = true
 }
 
 async function goTo(index: number) {
@@ -703,8 +719,10 @@ const percent = computed(() =>
                 :name="currentName"
                 :index="currentIndex + 1"
                 :total="fields.length"
+                :strip="pagerStrip"
                 @previous="goTo(currentIndex - 1)"
                 @next="goTo(currentIndex + 1)"
+                @select="(id) => goTo(fields.findIndex((f) => f.imageId === id))"
             />
         </template>
 
@@ -816,8 +834,10 @@ const percent = computed(() =>
                         :name="currentName"
                         :index="currentIndex + 1"
                         :total="fields.length"
+                        :strip="pagerStrip"
                         @previous="goTo(currentIndex - 1)"
                         @next="goTo(currentIndex + 1)"
+                        @select="(id) => goTo(fields.findIndex((f) => f.imageId === id))"
                     />
                     <HintBar
                         v-if="!stacked"
