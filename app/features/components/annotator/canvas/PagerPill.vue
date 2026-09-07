@@ -7,6 +7,8 @@ export interface PagerStripItem {
     id: number
     thumb: string | null
     active: boolean
+    /** The thumbnail fetch failed. Distinguishes a permanent broken tile from one still loading. */
+    failed?: boolean
 }
 
 /**
@@ -201,7 +203,7 @@ onBeforeUnmount(() => {
                 @scroll="onScroll"
             >
                 <button
-                    v-for="cell in strip ?? []"
+                    v-for="(cell, i) in strip ?? []"
                     :key="cell.id"
                     :data-pager-id="cell.id"
                     :data-active="cell.active ? '' : undefined"
@@ -217,7 +219,18 @@ onBeforeUnmount(() => {
                         :alt="cell.active ? name : ''"
                         class="tw:h-full tw:w-full tw:object-cover"
                     />
-                    <div v-else class="tw:h-full tw:w-full tw:bg-white/10"></div>
+                    <!-- Failed fetch: a neutral tile showing its position, never a blank box that
+                         reads as a bug. Otherwise a pulsing skeleton until the thumb lands. -->
+                    <span
+                        v-else-if="cell.failed"
+                        class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center tw:bg-white/5 tw:font-mono tw:text-[10px] tw:text-an-d-disabled"
+                    >
+                        {{ String(i + 1).padStart(2, '0') }}
+                    </span>
+                    <span
+                        v-else
+                        class="tw:block tw:h-full tw:w-full tw:animate-pulse tw:bg-white/10"
+                    ></span>
                 </button>
             </div>
 

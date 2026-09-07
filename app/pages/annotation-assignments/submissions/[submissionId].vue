@@ -39,6 +39,18 @@ const loading = ref(true)
 const currentIndex = ref(0)
 const showExpert = ref(false)
 const imageUrls = ref<Map<number, string>>(new Map())
+// Thumb-size URLs for the queue rows, loaded lazily as a row scrolls in (ReviewQueue emits `reveal`).
+// Separate from the full-res canvas cache above: a 42px row must not pull a multi-MB original.
+const thumbUrls = ref<Map<number, string>>(new Map())
+const thumbnails = computed(() => Object.fromEntries(thumbUrls.value))
+async function revealThumb(imageId: number) {
+    if (thumbUrls.value.has(imageId)) return
+    try {
+        thumbUrls.value.set(imageId, await imageService.blobUrl(imageId, 'thumb'))
+    } catch {
+        /* a row without a thumb keeps its skeleton */
+    }
+}
 // Per-image remark drafts (staff), keyed by image_id and seeded from the saved review.
 const remarks = ref<Record<number, string>>({})
 // Per-image correct/incorrect marks for gradable prompts (staff), keyed by image_id then prompt key.
@@ -460,7 +472,13 @@ onMounted(load)
         </template>
 
         <template #queue>
-            <ReviewQueue :items="items" :current-index="currentIndex" @select="goTo" />
+            <ReviewQueue
+                :items="items"
+                :current-index="currentIndex"
+                :thumbnails="thumbnails"
+                @select="goTo"
+                @reveal="revealThumb"
+            />
         </template>
 
         <template #canvas>
@@ -569,12 +587,14 @@ onMounted(load)
                     <ReviewQueue
                         :items="items"
                         :current-index="currentIndex"
+                        :thumbnails="thumbnails"
                         @select="
                             (i) => {
                                 goTo(i)
                                 queueSheetOpen = false
                             }
                         "
+                        @reveal="revealThumb"
                     />
                 </McSheetContent>
             </McSheet>

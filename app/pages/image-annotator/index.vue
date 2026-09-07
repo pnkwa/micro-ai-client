@@ -1450,6 +1450,8 @@ const pagerStrip = computed(() =>
         id: image.id,
         thumb: pagerThumbs.urls.value[image.id] ?? null,
         active: image.id === selectedImageId.value,
+        // A failed thumb fetch shows a broken tile rather than a skeleton that never resolves.
+        failed: Boolean(pagerThumbs.errors.value[image.id]),
     })),
 )
 
