@@ -16,21 +16,53 @@ import type { Shape } from '~/core/helpers/annotationShapes'
  * the serializer synthesizes 1 precisely so a fabricated number never reaches the export. It is
  * therefore session-only: saving drops it, and a reload will not bring it back.
  */
-const props = defineProps<{
-    shape: Shape
-    color: string | null
-    selected: boolean
-    hidden: boolean
-    /** Present only while the shape is seeded and unreviewed. */
-    confidence: number | null
-}>()
+const props = withDefaults(
+    defineProps<{
+        shape: Shape
+        color: string | null
+        selected: boolean
+        hidden: boolean
+        /** Present only while the shape is seeded and unreviewed. */
+        confidence: number | null
+        /** Off for a fixed vocabulary, where a box is relabelled by picking, not by typing. */
+        editable?: boolean
+    }>(),
+    { editable: true },
+)
 
 const emit = defineEmits<{
     select: []
     'toggle-hidden': []
     accept: []
     reject: []
+    /** A new label typed onto this shape's row. The parent applies it (minting a class if new). */
+    relabel: [label: string]
 }>()
+
+// Inline relabel, opened by double-clicking the label (editable rows only). Enter/blur commits,
+// Escape abandons; a blank or unchanged value is a cancel, not a way to unname the box.
+const editing = ref(false)
+const draft = ref('')
+const inputEl = useTemplateRef<HTMLInputElement>('inputEl')
+const startEdit = () => {
+    if (!props.editable) return
+    draft.value = props.shape.label
+    editing.value = true
+    void nextTick(() => {
+        inputEl.value?.focus()
+        inputEl.value?.select()
+    })
+}
+const cancelEdit = () => {
+    editing.value = false
+    draft.value = ''
+}
+const commitEdit = () => {
+    if (!editing.value) return
+    const name = draft.value.trim()
+    editing.value = false
+    if (name && name !== props.shape.label) emit('relabel', name)
+}
 
 /**
  * Geometry, then provenance: `polygon, seeded 0.91` or `rectangle, drawn by you`.
@@ -88,7 +120,33 @@ const eyeColor = computed(() => {
                 :style="{ background: color ?? 'var(--color-an-n-250)' }"
             ></span>
 
+            <!-- Editing swaps the select button for a plain row so the text field is not nested inside
+                 a <button> (invalid, and it swallows the caret). Double-click the label to open it. -->
+            <div v-if="editing" class="tw:flex tw:min-w-0 tw:flex-1 tw:items-center tw:gap-[9px]">
+                <Pentagon
+                    v-if="shape.polygon"
+                    class="tw:h-[15px] tw:w-[15px] tw:shrink-0 tw:text-an-n-500"
+                />
+                <Square v-else class="tw:h-[15px] tw:w-[15px] tw:shrink-0 tw:text-an-n-500" />
+                <span class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col tw:gap-[2px]">
+                    <input
+                        ref="inputEl"
+                        v-model="draft"
+                        class="tw:min-w-0 tw:bg-transparent tw:text-[11.5px] tw:font-medium tw:text-an-text tw:outline-none"
+                        @keydown.enter.prevent.stop="commitEdit"
+                        @keydown.esc.prevent.stop="cancelEdit"
+                        @blur="commitEdit"
+                    />
+                    <span
+                        class="tw:truncate tw:font-mono tw:text-[10px] tw:tabular-nums tw:text-an-faint"
+                    >
+                        {{ meta }}
+                    </span>
+                </span>
+            </div>
+
             <button
+                v-else
                 type="button"
                 class="tw:flex tw:min-w-0 tw:flex-1 tw:items-center tw:gap-[9px] tw:text-left"
                 @click="emit('select')"
@@ -99,9 +157,12 @@ const eyeColor = computed(() => {
                 />
                 <Square v-else class="tw:h-[15px] tw:w-[15px] tw:shrink-0 tw:text-an-n-500" />
                 <span class="tw:flex tw:min-w-0 tw:flex-col tw:gap-[2px]">
+                    <!-- Double-click to relabel this box in place. -->
                     <span
                         class="tw:truncate tw:text-[11.5px] tw:font-medium"
                         :class="shape.label ? 'tw:text-an-text' : 'tw:text-an-n-300 tw:italic'"
+                        :title="editable ? 'Double-click to relabel' : undefined"
+                        @dblclick.stop.prevent="startEdit"
                     >
                         {{ shape.label || 'Unlabelled' }}
                     </span>

@@ -51,6 +51,15 @@ const emit = defineEmits<{
 
 const { isTouchLayout } = useAnnotatorLayout()
 
+// Middle-ellipsis for a long filename: the head truncates with an ellipsis while a fixed tail stays
+// readable, so `B27 (A4 HL)_A` keeps its distinguishing suffix. `· i/total` is kept OUTSIDE this span
+// so the counter is never clipped, and the full name is in the tooltip.
+const NAME_TAIL = 8
+const nameHead = computed(() =>
+    props.name.length > NAME_TAIL ? props.name.slice(0, -NAME_TAIL) : props.name,
+)
+const nameTail = computed(() => (props.name.length > NAME_TAIL ? props.name.slice(-NAME_TAIL) : ''))
+
 // A short viewport - a phone in landscape, mostly - has little height to spare, and a filmstrip is
 // pure height. So the whole bar shrinks: smaller cells and frame, tighter padding, smaller arrows.
 // The end padding has to track the cell size (it is half a cell, so any cell can reach the centre
@@ -176,7 +185,7 @@ onBeforeUnmount(() => {
     <div :class="rootClass">
         <button
             type="button"
-            class="tw:flex tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-30"
+            class="tw:flex tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:text-an-d-disabled tw:disabled:opacity-100"
             :class="isTouchLayout ? navBtn : 'tw:h-6 tw:w-6'"
             :disabled="index <= 1"
             title="Previous image (K)"
@@ -243,16 +252,23 @@ onBeforeUnmount(() => {
             ></div>
         </div>
 
-        <!-- Desktop: the exact text pill, no image fetches. -->
-        <span v-else class="tw:px-1 tw:text-[12px] tw:text-an-d-text">
-            <span class="tw:font-mono">{{ name }}</span>
-            <span class="tw:mx-1 tw:text-an-d-disabled">·</span>
-            <span class="tw:font-mono tw:tabular-nums">{{ index }}/{{ total }}</span>
+        <!-- Desktop: the exact text pill, no image fetches. The name middle-truncates at 240px; the
+             counter is kept outside the truncated span so it is never cut. -->
+        <span
+            v-else
+            class="tw:flex tw:min-w-0 tw:items-center tw:px-1 tw:text-[12px] tw:text-an-d-text"
+        >
+            <span class="tw:flex tw:max-w-[240px] tw:min-w-0 tw:font-mono" :title="name">
+                <span class="tw:truncate">{{ nameHead }}</span>
+                <span v-if="nameTail" class="tw:shrink-0 tw:whitespace-pre">{{ nameTail }}</span>
+            </span>
+            <span class="tw:mx-1 tw:shrink-0 tw:text-an-d-disabled">·</span>
+            <span class="tw:shrink-0 tw:font-mono tw:tabular-nums">{{ index }}/{{ total }}</span>
         </span>
 
         <button
             type="button"
-            class="tw:flex tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-30"
+            class="tw:flex tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:text-an-d-disabled tw:disabled:opacity-100"
             :class="isTouchLayout ? navBtn : 'tw:h-6 tw:w-6'"
             :disabled="index >= total"
             title="Next image (J)"

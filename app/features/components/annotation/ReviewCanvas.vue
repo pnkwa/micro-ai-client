@@ -42,7 +42,30 @@ const props = defineProps<{
     showExpert: boolean
 }>()
 
-const EXPERT = '0e9384' // an-accent teal
+// The neutral answer-key stroke (an-n-250). Green is reserved for MODEL provenance on the critique
+// screens, so an answer-key box never draws green even when its class colour is green — it falls back
+// to this neutral hairline and lets the chip carry the class name.
+const KEY_NEUTRAL = '#c7cbd1'
+
+// Green by hue (≈95°–160°), which catches the class-5 green #22c55e without a hard-coded list.
+const hexToHue = (h: string): number => {
+    const s = h.replace('#', '')
+    if (s.length < 6) return -1
+    const r = parseInt(s.slice(0, 2), 16) / 255
+    const g = parseInt(s.slice(2, 4), 16) / 255
+    const b = parseInt(s.slice(4, 6), 16) / 255
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const d = max - min
+    if (d === 0) return -1
+    let hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+    hue *= 60
+    return hue < 0 ? hue + 360 : hue
+}
+const isGreen = (h: string) => {
+    const hue = hexToHue(h)
+    return hue >= 95 && hue <= 160
+}
 
 const container = useTemplateRef<HTMLElement>('container')
 // The composable owns fit, zoom, pan and the natural-size measurement (invalidated on src change),
@@ -94,6 +117,13 @@ const onPointerUp = (event: PointerEvent) => {
 const hex = (h: string) => (h.startsWith('#') ? h : `#${h}`)
 // Instructor's swatch when the label matches label_set (case-insensitive), else the student's own.
 const studentColor = (label: string | null) => reviewBoxColor(label, props.labelColors)
+// The answer-key stroke: the class colour, dashed — but never green (see KEY_NEUTRAL). Falls back to
+// neutral when the key box carries no colour at all.
+const keyStroke = (color: string | null) => {
+    if (!color) return KEY_NEUTRAL
+    const h = hex(color)
+    return isGreen(h) ? KEY_NEUTRAL : h
+}
 
 const points = (polygon: number[][]) =>
     polygon.map(([x, y]) => `${(x ?? 0) * 100},${(y ?? 0) * 100}`).join(' ')
@@ -185,7 +215,7 @@ const chipStyle = (b: Poly, place: 'above' | 'below') => {
                             v-for="e in expertBoxes.filter((b) => b.polygon)"
                             :key="`ep-${e.id}`"
                             :points="points(e.polygon!)"
-                            :stroke="hex(e.color || EXPERT)"
+                            :stroke="keyStroke(e.color)"
                             stroke-width="0.5"
                             stroke-dasharray="1.5 1"
                             fill="none"
@@ -199,7 +229,7 @@ const chipStyle = (b: Poly, place: 'above' | 'below') => {
                         :stroke="studentColor(s.label)"
                         stroke-width="0.5"
                         :fill="studentColor(s.label)"
-                        fill-opacity="0.12"
+                        fill-opacity="0.18"
                         vector-effect="non-scaling-stroke"
                     />
                 </svg>
@@ -214,19 +244,21 @@ const chipStyle = (b: Poly, place: 'above' | 'below') => {
                         :class="e.polygon ? '' : 'tw:border-2 tw:border-dashed'"
                         :style="{
                             ...boxStyle(e),
-                            ...(e.polygon ? {} : { borderColor: hex(e.color || EXPERT) }),
+                            ...(e.polygon ? {} : { borderColor: keyStroke(e.color) }),
                         }"
                     >
+                        <!-- Outlined, dashed chip suffixed `· key`: the answer key is told apart from
+                             the student's boxes by its stroke, not its hue. -->
                         <span
-                            v-if="e.label"
-                            class="tw:absolute tw:rounded tw:px-1.5 tw:py-0.5 tw:text-[11px] tw:font-semibold tw:whitespace-nowrap tw:text-white"
+                            class="tw:absolute tw:rounded tw:border tw:border-dashed tw:bg-transparent tw:px-1.5 tw:py-0.5 tw:text-[11px] tw:font-medium tw:whitespace-nowrap"
                             :class="e.polygon ? '' : 'tw:-top-5 tw:left-0'"
                             :style="{
-                                background: hex(e.color || EXPERT),
+                                borderColor: keyStroke(e.color),
+                                color: keyStroke(e.color),
                                 ...(e.polygon ? chipStyle(e, 'above') : {}),
                             }"
                         >
-                            {{ e.label }}
+                            {{ e.label ? `${e.label} · key` : 'key' }}
                         </span>
                     </div>
                 </template>
@@ -244,7 +276,7 @@ const chipStyle = (b: Poly, place: 'above' | 'below') => {
                             ? {}
                             : {
                                   borderColor: studentColor(s.label),
-                                  background: `${studentColor(s.label)}1f`,
+                                  background: `${studentColor(s.label)}2e`,
                               }),
                     }"
                 >

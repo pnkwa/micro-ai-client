@@ -71,6 +71,13 @@ const props = withDefaults(
         /** Shape id to model confidence, for the ones seeded and not yet judged. */
         seeded?: Record<string, number>
         /**
+         * Lock labelling to the palette: the on-chip free-text field never opens, so a box can only
+         * be named by picking a class. Used by an annotation assignment whose `label_set` the
+         * instructor authored — students pick from it and cannot mint an off-vocabulary label, the
+         * same rule the `fixed` ClassPicker enforces in the panel.
+         */
+        lockLabels?: boolean
+        /**
          * A touch-first layout (below 1280px).
          *
          * Gates the loupe and the finger-sized hit areas. Keyed on the LAYOUT rather than only on
@@ -151,6 +158,9 @@ const editingId = ref<string | null>(null)
 const draftLabel = ref('')
 
 const startEditing = (shape: Shape) => {
+    // A fixed vocabulary is picked, never typed: the chip's free-text field stays shut so a box can
+    // only take a class from the palette (the ClassPicker enforces the same rule in the panel).
+    if (props.lockLabels) return
     if (shape.id !== selectedId.value) return
     editingId.value = shape.id
     draftLabel.value = shape.label
