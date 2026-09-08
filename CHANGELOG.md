@@ -32,7 +32,33 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
 
 ---
 
-## [Unreleased]
+## [0.9.0-rc.1] - 2026-09-08
+
+### Added
+
+- **A Manage tab on a class**, gathering what was previously scattered or missing: editing the class,
+  the student roster, and the staff table. Staff are assigned **by email** — the address you actually
+  have — with the API resolving it and the form surfacing what comes back: an unknown address, an
+  address belonging to a student rather than staff, and someone already on the class are three
+  different messages, not one failure.
+- **An Archive action, for the class that will not delete.** `DELETE` refuses a class that has
+  enrolled students or coursework, which is exactly the class an instructor wants off their list at
+  the end of a term. Archiving hides it instead — it leaves the class lists but stays reachable by
+  direct link, and a normal status edit brings it back. `status` now has three values, and
+  `classSchema` parses all three.
+- **A staff table that names the owner.** `GET /classes/:id/staff` returns the roster flattened —
+  name, email, a display role, and when they were added — with the creator marked `owner`. The
+  server derives that role for display, so `admin` reads as `instructor` inside a class: being a
+  system administrator is not a teaching role.
+
+### Changed
+
+- **Delete and Archive are hidden unless you created the class.** `isClassOwner` compares
+  `class.created_by` to the signed-in user; the server enforces the same rule and returns 403
+  regardless, so this is the UI agreeing with the API rather than guarding it.
+- **The class list is now whatever the server says it is.** A staff member sees the classes they are
+  on rather than every class in the system, and archived classes are absent. The client stopped
+  filtering client-side and reads the list directly.
 
 ### Fixed
 - **The exam lock told the student to do something that no longer works.** Three places promised the
@@ -116,6 +142,26 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
   photo visible before grading: `image_id` survives the server's grade strip and `detection` does
   not. `img_path` is no longer read, and is now optional in the schema so the server can stop
   sending it without breaking every parse.
+
+### Compatibility
+
+- **Requires `micro-ai-server` v0.14.0-rc.1 or later.** Two of that release's changes are breaking,
+  and this client is the first that satisfies both:
+  - `POST /classes/:id/staff` takes `{ email }` where it took `{ staff_id }`. There is no
+    compatibility shim on either side — the server's `whitelist: true` strips the old field and the
+    request then fails validation, so an older client gets a **400**, not a silent no-op.
+  - `GET /classes` returns only the classes a non-admin staff member is on, archived excluded.
+    Admins still receive all of them. The response *shape* is unchanged; the row count is not.
+- **Against a server before v0.14.0-rc.1**, the Manage tab's staff assignment fails with a 400 and
+  the Archive action 404s. The rest of the class surface is unaffected. This is a hard requirement,
+  not a graceful degradation — pair the versions.
+- **`PATCH /classes/:id/archive`, `GET /classes/:id/staff` and `classes.created_by` all arrive in
+  v0.14.0-rc.1** (BE-ADR-040), along with `archived` on the class status enum.
+- **Also in v0.14.0-rc.1, and relevant if you run against a migrated database:** that release fixes a
+  server bug where a database built from migrations was missing three columns the annotation-grading
+  code required, so `POST /submissions` returned 500 before writing anything. Any environment stood
+  up from migrations between server v0.13.0-rc.1 and v0.14.0-rc.1 needs the new migration applied.
+  If annotation submissions were failing against a shared dev server, that was why, and it was ours.
 
 ## [0.8.0-rc.1] - 2026-08-19
 
