@@ -54,6 +54,7 @@
     "devDependencies": {
         "@commitlint/config-conventional": "^20.5.3",
         "@nuxt/eslint": "^1.17.0",
+        "@types/node": "25.3.0",
         "@vueuse/core": "^14.4.0",
         "@vueuse/nuxt": "^14.4.0",
         "commitlint": "^20.5.3",

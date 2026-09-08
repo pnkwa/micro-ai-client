@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import { watchDebounced } from '@vueuse/core'
-import { ArrowLeft, Images, Menu, Send, Shapes, SkipForward, Undo2 } from '@lucide/vue'
+import { ArrowLeft, Images, Menu, Send, Shapes, Undo2 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -36,6 +36,7 @@ import ClassStrip from '~/features/components/annotator/mobile/ClassStrip.vue'
 import AnnotateQueue from '~/features/components/annotation/AnnotateQueue.vue'
 import AnnotatePanel from '~/features/components/annotation/AnnotatePanel.vue'
 import AnnotateBrief from '~/features/components/annotation/AnnotateBrief.vue'
+import AnnotateActionBar from '~/features/components/annotation/AnnotateActionBar.vue'
 import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 
 const route = useRoute()
@@ -52,6 +53,14 @@ const rightOpen = ref(true)
 const queueSheetOpen = ref(false)
 const panelSheetOpen = ref(false)
 
+// Whether Mark done / Skip advance to the next image after changing its status, or mark and stay.
+// The pager only changes position, so it never fires here — one press is one move either way.
+const autoAdvance = ref(true)
+
+// The local-draft save indicator in the header. `saving` while a change is settling, `saved` once
+// the debounced write below has run. Cosmetic: the work is on the student's machine, not the server.
+const saveState = ref<'saved' | 'saving'>('saved')
+
 // This route hides the app bar, so below 1280 - where the app nav is a Sheet keyed off `openMobile`
 // - there is no trigger for it and the page could only be left with Back or the browser. A hamburger
 // in the header opens it. On the desktop the sidebar is docked and visible, so this is not needed.
@@ -65,9 +74,18 @@ const openNav = () => {
 // picture owns the viewport. Both are removed on the way out.
 const APP_FILL = 'mc-app-fill'
 const HIDE_BAR = 'mc-hide-app-bar'
-onMounted(() => document.documentElement.classList.add(APP_FILL, HIDE_BAR))
+// Collapse the app nav to its 64px icon rail while on this route, so 300px of nav does not eat the
+// picture beside the 280px queue and 320px panel. Written THROUGH THE REF, not `setOpen`, so it
+// stays route-scoped and never touches the person's saved `sidebar_state` (the image-annotator rule).
+let navWasOpen = true
+onMounted(() => {
+    document.documentElement.classList.add(APP_FILL, HIDE_BAR)
+    navWasOpen = sidebar.open.value
+    sidebar.open.value = false
+})
 onBeforeUnmount(() => {
     document.documentElement.classList.remove(APP_FILL, HIDE_BAR)
+    sidebar.open.value = navWasOpen
     for (const f of fields.value) {
         if (f.url) URL.revokeObjectURL(f.url)
         if (f.thumb) URL.revokeObjectURL(f.thumb)
@@ -87,6 +105,9 @@ interface FieldState {
 
 const assignment = ref<AnnotationAssignment | null>(null)
 const fields = ref<FieldState[]>([])
+// Flips true once loadThumbs has settled, so the filmstrip can tell a thumb still loading (skeleton)
+// from one whose fetch failed (broken tile) - both leave `thumb` null.
+const thumbsLoaded = ref(false)
 const currentIndex = ref(0)
 const loading = ref(true)
 const submitting = ref(false)
@@ -109,6 +130,18 @@ const fixedLabelSet = computed(() => (config.value?.label_set.length ?? 0) > 0)
 const current = computed<FieldState | null>(() => fields.value[currentIndex.value] ?? null)
 const currentName = computed(() => `Image ${String(currentIndex.value + 1).padStart(2, '0')}`)
 
+// The touch filmstrip: the whole batch as square thumbnails, built from the thumbs loadThumbs
+// already fetched into each field. `failed` only once loading has settled, so an in-flight thumb
+// shows a skeleton rather than a broken tile.
+const pagerStrip = computed(() =>
+    fields.value.map((f, i) => ({
+        id: f.imageId,
+        thumb: f.thumb,
+        active: i === currentIndex.value,
+        failed: thumbsLoaded.value && !f.thumb,
+    })),
+)
+
 const tool = ref<Tool>('rectangle')
 const selectedId = ref<string | null>(null)
 const activeLabelId = ref<number | null>(null)
@@ -129,6 +162,13 @@ const currentShapes = computed<Shape[]>({
 })
 
 const classes = computed(() => buildClasses(palette.value, currentShapes.value))
+// The class colours present on the current image, for the compact action bar's labels summary.
+const currentDots = computed(() =>
+    classes.value
+        .filter((c) => c.count > 0)
+        .map((c) => c.color)
+        .slice(0, 4),
+)
 
 // ---- canvas view state (zoom / fit / visibility), read off the shared canvas' exposed API ----
 const canvas = useTemplateRef<InstanceType<typeof AnnotationCanvas>>('canvas')
@@ -305,7 +345,7 @@ onMounted(async () => {
         // churn from lazy image loads also trips it but is filtered out of what gets written.
         watchDebounced(
             [fields, currentIndex, palette],
-            () =>
+            () => {
                 draft.save({
                     currentIndex: currentIndex.value,
                     fields: fields.value.map((f) => ({
@@ -318,9 +358,15 @@ onMounted(async () => {
                         palette.value,
                         config.value?.label_set.length ?? 0,
                     ),
-                }),
+                })
+                saveState.value = 'saved'
+            },
             { deep: true, debounce: 600, maxWait: 3000 },
         )
+
+        // The indicator's "saving" edge, fired immediately on a real edit (the debounced write above
+        // flips it back to "saved"). Set up after the load so restoring a draft doesn't read as saving.
+        watch([fields, palette], () => (saveState.value = 'saving'), { deep: true })
     } catch {
         toast.error('Could not load this assignment')
     } finally {
@@ -344,10 +390,11 @@ async function loadThumbs() {
             try {
                 f.thumb = await imageService.blobUrl(f.imageId, 'thumb')
             } catch {
-                /* the row falls back to a blank dark tile */
+                /* a failed thumb stays null; the filmstrip shows a broken tile once settled */
             }
         }),
     )
+    thumbsLoaded.value = true
 }
 
 async function goTo(index: number) {
@@ -384,15 +431,17 @@ function pickClass(labelId: number) {
 function labelShape(shapeId: string, name: string) {
     const shape = currentShapes.value.find((s) => s.id === shapeId)
     if (!shape) return
-    shape.label = name
     const trimmed = name.trim()
+    const known = labelByName(palette.value, trimmed)
+    // A fixed vocabulary is PICK-ONLY: an off-list name is dropped, not applied. The canvas already
+    // keeps the free-text chip shut for these assignments (lockLabels), so this only fires from a
+    // stray path — but the shape must never carry a class the instructor did not author.
+    if (fixedLabelSet.value && !known) return
+    shape.label = name
     if (!trimmed) {
         shape.labelId = null
     } else {
-        const known = labelByName(palette.value, trimmed)
-        // A fixed vocabulary never grows: an unknown label stays free text (and the server rejects
-        // it at submit), rather than minting an off-list class.
-        shape.labelId = known ? known.id : fixedLabelSet.value ? null : addClass(trimmed)
+        shape.labelId = known ? known.id : addClass(trimmed)
     }
     commit()
 }
@@ -527,14 +576,16 @@ function markDone() {
     const missing = missingRequired(current.value)
     if (missing) return toast.error(`"${missing}" is required`)
     current.value.status = 'completed'
-    if (currentIndex.value < fields.value.length - 1) void goTo(currentIndex.value + 1)
+    if (autoAdvance.value && currentIndex.value < fields.value.length - 1)
+        void goTo(currentIndex.value + 1)
 }
 
 function skip() {
     if (!current.value) return
     if (!config.value?.allow_skip) return toast.error('Skipping is not allowed')
     current.value.status = 'skipped'
-    if (currentIndex.value < fields.value.length - 1) void goTo(currentIndex.value + 1)
+    if (autoAdvance.value && currentIndex.value < fields.value.length - 1)
+        void goTo(currentIndex.value + 1)
 }
 
 // ---- progress + submit ----
@@ -576,8 +627,11 @@ async function submit() {
     }
 }
 
-const percent = computed(() =>
-    fields.value.length ? Math.round((addressed.value / fields.value.length) * 100) : 0,
+const percentCompleted = computed(() =>
+    fields.value.length ? Math.round((doneCount.value / fields.value.length) * 100) : 0,
+)
+const percentSkipped = computed(() =>
+    fields.value.length ? Math.round((skippedCount.value / fields.value.length) * 100) : 0,
 )
 </script>
 
@@ -617,12 +671,33 @@ const percent = computed(() =>
             >
                 {{ fields.length }} images
             </span>
+            <!-- Assignment progress lives in the header, not the queue: it is assignment state, and
+                 the queue column is list state. -->
+            <span
+                class="tw:shrink-0 tw:rounded-[5px] tw:bg-an-n-50 tw:px-1.5 tw:py-0.5 tw:font-mono tw:text-[11px] tw:tabular-nums tw:text-an-n-600"
+            >
+                {{ doneCount }} / {{ fields.length }} done · {{ skippedCount }} skipped
+            </span>
             <div class="tw:flex-1" />
 
-            <McButton v-if="config?.allow_skip" variant="outline" size="sm" @click="skip">
-                <SkipForward class="tw:mr-1 tw:size-4" />
-                Skip image
-            </McButton>
+            <!-- Whether Mark done / Skip advance after changing status, or mark and stay. -->
+            <label
+                class="tw:flex tw:cursor-pointer tw:items-center tw:gap-1.5 tw:text-[11.5px] tw:text-an-muted"
+                title="Advance to the next image after Mark done or Skip"
+            >
+                <input v-model="autoAdvance" type="checkbox" class="tw:accent-an-accent" />
+                Auto-advance
+            </label>
+            <!-- Local draft indicator: the work is saved to this device until Submit. -->
+            <span
+                class="tw:flex tw:shrink-0 tw:items-center tw:gap-1 tw:text-[11.5px] tw:text-an-faint"
+            >
+                <template v-if="saveState === 'saving'">
+                    <span class="tw:size-1.5 tw:rounded-full tw:bg-an-warn" />
+                    Saving…
+                </template>
+                <template v-else>Saved</template>
+            </span>
             <McButton
                 size="sm"
                 :disabled="!canSubmit || submitting"
@@ -635,38 +710,25 @@ const percent = computed(() =>
                         ? returnedReason !== null
                             ? 'Resubmit'
                             : 'Submit'
-                        : `Submit, ${Math.max(required - addressed, 0)} left`
+                        : `Submit · ${Math.max(required - addressed, 0)} left`
                 }}
             </McButton>
         </template>
 
-        <!-- compact header (portrait tablet / phone): queue + panel drawers, and Submit -->
+        <!-- compact header (portrait tablet / phone): the filmstrip navigates, so no hamburger and no
+             queue icon — just instructions, labels and Submit. -->
         <template #header-compact>
             <McButton variant="ghost" size="icon-sm" aria-label="Back" @click="router.back()">
                 <ArrowLeft class="tw:size-4" />
-            </McButton>
-            <McButton
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Open the navigation menu"
-                @click="openNav"
-            >
-                <Menu class="tw:size-4" />
-            </McButton>
-            <McButton
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Show the image queue"
-                @click="queueSheetOpen = true"
-            >
-                <Images class="tw:size-4" />
             </McButton>
             <div class="tw:flex tw:min-w-0 tw:flex-col">
                 <span class="tw:truncate tw:font-mono tw:text-[12px] tw:text-an-text">
                     {{ currentName }}
                 </span>
                 <span class="tw:font-mono tw:text-[10.5px] tw:text-an-faint">
-                    {{ doneCount }} / {{ fields.length }} done
+                    {{ doneCount }} / {{ fields.length }} done · {{ currentShapes.length }} box{{
+                        currentShapes.length === 1 ? '' : 'es'
+                    }}
                 </span>
             </div>
             <div class="tw:flex-1" />
@@ -703,8 +765,10 @@ const percent = computed(() =>
                 :name="currentName"
                 :index="currentIndex + 1"
                 :total="fields.length"
+                :strip="pagerStrip"
                 @previous="goTo(currentIndex - 1)"
                 @next="goTo(currentIndex + 1)"
+                @select="(id) => goTo(fields.findIndex((f) => f.imageId === id))"
             />
         </template>
 
@@ -729,26 +793,26 @@ const percent = computed(() =>
                 :fields="fields"
                 :palette="palette"
                 :current-index="currentIndex"
-                :done-count="doneCount"
-                :skipped-count="skippedCount"
-                :percent="percent"
+                :percent-complete="percentCompleted"
+                :percent-skipped="percentSkipped"
                 @select="goTo"
             />
         </template>
 
         <template #canvas>
-            <!-- A column so the tablet brief band can sit above the canvas; the canvas and its
-                 floating overlays keep their own positioning context in the flex-1 child, so the
-                 band never shifts where a pill or the loading state lands. -->
+            <!-- A column so the tablet/phone brief band can sit above the canvas; the canvas and its
+                 floating overlays keep their own positioning context in the flex-1 child. -->
             <div class="tw:flex tw:h-full tw:min-h-0 tw:flex-col">
-                <!-- Tablet/phone only: instructions, the fill-in form and Mark done / Skip ride
-                     ABOVE the canvas so a student cannot miss them (keyed by image, so each opens
-                     expanded). On a wide screen these stay in the docked panel and this is absent. -->
+                <!-- Stacked (phone / portrait) only: instructions and the fill-in form ride ABOVE the
+                     canvas in a collapsible band (keyed by image, so each opens expanded). Mark done /
+                     Skip are NOT here — they live on the action bar, the one place they appear on a
+                     phone. On a wide screen these are in the docked panel and this is absent. -->
                 <AnnotateBrief
                     v-if="stacked && current"
                     :key="current.imageId"
                     class="tw:[touch-action:pan-x_pan-y]"
                     collapsible
+                    :show-actions="false"
                     :instructions="assignment?.instructions"
                     :field-prompts="config?.field_prompts ?? []"
                     :responses="current.responses"
@@ -773,6 +837,7 @@ const percent = computed(() =>
                         :palette="palette"
                         :hidden-ids="hiddenIds"
                         :touch-layout="isTouchLayout"
+                        :lock-labels="fixedLabelSet"
                         @label-shape="labelShape"
                         @commit="commit"
                         @undo="undoStep"
@@ -816,8 +881,10 @@ const percent = computed(() =>
                         :name="currentName"
                         :index="currentIndex + 1"
                         :total="fields.length"
+                        :strip="pagerStrip"
                         @previous="goTo(currentIndex - 1)"
                         @next="goTo(currentIndex + 1)"
+                        @select="(id) => goTo(fields.findIndex((f) => f.imageId === id))"
                     />
                     <HintBar
                         v-if="!stacked"
@@ -845,6 +912,8 @@ const percent = computed(() =>
         <template #labels>
             <AnnotatePanel
                 :instructions="assignment?.instructions"
+                :instructions-key="id"
+                :image-index="currentIndex"
                 :field-prompts="config?.field_prompts ?? []"
                 :responses="current?.responses ?? null"
                 :status="current?.status ?? null"
@@ -853,9 +922,11 @@ const percent = computed(() =>
                 :hidden-ids="hiddenIds"
                 :palette="palette"
                 :allow-skip="Boolean(config?.allow_skip)"
+                :lock-labels="fixedLabelSet"
                 @update-response="setResponse"
                 @select-shape="selectedId = $event"
                 @delete-shape="deleteShape"
+                @relabel="labelShape"
                 @mark-done="markDone"
                 @skip="skip"
             >
@@ -867,6 +938,7 @@ const percent = computed(() =>
                         @pick="pickClass"
                         @create="createClass"
                         @recolor="recolorClass"
+                        @rename="editClass"
                     />
                 </template>
             </AnnotatePanel>
@@ -899,6 +971,20 @@ const percent = computed(() =>
             />
         </template>
 
+        <!-- phone: the action bar carries Mark done / Skip and a labels summary that opens the sheet.
+             This is the ONLY place Skip and Mark done appear on a phone. -->
+        <template #bottom-actions>
+            <AnnotateActionBar
+                :label-count="currentShapes.length"
+                :dots="currentDots"
+                :status="current?.status ?? null"
+                :allow-skip="Boolean(config?.allow_skip)"
+                @open-labels="panelSheetOpen = true"
+                @mark-done="markDone"
+                @skip="skip"
+            />
+        </template>
+
         <template #sheets>
             <McSheet v-model:open="queueSheetOpen">
                 <McSheetContent
@@ -910,9 +996,8 @@ const percent = computed(() =>
                         :fields="fields"
                         :palette="palette"
                         :current-index="currentIndex"
-                        :done-count="doneCount"
-                        :skipped-count="skippedCount"
-                        :percent="percent"
+                        :percent-complete="percentCompleted"
+                        :percent-skipped="percentSkipped"
                         @select="
                             (i) => {
                                 goTo(i)
@@ -923,13 +1008,15 @@ const percent = computed(() =>
                 </McSheetContent>
             </McSheet>
 
+            <!-- Labels sheet: a bottom drawer on the phone (classes + shapes), opened from the header
+                 shapes icon or the action bar. Mark done / Skip are not here — they live on the
+                 action bar, the one place they appear on a phone. -->
             <McSheet v-model:open="panelSheetOpen">
                 <McSheetContent
-                    side="right"
-                    class="tw:flex tw:w-[320px] tw:flex-col tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                    side="bottom"
+                    class="mc-slide-up tw:flex tw:max-h-[80dvh] tw:flex-col tw:rounded-t-2xl tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                    hide-close
                 >
-                    <!-- The brief (instructions, form, Mark done / Skip) is the top band above the
-                         canvas on this layout, so the drawer drops it and shows classes + shapes. -->
                     <AnnotatePanel
                         :show-brief="false"
                         :instructions="assignment?.instructions"
@@ -941,9 +1028,11 @@ const percent = computed(() =>
                         :hidden-ids="hiddenIds"
                         :palette="palette"
                         :allow-skip="Boolean(config?.allow_skip)"
+                        :lock-labels="fixedLabelSet"
                         @update-response="setResponse"
                         @select-shape="selectedId = $event"
                         @delete-shape="deleteShape"
+                        @relabel="labelShape"
                         @mark-done="markDone"
                         @skip="skip"
                     >
@@ -955,6 +1044,7 @@ const percent = computed(() =>
                                 @pick="pickClass"
                                 @create="createClass"
                                 @recolor="recolorClass"
+                                @rename="editClass"
                             />
                         </template>
                     </AnnotatePanel>

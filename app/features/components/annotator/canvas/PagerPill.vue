@@ -7,6 +7,8 @@ export interface PagerStripItem {
     id: number
     thumb: string | null
     active: boolean
+    /** The thumbnail fetch failed. Distinguishes a permanent broken tile from one still loading. */
+    failed?: boolean
 }
 
 /**
@@ -48,6 +50,15 @@ const emit = defineEmits<{
 }>()
 
 const { isTouchLayout } = useAnnotatorLayout()
+
+// Middle-ellipsis for a long filename: the head truncates with an ellipsis while a fixed tail stays
+// readable, so `B27 (A4 HL)_A` keeps its distinguishing suffix. `· i/total` is kept OUTSIDE this span
+// so the counter is never clipped, and the full name is in the tooltip.
+const NAME_TAIL = 8
+const nameHead = computed(() =>
+    props.name.length > NAME_TAIL ? props.name.slice(0, -NAME_TAIL) : props.name,
+)
+const nameTail = computed(() => (props.name.length > NAME_TAIL ? props.name.slice(-NAME_TAIL) : ''))
 
 // A short viewport - a phone in landscape, mostly - has little height to spare, and a filmstrip is
 // pure height. So the whole bar shrinks: smaller cells and frame, tighter padding, smaller arrows.
@@ -174,7 +185,7 @@ onBeforeUnmount(() => {
     <div :class="rootClass">
         <button
             type="button"
-            class="tw:flex tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-30"
+            class="tw:flex tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:text-an-d-disabled tw:disabled:opacity-100"
             :class="isTouchLayout ? navBtn : 'tw:h-6 tw:w-6'"
             :disabled="index <= 1"
             title="Previous image (K)"
@@ -201,7 +212,7 @@ onBeforeUnmount(() => {
                 @scroll="onScroll"
             >
                 <button
-                    v-for="cell in strip ?? []"
+                    v-for="(cell, i) in strip ?? []"
                     :key="cell.id"
                     :data-pager-id="cell.id"
                     :data-active="cell.active ? '' : undefined"
@@ -217,7 +228,18 @@ onBeforeUnmount(() => {
                         :alt="cell.active ? name : ''"
                         class="tw:h-full tw:w-full tw:object-cover"
                     />
-                    <div v-else class="tw:h-full tw:w-full tw:bg-white/10"></div>
+                    <!-- Failed fetch: a neutral tile showing its position, never a blank box that
+                         reads as a bug. Otherwise a pulsing skeleton until the thumb lands. -->
+                    <span
+                        v-else-if="cell.failed"
+                        class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center tw:bg-white/5 tw:font-mono tw:text-[10px] tw:text-an-d-disabled"
+                    >
+                        {{ String(i + 1).padStart(2, '0') }}
+                    </span>
+                    <span
+                        v-else
+                        class="tw:block tw:h-full tw:w-full tw:animate-pulse tw:bg-white/10"
+                    ></span>
                 </button>
             </div>
 
@@ -230,16 +252,23 @@ onBeforeUnmount(() => {
             ></div>
         </div>
 
-        <!-- Desktop: the exact text pill, no image fetches. -->
-        <span v-else class="tw:px-1 tw:text-[12px] tw:text-an-d-text">
-            <span class="tw:font-mono">{{ name }}</span>
-            <span class="tw:mx-1 tw:text-an-d-disabled">·</span>
-            <span class="tw:font-mono tw:tabular-nums">{{ index }}/{{ total }}</span>
+        <!-- Desktop: the exact text pill, no image fetches. The name middle-truncates at 240px; the
+             counter is kept outside the truncated span so it is never cut. -->
+        <span
+            v-else
+            class="tw:flex tw:min-w-0 tw:items-center tw:px-1 tw:text-[12px] tw:text-an-d-text"
+        >
+            <span class="tw:flex tw:max-w-[240px] tw:min-w-0 tw:font-mono" :title="name">
+                <span class="tw:truncate">{{ nameHead }}</span>
+                <span v-if="nameTail" class="tw:shrink-0 tw:whitespace-pre">{{ nameTail }}</span>
+            </span>
+            <span class="tw:mx-1 tw:shrink-0 tw:text-an-d-disabled">·</span>
+            <span class="tw:shrink-0 tw:font-mono tw:tabular-nums">{{ index }}/{{ total }}</span>
         </span>
 
         <button
             type="button"
-            class="tw:flex tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-30"
+            class="tw:flex tw:shrink-0 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:text-an-d-disabled tw:disabled:opacity-100"
             :class="isTouchLayout ? navBtn : 'tw:h-6 tw:w-6'"
             :disabled="index >= total"
             title="Next image (J)"

@@ -1,13 +1,5 @@
 <script setup lang="ts">
-import {
-    Download,
-    FolderMinus,
-    FolderPlus,
-    MoreHorizontal,
-    Pencil,
-    Play,
-    Trash2,
-} from '@lucide/vue'
+import { Download, FolderMinus, FolderPlus, MoreHorizontal, Pencil, Trash2 } from '@lucide/vue'
 import type { Album } from '~/services/albumService'
 import type { AppLayout } from '~/core/composables/useAppLayout'
 
@@ -53,19 +45,18 @@ const compact = computed(() => props.layout === 'compact')
 const dense = computed(() => props.layout === 'medium')
 
 /**
- * Four actions, icon over an 11px label, evenly flexed, plus the overflow.
+ * Three actions, icon over an 11px label, evenly flexed, plus the overflow.
  *
- * Four is what fits at 390px without a target dropping under 44px, which is why Download is on the
- * bar and Remove from album is in the overflow with Delete.
+ * Sized so no target drops under 44px at 390px, which is why Download is on the bar and Remove from
+ * album is in the overflow with Delete.
  */
 const actions = computed(() => [
-    { id: 'album' as const, label: 'Album', icon: FolderPlus, disabled: false },
-    { id: 'run' as const, label: 'Run model', icon: Play, disabled: true },
-    { id: 'annotate' as const, label: 'Annotate', icon: Pencil, disabled: false },
-    { id: 'download' as const, label: 'Download', icon: Download, disabled: false },
+    { id: 'album' as const, label: 'Album', icon: FolderPlus },
+    { id: 'annotate' as const, label: 'Annotate', icon: Pencil },
+    { id: 'download' as const, label: 'Download', icon: Download },
 ])
 
-const fire = (id: 'album' | 'run' | 'annotate' | 'download') => {
+const fire = (id: 'album' | 'annotate' | 'download') => {
     if (id === 'album') emit('pick-album')
     if (id === 'annotate') emit('annotate')
     if (id === 'download') emit('download')
@@ -88,14 +79,7 @@ const fire = (id: 'album' | 'run' | 'annotate' | 'download') => {
             v-for="action in actions"
             :key="action.id"
             type="button"
-            class="tw:flex tw:h-16 tw:flex-1 tw:flex-col tw:items-center tw:justify-center tw:gap-1"
-            :class="action.disabled ? 'tw:text-an-n-300' : 'tw:text-an-n-700'"
-            :disabled="action.disabled"
-            :title="
-                action.disabled
-                    ? 'Running a model over a batch needs an endpoint that takes a list. Coming soon.'
-                    : undefined
-            "
+            class="tw:flex tw:h-16 tw:flex-1 tw:flex-col tw:items-center tw:justify-center tw:gap-1 tw:text-an-n-700"
             @click="fire(action.id)"
         >
             <component :is="action.icon" class="tw:h-[18px] tw:w-[18px]" />
@@ -162,25 +146,6 @@ const fire = (id: 'album' | 'run' | 'annotate' | 'download') => {
                 </McDropdownMenuItem>
             </McDropdownMenuContent>
         </McDropdownMenu>
-
-        <!--
-            Disabled on purpose, and it says so.
-
-            `POST /images/:id/detect` takes one image and blocks until the worker answers, so a
-            batch of ten is ten serial round trips through a GPU queue with no way to report or
-            cancel the middle of it. Shipped visible rather than hidden: the gap is a backend one,
-            and hiding it would just make someone ask for it again.
-        -->
-        <button
-            type="button"
-            disabled
-            class="tw:flex tw:h-[30px] tw:shrink-0 tw:cursor-not-allowed tw:items-center tw:gap-1.5 tw:rounded-md tw:px-2.5 tw:text-[12px] tw:font-medium tw:whitespace-nowrap tw:text-white/35"
-            aria-label="Run model"
-            title="Running a model over a batch needs an endpoint that takes a list. Coming soon."
-        >
-            <Play class="tw:h-3.5 tw:w-3.5" />
-            <span v-if="!dense">Run model</span>
-        </button>
 
         <button
             type="button"

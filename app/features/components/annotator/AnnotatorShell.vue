@@ -40,8 +40,10 @@ const rows = computed(() => {
     if (focus.value) return 'minmax(0, 1fr)'
     // The pager strip, the zoom strip and the bottom bars are rows of the grid rather than overlays,
     // so the canvas is sized around them and the picture never sits underneath a bar it cannot be
-    // moved out from under. Row order: header, pager, canvas, zoom, tools, classes.
-    if (stacked.value) return '48px auto minmax(0, 1fr) auto auto auto'
+    // moved out from under. Row order: header, pager, canvas, zoom, tools, classes, actions. The
+    // trailing `auto` rows collapse to nothing when their slot is empty (the image annotator fills no
+    // `bottom-actions`; the assignment routes put their action / verdict bar there).
+    if (stacked.value) return '48px auto minmax(0, 1fr) auto auto auto auto'
     return '48px minmax(0, 1fr)'
 })
 
@@ -159,6 +161,10 @@ const columns = computed(() => {
         <template v-if="stacked && !focus">
             <div style="grid-column: 1 / -1"><slot name="bottom-tools" /></div>
             <div style="grid-column: 1 / -1"><slot name="bottom-classes" /></div>
+            <!-- The action / verdict bar: the student's Mark done + Skip (with a labels summary) and
+                 the instructor's Approve / Flag / Incorrect. The row is empty (and collapses) on the
+                 image annotator. -->
+            <div style="grid-column: 1 / -1"><slot name="bottom-actions" /></div>
         </template>
 
         <!-- The queue and the shape list, as surfaces you summon. -->

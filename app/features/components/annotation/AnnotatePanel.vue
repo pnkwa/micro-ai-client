@@ -7,7 +7,7 @@
  * A view component (props in, events out) so it renders identically whether it is the docked right
  * column or the contents of a drawer on a tablet.
  */
-import { Check, Pentagon, SkipForward, Square, Trash2 } from '@lucide/vue'
+import { Check, ChevronDown, Pentagon, Shapes, SkipForward, Square, Trash2 } from '@lucide/vue'
 import { colorForShape } from '~/core/helpers/annotationClasses'
 import type { Shape } from '~/core/helpers/annotationShapes'
 import type { AnnotationLabel } from '~/services/annotationLabelService'
@@ -24,6 +24,12 @@ const props = withDefaults(
         hiddenIds: Set<string>
         palette: AnnotationLabel[]
         allowSkip: boolean
+        /** A fixed vocabulary: a box is relabelled by picking a class, not by typing a new name. */
+        lockLabels?: boolean
+        /** Which image is showing, so the instructions card collapses from the second one onward. */
+        imageIndex?: number
+        /** Scopes the remembered instructions collapse state to this assignment. */
+        instructionsKey?: string | number
         /**
          * Show instructions, the fill-in form and Mark done / Skip. On a tablet these move to the
          * AnnotateBrief band above the canvas, so the panel drawer turns them off and is left with
@@ -31,16 +37,81 @@ const props = withDefaults(
          */
         showBrief?: boolean
     }>(),
-    { showBrief: true },
+    { showBrief: true, imageIndex: 0 },
 )
 
 const emit = defineEmits<{
     'update-response': [key: string, value: string]
     'select-shape': [id: string]
     'delete-shape': [id: string]
+    relabel: [id: string, label: string]
     'mark-done': []
     skip: []
 }>()
+
+// Inline relabel a box from its row, by double-clicking the label (free vocab only). Enter/blur
+// commits, Escape abandons; a blank or unchanged value is a cancel.
+const editingShapeId = ref<string | null>(null)
+const shapeDraft = ref('')
+const shapeInputEl = useTemplateRef<HTMLInputElement>('shapeInputEl')
+const startShapeEdit = (s: Shape) => {
+    if (props.lockLabels) return
+    editingShapeId.value = s.id
+    shapeDraft.value = s.label
+    void nextTick(() => {
+        shapeInputEl.value?.focus()
+        shapeInputEl.value?.select()
+    })
+}
+// A click on the label opens the editor; with a locked vocabulary it does nothing here and bubbles to
+// the row so the shape is selected instead (a locked box is relabelled by picking a class).
+const onLabelClick = (s: Shape, event: MouseEvent) => {
+    if (props.lockLabels) return
+    event.stopPropagation()
+    startShapeEdit(s)
+}
+const cancelShapeEdit = () => {
+    editingShapeId.value = null
+    shapeDraft.value = ''
+}
+const commitShapeEdit = (s: Shape) => {
+    if (editingShapeId.value !== s.id) return
+    const name = shapeDraft.value.trim()
+    editingShapeId.value = null
+    if (name && name !== s.label) emit('relabel', s.id, name)
+}
+
+// Instructions collapse. The student reads them once: the card opens on the first image and stays
+// open until they collapse it, then that choice is remembered per assignment. From the second image
+// onward the default is collapsed. Persisted in localStorage (best-effort; never throws the panel).
+const storageKey = computed(() =>
+    props.instructionsKey == null ? null : `annotate:instr-open:${props.instructionsKey}`,
+)
+const readPref = (): boolean | null => {
+    if (!storageKey.value) return null
+    try {
+        const raw = localStorage.getItem(storageKey.value)
+        return raw === null ? null : raw === '1'
+    } catch {
+        return null
+    }
+}
+const instructionsOpen = ref(true)
+const applyOpenDefault = () => {
+    const pref = readPref()
+    instructionsOpen.value = pref ?? props.imageIndex === 0
+}
+const toggleInstructions = () => {
+    instructionsOpen.value = !instructionsOpen.value
+    if (!storageKey.value) return
+    try {
+        localStorage.setItem(storageKey.value, instructionsOpen.value ? '1' : '0')
+    } catch {
+        /* private mode / blocked storage: the toggle still works this session */
+    }
+}
+onMounted(applyOpenDefault)
+watch(() => props.imageIndex, applyOpenDefault)
 
 const shapeColor = (s: Shape) => colorForShape(props.palette, s) ?? 'var(--color-an-n-250)'
 // No node count: "N pts" beside a label read as a graded score to students. Shape kind is enough.
@@ -53,18 +124,39 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
          ancestor, so the docked sidebar (landscape) and the drawer (portrait) both need it here to
          stop a stray pinch or double-tap zooming the whole page. Scrolling the panel still works. -->
     <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:[touch-action:pan-x_pan-y]">
-        <!-- instructions -->
-        <div v-if="showBrief" class="tw:flex tw:min-h-0 tw:flex-col">
-            <div class="tw:flex tw:items-center tw:gap-2 tw:pt-3 tw:pr-3 tw:pl-3.5">
-                <span
-                    class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text"
+        <!-- instructions: a collapsible card that never pushes the class list below the fold. Open on
+             the first image, then collapsed by default and remembered per assignment. Collapsed shows
+             one clamped line; expanded scrolls internally past 160px. -->
+        <div v-if="showBrief" class="tw:shrink-0 tw:p-3 tw:pb-0">
+            <div class="tw:rounded-lg tw:bg-an-n-50 tw:p-3">
+                <button
+                    type="button"
+                    class="tw:flex tw:w-full tw:items-center tw:gap-2 tw:text-left"
+                    :aria-expanded="instructionsOpen"
+                    @click="toggleInstructions"
                 >
-                    Instructions
-                </span>
+                    <span
+                        class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text"
+                    >
+                        Instructions
+                    </span>
+                    <div class="tw:flex-1"></div>
+                    <ChevronDown
+                        class="tw:size-4 tw:text-an-faint tw:transition-transform"
+                        :class="instructionsOpen ? '' : 'tw:-rotate-90'"
+                    />
+                </button>
+                <p
+                    class="tw:mt-1.5 tw:text-[12.5px] tw:text-an-n-600"
+                    :class="
+                        instructionsOpen
+                            ? 'tw:max-h-40 tw:overflow-y-auto tw:whitespace-pre-line'
+                            : 'tw:truncate'
+                    "
+                >
+                    {{ instructions || 'Box every finding and label it.' }}
+                </p>
             </div>
-            <span class="tw:pt-3 tw:pr-3 tw:pb-2 tw:pl-3.5">
-                {{ instructions || 'Box every finding and label it.' }}
-            </span>
         </div>
 
         <!-- per-image fill-in form (field_prompts) -->
@@ -155,9 +247,26 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
                         class="tw:size-[15px] tw:shrink-0 tw:text-an-n-500"
                     />
                     <span class="tw:min-w-0 tw:flex-1">
+                        <!-- Single click on the label relabels this box in place (free vocab only);
+                             the input's own events are stopped so typing does not select the row. When
+                             the vocab is locked the click falls through to select the row instead. -->
+                        <input
+                            v-if="editingShapeId === s.id"
+                            ref="shapeInputEl"
+                            v-model="shapeDraft"
+                            class="tw:block tw:w-full tw:min-w-0 tw:bg-transparent tw:text-[13px] tw:text-an-text tw:outline-none"
+                            @click.stop
+                            @mousedown.stop
+                            @keydown.enter.prevent.stop="commitShapeEdit(s)"
+                            @keydown.esc.prevent.stop="cancelShapeEdit"
+                            @blur="commitShapeEdit(s)"
+                        />
                         <span
+                            v-else
                             class="tw:block tw:truncate tw:text-[13px]"
                             :class="s.label ? 'tw:text-an-text' : 'tw:text-an-n-300 tw:italic'"
+                            :title="lockLabels ? undefined : 'Click to relabel'"
+                            @click="onLabelClick(s, $event)"
                         >
                             {{ s.label || 'Unlabelled' }}
                         </span>
@@ -174,9 +283,20 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
                     </button>
                 </div>
 
-                <p v-if="!shapes.length" class="tw:px-1 tw:py-2 tw:text-[11px] tw:text-an-faint">
-                    Pick a class, then drag a box on the image.
-                </p>
+                <!-- Anchored to the TOP of the region (not vertically centred), so it reads as the
+                     start of a list waiting to be filled rather than an empty state that ate the panel. -->
+                <div
+                    v-if="!shapes.length"
+                    class="tw:flex tw:flex-col tw:items-center tw:gap-1 tw:px-4 tw:pt-12 tw:text-center"
+                >
+                    <Shapes class="tw:size-6 tw:text-an-n-300" />
+                    <span class="tw:text-[12px] tw:font-medium tw:text-an-n-500">
+                        Nothing labelled yet
+                    </span>
+                    <span class="tw:text-[11px] tw:text-an-faint">
+                        Pick a class, then drag a box on the image.
+                    </span>
+                </div>
             </section>
         </div>
 
@@ -184,8 +304,9 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
             v-if="showBrief"
             class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:p-3"
         >
-            <!-- Once a box is drawn, Skip stops making sense, so it goes and Done takes the row.
-                 Done reads as outline once the image is already marked complete. -->
+            <!-- The single Skip control on the screen (the header has none). Mark done takes the row
+                 at full width with its `M` keycap; Skip sits beside it at natural width. Done reads as
+                 outline once the image is already marked complete. -->
             <div class="tw:flex tw:gap-2">
                 <McButton
                     class="tw:flex-1"
@@ -194,11 +315,16 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
                 >
                     <Check class="tw:mr-1 tw:size-4" />
                     {{ status === 'completed' ? 'Done' : 'Mark done' }}
+                    <kbd
+                        class="tw:ml-1.5 tw:rounded tw:border tw:border-white/25 tw:px-1 tw:py-px tw:font-mono tw:text-[9.5px] tw:leading-none"
+                        :class="status === 'completed' ? 'tw:border-an-n-200 tw:text-an-muted' : ''"
+                    >
+                        M
+                    </kbd>
                 </McButton>
                 <McButton
-                    v-if="!shapes.length"
+                    v-if="allowSkip && status !== 'completed'"
                     variant="outline"
-                    class="tw:flex-1"
                     :disabled="!allowSkip"
                     @click="emit('skip')"
                 >

@@ -603,6 +603,22 @@ const labelNewShapes = () => {
 }
 watch(shapes, labelNewShapes, { deep: true })
 
+// Drop a just-created class the moment its last box goes: name a box (which mints a PENDING, local
+// class), then delete that box, and the class should not linger at count 0 in the picker. Only
+// pending (never-saved, negative-id) rows are pruned — a SAVED class legitimately reads 0 on an image
+// it is not on and is the accumulated vocabulary you draw from, so it stays. The armed class is kept
+// too, so a class created with "New class" survives until its first box is drawn.
+const prunePendingClasses = () => {
+    const used = new Set(
+        shapes.value.map((shape) => shape.labelId).filter((id): id is number => id !== null),
+    )
+    const kept = palette.value.filter(
+        (entry) => !isPending(entry.id) || used.has(entry.id) || entry.id === activeLabelId.value,
+    )
+    if (kept.length !== palette.value.length) palette.value = kept
+}
+watch([shapes, activeLabelId], prunePendingClasses, { deep: true })
+
 // ---- local cache (unsaved work) ------------------------------------------------------------------
 // A per-image localStorage cache so a refresh or tab close does not lose boxes drawn inside the
 // throttled autosave window; on reopen the page offers to restore it. See useImageAnnotationDraft.
@@ -890,11 +906,16 @@ const selectImage = async (id: number) => {
     if (image) await openImage(image)
 }
 
-/** `?image=<id>` is how the library's Annotate button arrives here. */
-const linkedImageId = computed(() => {
-    const raw = Array.isArray(route.query.image) ? route.query.image[0] : route.query.image
-    const id = Number(raw)
-    return Number.isInteger(id) && id > 0 ? id : null
+/**
+ * `?image=<id>` is how the library's Annotate button arrives here. Selecting several sends the id
+ * repeated (`?image=1&image=2&…`), so this reads a LIST: a single deep link is just the one-element
+ * case. Order and duplicates are preserved-then-deduped so the first stays the one that opens.
+ */
+const linkedImageIds = computed(() => {
+    const raw = route.query.image
+    const list = Array.isArray(raw) ? raw : raw == null ? [] : [raw]
+    const ids = list.map((value) => Number(value)).filter((id) => Number.isInteger(id) && id > 0)
+    return [...new Set(ids)]
 })
 
 // Albums for the source picker. The strip itself stays empty until a source is chosen (or a
@@ -930,20 +951,32 @@ try {
     toast.error(apiErrorMessage(error, 'Could not load your classes'))
 }
 
-if (linkedImageId.value) {
-    const inStrip = images.value.find((row) => row.id === linkedImageId.value)
-    if (inStrip) {
-        await openImage(inStrip)
-    } else {
-        // Linked to something outside the first page: fetch the row directly rather than paging
-        // until it appears, and put it at the front so the strip shows what is on the canvas.
-        try {
-            const image = await imageService.get(linkedImageId.value)
-            images.value = [image, ...images.value]
-            await openImage(image)
-        } catch (error) {
-            toast.error(apiErrorMessage(error, 'Could not open that image'))
+if (linkedImageIds.value.length) {
+    // Fetch each linked row that is not already in the strip (a single deep link usually is not,
+    // since the source starts empty) and put the whole batch at the front, so the filmstrip shows
+    // exactly the selection the library handed over. Rows are fetched in parallel but placed back in
+    // the requested order; a row that fails to load is dropped rather than sinking the whole batch.
+    try {
+        const have = new Map(images.value.map((row) => [row.id, row]))
+        const settled = await Promise.allSettled(
+            linkedImageIds.value.map(async (id) => have.get(id) ?? (await imageService.get(id))),
+        )
+        const batch = settled
+            .filter(
+                (result): result is PromiseFulfilledResult<LibraryImage> =>
+                    result.status === 'fulfilled',
+            )
+            .map((result) => result.value)
+        const failed = settled.length - batch.length
+        if (failed) {
+            toast.error(`Could not open ${failed} of ${settled.length} image(s).`)
         }
+        const batchIds = new Set(batch.map((row) => row.id))
+        images.value = [...batch, ...images.value.filter((row) => !batchIds.has(row.id))]
+        const first = batch[0]
+        if (first) await openImage(first)
+    } catch (error) {
+        toast.error(apiErrorMessage(error, 'Could not open those images'))
     }
 }
 
@@ -1450,6 +1483,8 @@ const pagerStrip = computed(() =>
         id: image.id,
         thumb: pagerThumbs.urls.value[image.id] ?? null,
         active: image.id === selectedImageId.value,
+        // A failed thumb fetch shows a broken tile rather than a skeleton that never resolves.
+        failed: Boolean(pagerThumbs.errors.value[image.id]),
     })),
 )
 
@@ -1779,6 +1814,7 @@ const step = (delta: number) => {
                             @toggle-all="toggleAllHidden"
                             @accept="acceptSeeded"
                             @reject="rejectSeeded"
+                            @relabel="labelShape"
                             @seed="((shapesSheetOpen = false), (seedOpen = true))"
                             @draw-polygon="((shapesSheetOpen = false), (tool = 'polygon'))"
                         />
@@ -1841,6 +1877,7 @@ const step = (delta: number) => {
             <ZoomPill
                 v-if="selectedImage"
                 docked
+                focusable
                 :percent="zoomPercent"
                 :at-fit="atFit"
                 :enabled="canZoom"
@@ -1848,6 +1885,7 @@ const step = (delta: number) => {
                 @zoom-in="canvas?.zoomIn()"
                 @zoom-out="canvas?.zoomOut()"
                 @fit="canvas?.fit()"
+                @focus="toggleFocus"
                 @toggle-visibility="toggleAllHidden"
             />
         </template>
@@ -2061,6 +2099,7 @@ const step = (delta: number) => {
                      stacked phone it is docked into its own shell row instead (see #zoom). -->
                 <ZoomPill
                     v-if="!focus && !stacked"
+                    focusable
                     :percent="zoomPercent"
                     :at-fit="atFit"
                     :enabled="canZoom"
@@ -2068,6 +2107,7 @@ const step = (delta: number) => {
                     @zoom-in="canvas?.zoomIn()"
                     @zoom-out="canvas?.zoomOut()"
                     @fit="canvas?.fit()"
+                    @focus="toggleFocus"
                     @toggle-visibility="toggleAllHidden"
                 />
             </template>
@@ -2118,6 +2158,7 @@ const step = (delta: number) => {
                 @pick="pickClass"
                 @create="createClass"
                 @recolor="recolorClass"
+                @rename="editClass"
             />
             <div class="tw:h-px tw:shrink-0 tw:bg-an-divider"></div>
             <ShapeList
@@ -2132,6 +2173,7 @@ const step = (delta: number) => {
                 @toggle-all="toggleAllHidden"
                 @accept="acceptSeeded"
                 @reject="rejectSeeded"
+                @relabel="labelShape"
                 @seed="seedOpen = true"
                 @draw-polygon="tool = 'polygon'"
             />

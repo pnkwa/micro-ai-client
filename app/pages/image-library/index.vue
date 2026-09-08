@@ -735,15 +735,15 @@ const removeSelectedFromAlbum = async () => {
 }
 
 /**
- * The annotator opens on ONE image, so a batch opens on the first of them.
+ * Hand the whole selection to the annotator, which opens on the first and puts the rest in its
+ * filmstrip so a batch is stepped through without coming back here.
  *
- * It is not a compromise worth hiding: the annotator has its own queue over the whole library, so
- * arriving on the first of a selection and stepping through is the workflow anyway. A list in the
- * query string would be a second selection model to keep in sync with this one.
+ * The ids ride as a repeated `?image=` param, which is what the annotator reads. A single selection
+ * is therefore identical to `onAnnotate(id)` — one `?image=<id>` — so the deep link keeps working.
  */
 const annotateSelected = () => {
-    const first = selectedImages.value[0]
-    if (first) void onAnnotate(first.id)
+    const ids = selectedImages.value.map((image) => image.id)
+    if (ids.length) void navigateTo({ path: '/image-annotator', query: { image: ids.map(String) } })
 }
 
 /**

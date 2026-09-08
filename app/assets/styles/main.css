@@ -163,6 +163,12 @@
     --color-an-warn: #a56a08;
     --color-an-warn-tint: #fdf3e3;
 
+    /* Review verdicts. "incorrect" is the only one needing its own hue; "approved" reuses
+       an-accent-hover, "flagged" reuses an-warn, and "unreviewed" reuses the an-n-300 grey. The
+       neutral answer-key stroke (never green) is an-n-250. */
+    --color-an-rose: #db5a7e;
+    --color-an-rose-tint: #fceef2;
+
     /* The seeded SHAPE ROW specifically, which is much fainter than the badge above.
        A row is read down a column next to the picture, so it gets a near-white wash and a 1px
        ring; `an-warn-tint` at that size pulls the eye off the image it is describing. */

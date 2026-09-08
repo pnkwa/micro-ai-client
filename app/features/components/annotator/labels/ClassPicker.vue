@@ -32,6 +32,9 @@ const emit = defineEmits<{
     pick: [labelId: number]
     create: [label: string, colorHex: string]
     recolor: [labelId: number, color: string]
+    /** Renames a class. Carries the class's current colour so the parent's edit handler (which takes
+     *  both) leaves the colour untouched. The parent rewrites the name on every shape using it. */
+    rename: [labelId: number, label: string, colorHex: string]
 }>()
 
 const adding = ref(false)
@@ -70,6 +73,32 @@ watch(() => props.classes.length, scrollToBottom)
 watch(adding, (open) => {
     if (open) void scrollToBottom()
 })
+
+// Inline rename, opened by double-clicking a class name (never for a fixed vocabulary). One row edits
+// at a time; Enter/blur commits, Escape abandons.
+const editingId = ref<number | null>(null)
+const editingDraft = ref('')
+const startRename = (klass: AnnotationClass) => {
+    if (props.fixed) return
+    editingId.value = klass.id
+    editingDraft.value = klass.label
+    void nextTick(() => {
+        const field = listEl.value?.querySelector<HTMLInputElement>('[data-rename-input]')
+        field?.focus()
+        field?.select()
+    })
+}
+const cancelRename = () => {
+    editingId.value = null
+    editingDraft.value = ''
+}
+const commitRename = (klass: AnnotationClass) => {
+    if (editingId.value !== klass.id) return
+    const name = editingDraft.value.trim()
+    // A blank is a cancel, not a way to unname a class; only a real change is written.
+    if (name && name !== klass.label) emit('rename', klass.id, name, klass.color)
+    cancelRename()
+}
 </script>
 
 <template>
@@ -86,7 +115,7 @@ watch(adding, (open) => {
             </span>
             <div class="tw:flex-1"></div>
             <span v-if="!fixed" class="tw:text-[10.5px] tw:text-an-faint">
-                Click a swatch to recolour
+                Swatch recolours · double-click to rename
             </span>
         </div>
 
@@ -129,7 +158,20 @@ watch(adding, (open) => {
                             "
                         />
                     </span>
+                    <!-- Rename in place: double-clicking the name opens this field (free vocab only).
+                         Enter or blur commits, Escape abandons; the parent rewrites the name on every
+                         shape carrying the class. -->
+                    <input
+                        v-if="editingId === klass.id"
+                        v-model="editingDraft"
+                        data-rename-input
+                        class="tw:min-w-0 tw:flex-1 tw:bg-transparent tw:text-[11.5px] tw:font-medium tw:text-an-text tw:outline-none"
+                        @keydown.enter.prevent="commitRename(klass)"
+                        @keydown.esc.prevent="cancelRename"
+                        @blur="commitRename(klass)"
+                    />
                     <button
+                        v-else
                         type="button"
                         class="tw:flex tw:min-w-0 tw:flex-1 tw:items-center tw:gap-[9px] tw:text-left"
                         @click="emit('pick', klass.id)"
@@ -137,6 +179,8 @@ watch(adding, (open) => {
                         <span
                             class="tw:truncate tw:text-[11.5px] tw:text-an-text"
                             :class="klass.id === active ? 'tw:font-semibold' : 'tw:font-medium'"
+                            :title="fixed ? undefined : 'Double-click to rename'"
+                            @dblclick.stop.prevent="startRename(klass)"
                         >
                             {{ klass.label }}
                         </span>
@@ -148,7 +192,7 @@ watch(adding, (open) => {
                         </span>
                     </button>
                     <kbd
-                        v-if="klass.index < 9 && !isTouchLayout"
+                        v-if="klass.index < 9 && !isTouchLayout && editingId !== klass.id"
                         class="tw:rounded tw:border tw:border-an-n-200 tw:bg-an-n-100 tw:px-[5px] tw:py-[3px] tw:font-mono tw:text-[9.5px] tw:leading-none tw:text-an-muted"
                     >
                         {{ klass.index + 1 }}

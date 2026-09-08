@@ -27,6 +27,8 @@ const emit = defineEmits<{
     reject: [id: string]
     seed: []
     'draw-polygon': []
+    /** A label typed onto a shape's row. The parent applies it (minting a class if new). */
+    relabel: [id: string, label: string]
 }>()
 
 /**
@@ -95,6 +97,7 @@ const sorted = computed(() => {
                 @toggle-hidden="emit('toggle-hidden', shape.id)"
                 @accept="emit('accept', shape.id)"
                 @reject="emit('reject', shape.id)"
+                @relabel="(label) => emit('relabel', shape.id, label)"
             />
 
             <!-- Under the list rather than in the empty state, because it is the answer to "what

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
-import { ArrowLeft, ChevronLeft, ChevronRight, Eye, Images, Menu, Shapes, Undo2 } from '@lucide/vue'
+import { ArrowLeft, Eye, Images, KeySquare, Menu, Shapes, Undo2 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -14,6 +14,8 @@ import { apiErrorMessage } from '~/core/helpers/error'
 import ReviewCanvas from '~/features/components/annotation/ReviewCanvas.vue'
 import ReviewQueue from '~/features/components/annotation/ReviewQueue.vue'
 import ReviewPanel from '~/features/components/annotation/ReviewPanel.vue'
+import ReviewVerdictBar from '~/features/components/annotation/ReviewVerdictBar.vue'
+import PagerPill from '~/features/components/annotator/canvas/PagerPill.vue'
 import AnnotatorShell from '~/features/components/annotator/AnnotatorShell.vue'
 import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 
@@ -26,9 +28,18 @@ const isStaff = computed(() => authStore.user?.user_type === 'staff')
 // Full-bleed dark workspace, like the annotator.
 const APP_FILL = 'mc-app-fill'
 const HIDE_BAR = 'mc-hide-app-bar'
-onMounted(() => document.documentElement.classList.add(APP_FILL, HIDE_BAR))
+const sidebar = useSidebar()
+// Collapse the app nav to its 64px icon rail while reviewing, so the read-only canvas is not cramped
+// by a 300px nav. Through the ref, not `setOpen`, so it stays route-scoped (the image-annotator rule).
+let navWasOpen = true
+onMounted(() => {
+    document.documentElement.classList.add(APP_FILL, HIDE_BAR)
+    navWasOpen = sidebar.open.value
+    sidebar.open.value = false
+})
 onBeforeUnmount(() => {
     document.documentElement.classList.remove(APP_FILL, HIDE_BAR)
+    sidebar.open.value = navWasOpen
     for (const url of imageUrls.value.values()) URL.revokeObjectURL(url)
 })
 
@@ -38,7 +49,22 @@ const studentName = ref<string | null>(null)
 const loading = ref(true)
 const currentIndex = ref(0)
 const showExpert = ref(false)
+// Whether a verdict advances to the next image after it commits, or commits and stays. The pager
+// only changes position, so it never advances — one press is one move either way.
+const autoAdvance = ref(true)
 const imageUrls = ref<Map<number, string>>(new Map())
+// Thumb-size URLs for the queue rows, loaded lazily as a row scrolls in (ReviewQueue emits `reveal`).
+// Separate from the full-res canvas cache above: a 42px row must not pull a multi-MB original.
+const thumbUrls = ref<Map<number, string>>(new Map())
+const thumbnails = computed(() => Object.fromEntries(thumbUrls.value))
+async function revealThumb(imageId: number) {
+    if (thumbUrls.value.has(imageId)) return
+    try {
+        thumbUrls.value.set(imageId, await imageService.blobUrl(imageId, 'thumb'))
+    } catch {
+        /* a row without a thumb keeps its skeleton */
+    }
+}
 // Per-image remark drafts (staff), keyed by image_id and seeded from the saved review.
 const remarks = ref<Record<number, string>>({})
 // Per-image correct/incorrect marks for gradable prompts (staff), keyed by image_id then prompt key.
@@ -56,7 +82,7 @@ const rejectReason = ref('')
 // Read-only, so no bottom bars: `stacked` just moves the queue and the detail panel into sheets and
 // swaps to the compact header. The queue never collapses (leftOpen stays true) so the shell never
 // enters focus mode.
-const { layout } = useAnnotatorLayout()
+const { layout, stacked } = useAnnotatorLayout()
 const leftOpen = ref(true)
 const rightOpen = ref(true)
 const queueSheetOpen = ref(false)
@@ -65,7 +91,6 @@ const panelSheetOpen = ref(false)
 // This route hides the app bar, so below 1280 - where the app nav is a Sheet keyed off `openMobile`
 // - there is no trigger for it and the page could only be left with Back or the browser. A hamburger
 // in the header opens it. On the desktop the sidebar is docked and visible, so this is not needed.
-const sidebar = useSidebar()
 const openNav = () => {
     if (sidebar.isMobile.value) sidebar.setOpenMobile(!sidebar.openMobile.value)
     else sidebar.open.value = !sidebar.open.value
@@ -107,6 +132,18 @@ const current = computed<SubmissionField | null>(() => currentItem.value?.field 
 const currentUrl = computed(() =>
     currentItem.value ? (imageUrls.value.get(currentItem.value.imageId) ?? null) : null,
 )
+const currentName = computed(() => `Image ${String(currentIndex.value + 1).padStart(2, '0')}`)
+// The touch filmstrip for the pager: the album in order, thumbs filled in as cells reveal (the
+// desktop keeps the exact text pill instead). A skipped or unattempted image still gets a cell.
+const pagerStrip = computed(() =>
+    items.value.map((it) => ({
+        id: it.imageId,
+        thumb: thumbUrls.value.get(it.imageId) ?? null,
+        active: it.index === currentIndex.value,
+    })),
+)
+// The current image's verdict, for the compact verdict bar.
+const currentVerdict = computed(() => current.value?.review_status ?? 'unreviewed')
 
 // Only images the student actually worked are reviewable; pending ones have no field to judge.
 const reviewable = computed(() => items.value.filter((i) => i.field))
@@ -221,6 +258,10 @@ async function review(status: 'approved' | 'flagged' | 'incorrect') {
             },
         )
         toast.success(verdictToast[status])
+        // A verdict commits and, with auto-advance on, moves to the next image (like Mark done on the
+        // student screen). The pager never fires here, so this is the only forward motion.
+        if (autoAdvance.value && currentIndex.value < items.value.length - 1)
+            await goTo(currentIndex.value + 1)
     } catch (err) {
         toast.error(apiErrorMessage(err, 'Could not save the review'))
     } finally {
@@ -282,6 +323,37 @@ const setRemark = (value: string) => {
 const setFeedback = (value: string) => {
     feedbackDraft.value = value
 }
+
+// Keyboard: `A` toggles the answer key (staff), J/K and the arrows step the images. All ignored while
+// a text field is focused, so typing a remark never navigates or flips the overlay.
+const onKeydown = (event: KeyboardEvent) => {
+    const el = event.target as HTMLElement | null
+    if (el && (el.isContentEditable || /^(input|textarea|select)$/i.test(el.tagName))) return
+    if (event.metaKey || event.ctrlKey || event.altKey) return
+    switch (event.key) {
+        case 'a':
+        case 'A':
+            if (isStaff.value) {
+                showExpert.value = !showExpert.value
+                event.preventDefault()
+            }
+            break
+        case 'j':
+        case 'J':
+        case 'ArrowRight':
+            void goTo(currentIndex.value + 1)
+            event.preventDefault()
+            break
+        case 'k':
+        case 'K':
+        case 'ArrowLeft':
+            void goTo(currentIndex.value - 1)
+            event.preventDefault()
+            break
+    }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 onMounted(load)
 </script>
@@ -348,6 +420,13 @@ onMounted(load)
             <div class="tw:flex-1"></div>
 
             <template v-if="isStaff">
+                <label
+                    class="tw:flex tw:cursor-pointer tw:items-center tw:gap-1.5 tw:text-[11.5px] tw:text-an-muted"
+                    title="Advance to the next image after a verdict"
+                >
+                    <input v-model="autoAdvance" type="checkbox" class="tw:accent-an-accent" />
+                    Auto-advance
+                </label>
                 <span class="tw:text-[13px] tw:text-an-muted">
                     <b class="tw:text-an-text">{{ reviewedCount }}</b>
                     / {{ reviewable.length }} reviewed
@@ -393,34 +472,34 @@ onMounted(load)
             >
                 <ArrowLeft class="tw:size-4" />
             </button>
-            <McButton
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Open the navigation menu"
-                @click="openNav"
-            >
-                <Menu class="tw:size-4" />
-            </McButton>
-            <McButton
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Show the image list"
-                @click="queueSheetOpen = true"
-            >
-                <Images class="tw:size-4" />
-            </McButton>
+            <!-- The filmstrip navigates on a phone, so no hamburger and no image-list icon here. -->
             <div class="tw:flex tw:min-w-0 tw:flex-col">
                 <span class="tw:truncate tw:text-[13px] tw:font-semibold tw:text-an-text">
                     {{ isStaff ? studentName || 'Student' : assignment?.name || 'Your submission' }}
                 </span>
                 <span v-if="submission" class="tw:text-[10.5px] tw:capitalize tw:text-an-faint">
                     {{ submission.status }}
-                    <template v-if="showScore">
+                    <template v-if="isStaff">
+                        · {{ reviewedCount }}/{{ reviewable.length }} reviewed
+                    </template>
+                    <template v-else-if="showScore">
                         ({{ formatPts(score!) }}/{{ formatPts(pointsPossible!) }})
                     </template>
                 </span>
             </div>
             <div class="tw:flex-1"></div>
+            <!-- answer-key eye toggle (staff): the second row of canvas pills is gone on a phone. -->
+            <McButton
+                v-if="isStaff"
+                variant="ghost"
+                size="icon-sm"
+                :class="showExpert ? 'tw:text-an-accent' : ''"
+                :aria-pressed="showExpert"
+                aria-label="Show answer key"
+                @click="showExpert = !showExpert"
+            >
+                <Eye class="tw:size-4" />
+            </McButton>
             <McButton
                 v-if="isStaff && !isRejected"
                 variant="ghost"
@@ -432,7 +511,9 @@ onMounted(load)
             >
                 <Undo2 class="tw:size-4" />
             </McButton>
+            <!-- Non-staff have no verdict bar, so they open the feedback sheet from here. -->
             <McButton
+                v-if="!isStaff"
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Review details"
@@ -460,7 +541,41 @@ onMounted(load)
         </template>
 
         <template #queue>
-            <ReviewQueue :items="items" :current-index="currentIndex" @select="goTo" />
+            <ReviewQueue
+                :items="items"
+                :current-index="currentIndex"
+                :thumbnails="thumbnails"
+                @select="goTo"
+                @reveal="revealThumb"
+            />
+        </template>
+
+        <!-- Docked filmstrip pager on a stacked phone (the floating pill in #canvas is suppressed
+             there), so it navigates the album beside the picture. -->
+        <template #pager>
+            <PagerPill
+                docked
+                :name="currentName"
+                :index="currentIndex + 1"
+                :total="items.length"
+                :strip="pagerStrip"
+                @previous="goTo(currentIndex - 1)"
+                @next="goTo(currentIndex + 1)"
+                @select="(id) => goTo(items.findIndex((it) => it.imageId === id))"
+                @reveal="revealThumb"
+            />
+        </template>
+
+        <!-- phone: the verdict bar carries Approve / Flag / Incorrect and opens the review sheet. -->
+        <template #bottom-actions>
+            <ReviewVerdictBar
+                v-if="isStaff"
+                :verdict="currentVerdict"
+                :saving="savingField"
+                :disabled="!current || isGraded || isRejected"
+                @review="review"
+                @open-sheet="panelSheetOpen = true"
+            />
         </template>
 
         <template #canvas>
@@ -480,58 +595,68 @@ onMounted(load)
                 Loading…
             </div>
 
-            <!-- read-only badge -->
+            <!-- Tool-dock slot: the read-only pill, with the answer-key toggle in the same group so
+                 the dock position reads "no tools here" rather than leaving it empty. -->
             <div
-                class="tw:absolute tw:top-3 tw:left-3 tw:z-10 tw:flex tw:items-center tw:gap-1.5 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-2.5 tw:py-1.5 tw:text-[11.5px] tw:text-an-d-text tw:backdrop-blur"
+                class="tw:absolute tw:top-3 tw:left-3 tw:z-10 tw:flex tw:items-center tw:gap-1 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:p-1 tw:backdrop-blur"
             >
-                <Eye class="tw:size-3.5 tw:text-an-d-icon" />
-                Reviewing (read-only)
-            </div>
-
-            <!-- show-expert toggle (staff only) -->
-            <label
-                v-if="isStaff"
-                class="tw:absolute tw:top-3 tw:left-1/2 tw:z-10 tw:flex tw:-translate-x-1/2 tw:items-center tw:gap-2 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-3 tw:py-1.5 tw:text-[11.5px] tw:text-an-d-strong tw:backdrop-blur"
-            >
-                <input v-model="showExpert" type="checkbox" class="tw:accent-an-accent" />
-                Show answer key
-            </label>
-
-            <!-- pager -->
-            <div
-                class="tw:absolute tw:top-3 tw:right-3 tw:z-10 tw:flex tw:items-center tw:gap-1 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:p-1 tw:backdrop-blur"
-            >
-                <button
-                    class="tw:flex tw:size-6 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white"
-                    aria-label="Previous"
-                    @click="goTo(currentIndex - 1)"
+                <span
+                    class="tw:flex tw:items-center tw:gap-1.5 tw:px-2 tw:py-1 tw:text-[11.5px] tw:text-an-d-text"
                 >
-                    <ChevronLeft class="tw:size-3.5" />
-                </button>
-                <span class="tw:px-1 tw:font-mono tw:text-[12px] tw:tabular-nums tw:text-an-d-text">
-                    {{ currentIndex + 1 }}/{{ items.length }}
+                    <Eye class="tw:size-3.5 tw:text-an-d-icon" />
+                    Reviewing (read-only)
                 </span>
                 <button
-                    class="tw:flex tw:size-6 tw:items-center tw:justify-center tw:rounded-md tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white"
-                    aria-label="Next"
-                    @click="goTo(currentIndex + 1)"
+                    v-if="isStaff && !stacked"
+                    type="button"
+                    class="tw:flex tw:items-center tw:gap-1.5 tw:rounded-md tw:px-2 tw:py-1 tw:text-[11.5px] tw:transition-colors"
+                    :class="
+                        showExpert
+                            ? 'tw:bg-white/15 tw:text-white'
+                            : 'tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white'
+                    "
+                    :aria-pressed="showExpert"
+                    title="Show answer key (A)"
+                    @click="showExpert = !showExpert"
                 >
-                    <ChevronRight class="tw:size-3.5" />
+                    <KeySquare class="tw:size-3.5" />
+                    Answer key
+                    <kbd
+                        class="tw:rounded tw:border tw:border-white/25 tw:px-1 tw:py-px tw:font-mono tw:text-[9px] tw:leading-none"
+                    >
+                        A
+                    </kbd>
                 </button>
             </div>
 
-            <!-- legend -->
+            <!-- pager: the shared pill, so chevrons disable at the ends and the name truncates. On a
+                 stacked phone it docks into its own shell row (see #pager) so it never covers the
+                 picture; here it floats for wider layouts. -->
+            <PagerPill
+                v-if="!stacked"
+                :name="currentName"
+                :index="currentIndex + 1"
+                :total="items.length"
+                :strip="pagerStrip"
+                @previous="goTo(currentIndex - 1)"
+                @next="goTo(currentIndex + 1)"
+                @select="(id) => goTo(items.findIndex((it) => it.imageId === id))"
+                @reveal="revealThumb"
+            />
+
+            <!-- legend: provenance is carried by the STROKE, not the hue (answer-key stroke is never
+                 green), so the key reads by line style rather than colour. -->
             <div
                 v-if="isStaff && showExpert"
                 class="tw:absolute tw:bottom-3 tw:left-3 tw:z-10 tw:flex tw:items-center tw:gap-3 tw:rounded-[10px] tw:border tw:border-white/10 tw:bg-an-overlay/95 tw:px-3 tw:py-1.5 tw:text-[11px] tw:text-an-d-text tw:backdrop-blur"
             >
                 <span class="tw:flex tw:items-center tw:gap-1.5">
-                    <span class="tw:w-4 tw:border-t-2 tw:border-dashed tw:border-an-accent" />
-                    Answer key
+                    <span class="tw:w-4 tw:border-t-2 tw:border-dashed tw:border-an-n-250" />
+                    Answer key (dashed)
                 </span>
                 <span class="tw:flex tw:items-center tw:gap-1.5">
-                    <span class="tw:w-4 tw:border-t-2" style="border-color: #7c5ce0" />
-                    Student
+                    <span class="tw:w-4 tw:border-t-2 tw:border-an-d-soft" />
+                    Student (solid)
                 </span>
             </div>
         </template>
@@ -569,21 +694,25 @@ onMounted(load)
                     <ReviewQueue
                         :items="items"
                         :current-index="currentIndex"
+                        :thumbnails="thumbnails"
                         @select="
                             (i) => {
                                 goTo(i)
                                 queueSheetOpen = false
                             }
                         "
+                        @reveal="revealThumb"
                     />
                 </McSheetContent>
             </McSheet>
 
-            <!-- review detail, as a drawer on tablet/phone -->
+            <!-- review detail, as a bottom sheet on tablet/phone (student's boxes, remark, overall
+                 feedback), opened from the header shapes icon or the verdict bar. -->
             <McSheet v-model:open="panelSheetOpen">
                 <McSheetContent
-                    side="right"
-                    class="tw:flex tw:w-[340px] tw:flex-col tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                    side="bottom"
+                    class="mc-slide-up tw:flex tw:max-h-[80dvh] tw:flex-col tw:rounded-t-2xl tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                    hide-close
                 >
                     <ReviewPanel
                         :current="current"

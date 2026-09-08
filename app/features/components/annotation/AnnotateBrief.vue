@@ -21,7 +21,14 @@ const props = defineProps<{
     allowSkip: boolean
     /** Render the collapse header. Off (the default) renders the body straight, for a docked panel. */
     collapsible?: boolean
+    /**
+     * Render the Mark done / Skip row. Off when the compact layout carries those on its action bar
+     * instead, so this shows only the instructions and the fill-in form (in the instructions sheet).
+     */
+    showActions?: boolean
 }>()
+
+const showActions = computed(() => props.showActions ?? true)
 
 const emit = defineEmits<{
     'update-response': [key: string, value: string]
@@ -116,8 +123,9 @@ const toggle = () => {
                 </div>
             </div>
 
-            <!-- Once a box is drawn, Skip stops making sense, so it goes and Done takes the row. -->
-            <div class="tw:flex tw:gap-2">
+            <!-- Once a box is drawn, Skip stops making sense, so it goes and Done takes the row.
+                 Hidden when the compact action bar carries these instead. -->
+            <div v-if="showActions" class="tw:flex tw:gap-2">
                 <McButton
                     class="tw:flex-1"
                     :variant="status === 'completed' ? 'outline' : 'default'"
