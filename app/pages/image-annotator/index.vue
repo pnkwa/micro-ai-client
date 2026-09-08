@@ -906,11 +906,16 @@ const selectImage = async (id: number) => {
     if (image) await openImage(image)
 }
 
-/** `?image=<id>` is how the library's Annotate button arrives here. */
-const linkedImageId = computed(() => {
-    const raw = Array.isArray(route.query.image) ? route.query.image[0] : route.query.image
-    const id = Number(raw)
-    return Number.isInteger(id) && id > 0 ? id : null
+/**
+ * `?image=<id>` is how the library's Annotate button arrives here. Selecting several sends the id
+ * repeated (`?image=1&image=2&…`), so this reads a LIST: a single deep link is just the one-element
+ * case. Order and duplicates are preserved-then-deduped so the first stays the one that opens.
+ */
+const linkedImageIds = computed(() => {
+    const raw = route.query.image
+    const list = Array.isArray(raw) ? raw : raw == null ? [] : [raw]
+    const ids = list.map((value) => Number(value)).filter((id) => Number.isInteger(id) && id > 0)
+    return [...new Set(ids)]
 })
 
 // Albums for the source picker. The strip itself stays empty until a source is chosen (or a
@@ -946,20 +951,32 @@ try {
     toast.error(apiErrorMessage(error, 'Could not load your classes'))
 }
 
-if (linkedImageId.value) {
-    const inStrip = images.value.find((row) => row.id === linkedImageId.value)
-    if (inStrip) {
-        await openImage(inStrip)
-    } else {
-        // Linked to something outside the first page: fetch the row directly rather than paging
-        // until it appears, and put it at the front so the strip shows what is on the canvas.
-        try {
-            const image = await imageService.get(linkedImageId.value)
-            images.value = [image, ...images.value]
-            await openImage(image)
-        } catch (error) {
-            toast.error(apiErrorMessage(error, 'Could not open that image'))
+if (linkedImageIds.value.length) {
+    // Fetch each linked row that is not already in the strip (a single deep link usually is not,
+    // since the source starts empty) and put the whole batch at the front, so the filmstrip shows
+    // exactly the selection the library handed over. Rows are fetched in parallel but placed back in
+    // the requested order; a row that fails to load is dropped rather than sinking the whole batch.
+    try {
+        const have = new Map(images.value.map((row) => [row.id, row]))
+        const settled = await Promise.allSettled(
+            linkedImageIds.value.map(async (id) => have.get(id) ?? (await imageService.get(id))),
+        )
+        const batch = settled
+            .filter(
+                (result): result is PromiseFulfilledResult<LibraryImage> =>
+                    result.status === 'fulfilled',
+            )
+            .map((result) => result.value)
+        const failed = settled.length - batch.length
+        if (failed) {
+            toast.error(`Could not open ${failed} of ${settled.length} image(s).`)
         }
+        const batchIds = new Set(batch.map((row) => row.id))
+        images.value = [...batch, ...images.value.filter((row) => !batchIds.has(row.id))]
+        const first = batch[0]
+        if (first) await openImage(first)
+    } catch (error) {
+        toast.error(apiErrorMessage(error, 'Could not open those images'))
     }
 }
 
@@ -1860,6 +1877,7 @@ const step = (delta: number) => {
             <ZoomPill
                 v-if="selectedImage"
                 docked
+                focusable
                 :percent="zoomPercent"
                 :at-fit="atFit"
                 :enabled="canZoom"
@@ -1867,6 +1885,7 @@ const step = (delta: number) => {
                 @zoom-in="canvas?.zoomIn()"
                 @zoom-out="canvas?.zoomOut()"
                 @fit="canvas?.fit()"
+                @focus="toggleFocus"
                 @toggle-visibility="toggleAllHidden"
             />
         </template>
@@ -2080,6 +2099,7 @@ const step = (delta: number) => {
                      stacked phone it is docked into its own shell row instead (see #zoom). -->
                 <ZoomPill
                     v-if="!focus && !stacked"
+                    focusable
                     :percent="zoomPercent"
                     :at-fit="atFit"
                     :enabled="canZoom"
@@ -2087,6 +2107,7 @@ const step = (delta: number) => {
                     @zoom-in="canvas?.zoomIn()"
                     @zoom-out="canvas?.zoomOut()"
                     @fit="canvas?.fit()"
+                    @focus="toggleFocus"
                     @toggle-visibility="toggleAllHidden"
                 />
             </template>

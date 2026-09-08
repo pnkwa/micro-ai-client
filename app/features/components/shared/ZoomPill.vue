@@ -26,12 +26,20 @@ const props = defineProps<{
      * leaves this off and keeps the floating pill.
      */
     docked?: boolean
+    /**
+     * Turn the maximize button into the focus-mode toggle instead of a second fit control. Only the
+     * Image Annotator has focus mode, so it alone opts in; the library lightbox and the
+     * assignment/review canvases leave it off and the button keeps fitting to the viewport. Fit
+     * stays reachable either way through the percent readout and the `0` hotkey.
+     */
+    focusable?: boolean
 }>()
 
 const emit = defineEmits<{
     'zoom-in': []
     'zoom-out': []
     fit: []
+    focus: []
     'toggle-visibility': []
 }>()
 
@@ -98,9 +106,9 @@ const rootClass = computed(() =>
             type="button"
             class="tw:flex tw:h-7 tw:w-7 tw:items-center tw:justify-center tw:rounded-lg tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-30"
             :disabled="!enabled"
-            title="Fit to viewport (0)"
-            aria-label="Fit to viewport"
-            @click="emit('fit')"
+            :title="focusable ? 'Focus mode (F)' : 'Fit to viewport (0)'"
+            :aria-label="focusable ? 'Focus mode' : 'Fit to viewport'"
+            @click="focusable ? emit('focus') : emit('fit')"
         >
             <Maximize2 class="tw:h-3.5 tw:w-3.5" />
         </button>
