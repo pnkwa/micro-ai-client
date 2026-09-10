@@ -500,15 +500,6 @@ const onSubmit = handleSubmit(async (v) => {
             >
                 {{ mySubmission.rejection_reason }}
             </p>
-            <!-- Here rather than per question: it is one fact about the whole form, and it belongs
-                 with the reason the form reopened. Rendered off isRedo, which is set only once a
-                 previous attempt actually loaded, so it never claims a prefill that failed. -->
-            <p v-if="isRedo" class="tw:mt-2 tw:text-sm tw:text-navy-70">
-                Your previous answers are filled in below, photos included.
-                <span class="tw:font-medium tw:text-navy-90">
-                    Those are resubmitted as they are unless you replace them.
-                </span>
-            </p>
         </div>
 
         <div
