@@ -32,6 +32,20 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
 
 ---
 
+## [0.9.1-rc.1] - 2026-09-10
+
+### Added
+
+- **A downloadable CSV template for the student import.** The Import Students dialog now has a
+  Download template button below the drop zone. It hands back the exact file the importer accepts,
+  the `student_id, email, firstname, lastname` header plus one example row, generated in the browser
+  so the file never leaves the machine and nobody has to guess the column order.
+
+### Compatibility
+
+- Developed against `micro-ai-server` v0.14.0-rc.1, unchanged from 0.9.0-rc.1: this release is
+  browser-facing only and adds no new server dependency.
+
 ## [0.9.0-rc.1] - 2026-09-08
 
 ### Added
