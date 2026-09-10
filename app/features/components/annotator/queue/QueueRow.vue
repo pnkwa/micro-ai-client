@@ -16,8 +16,6 @@ import { imageDisplayName } from '~/core/helpers/imageName'
 const props = defineProps<{
     image: LibraryImage
     view: QueueRowView
-    /** Class colours present on this image, as 6px squares. Empty until it has been opened. */
-    dots: string[]
     root?: HTMLElement | null
     thumbnail?: string
     error?: ImageLoadError
@@ -116,16 +114,8 @@ const metaClass = computed(() =>
                 >
                     {{ name }}
                 </span>
-                <span class="tw:flex tw:items-center tw:gap-1.5">
-                    <span
-                        v-for="(dot, index) in dots"
-                        :key="index"
-                        class="tw:h-1.5 tw:w-1.5 tw:shrink-0 tw:rounded-[2px]"
-                        :style="{ background: dot }"
-                    ></span>
-                    <span class="tw:truncate tw:text-[10.5px]" :class="metaClass">
-                        {{ view.meta }}
-                    </span>
+                <span class="tw:truncate tw:text-[10.5px]" :class="metaClass">
+                    {{ view.meta }}
                 </span>
             </span>
 

@@ -15,7 +15,7 @@ import { imageService } from '~/services/imageService'
 import { isDegenerate, shouldCommit, type Shape } from '~/core/helpers/annotationShapes'
 import {
     buildClasses,
-    classColorAt,
+    DEFAULT_CLASS_COLOR,
     labelByName,
     toColorHex,
 } from '~/core/helpers/annotationClasses'
@@ -506,14 +506,14 @@ function pruneUnusedClasses() {
     if (kept.length !== palette.value.length) palette.value = kept
 }
 
-// Add a palette row and return its id. Colour defaults to the next along the cycle so consecutive
-// classes don't arrive the same shade; the wire stores it bare (no '#').
+// Add a palette row and return its id. Colour defaults to a neutral grey (the same for every class,
+// recoloured deliberately from the swatch); the wire stores it bare (no '#').
 function addClass(name: string, colorHex?: string): number {
     const id = ++labelSeq
     palette.value.push({
         id,
         label: name,
-        color_hex: colorHex ?? toColorHex(classColorAt(palette.value.length)),
+        color_hex: colorHex ?? toColorHex(DEFAULT_CLASS_COLOR),
         owner_id: null,
         created_at: '',
         updated_at: '',
