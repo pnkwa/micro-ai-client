@@ -25,7 +25,6 @@ const props = defineProps<{
     images: LibraryImage[]
     /** Precomputed per image, so the row is presentational and the status lives in one place. */
     views: Record<number, QueueRowView>
-    dots: Record<number, string[]>
     selectedId: number | null
     loading: boolean
     total: number
@@ -314,7 +313,6 @@ defineExpose({ focusSearch: () => searchEl.value?.focus(), columns })
                     :key="image.id"
                     :image="image"
                     :view="viewFor(image)"
-                    :dots="dots[image.id] ?? []"
                     :root="scroller"
                     :thumbnail="urls[image.id]"
                     :error="errors[image.id]"

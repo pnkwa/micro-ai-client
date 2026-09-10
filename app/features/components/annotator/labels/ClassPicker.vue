@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Plus } from '@lucide/vue'
-import { classColorAt, type AnnotationClass } from '~/core/helpers/annotationClasses'
+import { DEFAULT_CLASS_COLOR, type AnnotationClass } from '~/core/helpers/annotationClasses'
 import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 
 // No physical keyboard on a touch layout, so the 1-9 keycaps are noise there.
@@ -41,16 +41,14 @@ const adding = ref(false)
 const draft = ref('')
 
 /**
- * The colour a new class is offered.
- *
- * The next one along the cycle, so two classes made back to back do not arrive the same shade. Held
- * in a ref rather than computed off the list length, because the person may change it before
- * submitting and the suggestion must not then snap back under them.
+ * The colour a new class is offered: a neutral grey by default, the same for every class. The person
+ * recolours it deliberately from the swatch if they want; it is a ref (not recomputed) so a colour
+ * they pick before submitting is not snapped back under them.
  */
-const draftColor = ref(classColorAt(props.classes.length))
+const draftColor = ref(DEFAULT_CLASS_COLOR)
 
 const startAdding = () => {
-    draftColor.value = classColorAt(props.classes.length)
+    draftColor.value = DEFAULT_CLASS_COLOR
     draft.value = ''
     adding.value = true
 }
@@ -115,7 +113,7 @@ const commitRename = (klass: AnnotationClass) => {
             </span>
             <div class="tw:flex-1"></div>
             <span v-if="!fixed" class="tw:text-[10.5px] tw:text-an-faint">
-                Swatch recolours · double-click to rename
+                Swatch recolours, double-click to rename
             </span>
         </div>
 

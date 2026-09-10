@@ -38,6 +38,13 @@ export function classColorAt(index: number): string {
     ]!
 }
 
+/**
+ * The colour a NEW class is offered by default: a neutral grey, not a cycled hue. A class starts
+ * unopinionated and the person recolours it deliberately from its swatch, rather than every class
+ * arriving a different auto-assigned shade. `#`-prefixed, ready for the native colour input.
+ */
+export const DEFAULT_CLASS_COLOR = '#8a9099'
+
 /** Bare six-digit hex, which is what the palette stores. `#7C5CE0` goes out as `7c5ce0`. */
 export function toColorHex(color: string): string {
     return color.replace('#', '').toLowerCase()

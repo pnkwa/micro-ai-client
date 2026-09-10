@@ -38,9 +38,9 @@ import { annotationLabelService, type AnnotationLabel } from '~/services/annotat
 import {
     applyActiveLabel,
     buildClasses,
-    classColorAt,
     classForDigit,
     colorForShape,
+    DEFAULT_CLASS_COLOR,
     dominantLabelId,
     labelById,
     labelByName,
@@ -199,12 +199,16 @@ const {
 const queueFilter = ref<QueueFilter>('all')
 
 /**
- * The class list shown in the picker: the caller's own label rows (BE-ADR-038).
+ * The session's accumulated class VOCABULARY: the caller's own label rows (BE-ADR-038).
  *
- * It starts EMPTY and accumulates. A class enters the list the first time it is seen this session -
- * on an opened image's boxes, an import, a seed, or a name typed on a chip - rather than the whole
- * stored palette loading up front. The colour is still authored and the id still real; `allLabels`
- * below is where an accumulated class finds both.
+ * It starts EMPTY and accumulates. A class enters it the first time it is seen this session - on an
+ * opened image's boxes, an import, a seed, or a name typed on a chip - rather than the whole stored
+ * palette loading up front. The colour is still authored and the id still real; `allLabels` below is
+ * where an accumulated class finds both.
+ *
+ * This is the STORE, not what the picker shows: it resolves every box's colour and id and backs the
+ * save. The picker renders `classes` below, which narrows this to the OPEN image so each image shows
+ * its own class list.
  */
 const palette = ref<AnnotationLabel[]>([])
 /**
@@ -225,7 +229,45 @@ const activeLabelId = ref<number | null>(null)
 let pendingSeq = 0
 const isPending = (id: number | null): id is number => id !== null && id < 0
 
-const classes = computed(() => buildClasses(palette.value, shapes.value))
+/**
+ * Classes STAGED for the open image: armed via "New class" but not yet carrying a box here. Covers a
+ * brand-new class AND an existing one (same name, same row/colour) brought onto this image again.
+ * They show in the picker and stay armed until their first box, so creating several before drawing
+ * does not drop all but the last, and re-using a class on a fresh image is not instantly disarmed.
+ *
+ * Reactive on purpose: `classes` and `prunePendingClasses` both read it, so its add/delete/clear must
+ * re-run them on their own rather than riding on a coincidental `palette`/`shapes` change. It is
+ * one-shot and image-scoped: an id leaves the moment a shape carries it, and the whole set is cleared
+ * on image open so nothing is carried between images.
+ */
+const stagedClassIds = reactive(new Set<number>())
+
+/** The label ids carried by boxes on the OPEN image. */
+const labelIdsOnImage = computed(
+    () => new Set(shapes.value.map((s) => s.labelId).filter((id): id is number => id !== null)),
+)
+
+/**
+ * The classes the picker shows: SPECIFIC TO THE OPEN IMAGE, not the whole session's vocabulary.
+ * Opening image A lists the classes A's boxes use; opening B lists B's, so each image shows its own
+ * list. `palette` still holds the full accumulated vocabulary (it resolves a box's colour and id and
+ * backs the save) — this only narrows what is DISPLAYED.
+ *
+ * Kept visible on top of the image's own classes: any just-created (pending, box-less) class made on
+ * THIS image, so create-then-draw works in the moment before a box exists to carry it (that set is
+ * cleared on image open, so it never carries a class over from another image). The armed class is
+ * deliberately NOT force-shown: on a blank image the pick carries over from the previous one, and
+ * listing it would make an empty image show the last image's class. It reappears the instant a box
+ * on this image carries it. A class in the vocabulary but not on this image is reached by naming it
+ * in "New class" again — the mint's 409 path adopts the existing row.
+ */
+const classes = computed(() => {
+    const onImage = labelIdsOnImage.value
+    const visible = palette.value.filter(
+        (entry) => onImage.has(entry.id) || stagedClassIds.has(entry.id),
+    )
+    return buildClasses(visible, shapes.value)
+})
 
 /** The lookup `toShapes` and `shapesFromDetection` use to turn a label's text back into its id. */
 const labelIdFor = (name: string) => labelByName(palette.value, name)?.id ?? null
@@ -269,12 +311,12 @@ const ensureLocalLabel = (name: string, colorHex?: string): AnnotationLabel | nu
     const held = labelByName(palette.value, wanted)
     if (held) return held
     // A pending, local-only row. No server call - the mint is deferred to the next save. The colour
-    // offered when nobody picked one is the next one along the cycle, so two classes made back to
-    // back do not arrive the same shade; `toColorHex` normalizes whatever the caller passed.
+    // offered when nobody picked one is the neutral grey default, the same for every class;
+    // `toColorHex` normalizes whatever the caller passed.
     const created: AnnotationLabel = {
         id: --pendingSeq,
         label: wanted,
-        color_hex: colorHex ? toColorHex(colorHex) : toColorHex(classColorAt(palette.value.length)),
+        color_hex: toColorHex(colorHex ?? DEFAULT_CLASS_COLOR),
         owner_id: null,
         created_at: '',
         updated_at: '',
@@ -346,11 +388,23 @@ const labelShape = (id: string, name: string) => {
 const createClass = (name: string, colorHex?: string) => {
     const label = ensureLocalLabel(name, colorHex)
     if (!label) return
-    // Arm it (or reclass the selected shape). Set directly rather than through `pickClass`, whose
-    // toggle-off would turn an already-active existing name back off, which is not what "create" means.
-    if (selectedShapeId.value)
-        updateShape(selectedShapeId.value, { labelId: label.id, label: label.label })
-    else activeLabelId.value = label.id
+    // Apply to the selected shape ONLY when it is still unlabelled (the draw-then-name flow: draw a
+    // box, then name it via "New class"). Never silently relabel a shape that ALREADY has a class,
+    // because that orphans its old class and prune then drops it - which reads as "creating a new
+    // class replaced the old one". Relabelling an already-classed box is done deliberately by picking
+    // an existing class. Otherwise arm the class for the next draw and STAGE it until that box exists.
+    const selected = selectedShapeId.value
+        ? shapes.value.find((shape) => shape.id === selectedShapeId.value)
+        : null
+    if (selected && selected.labelId === null && !selected.label) {
+        updateShape(selected.id, { labelId: label.id, label: label.label })
+        return
+    }
+    activeLabelId.value = label.id
+    // Stage it until its first box on THIS image, so it shows and stays armed instead of being pruned
+    // or instantly disarmed for having no box yet. Covers a brand-new class AND an existing one (same
+    // name reuses the same row/colour) brought onto this image again. Already-on-image needs nothing.
+    if (!labelIdsOnImage.value.has(label.id)) stagedClassIds.add(label.id)
 }
 
 /**
@@ -603,19 +657,31 @@ const labelNewShapes = () => {
 }
 watch(shapes, labelNewShapes, { deep: true })
 
-// Drop a just-created class the moment its last box goes: name a box (which mints a PENDING, local
-// class), then delete that box, and the class should not linger at count 0 in the picker. Only
-// pending (never-saved, negative-id) rows are pruned — a SAVED class legitimately reads 0 on an image
-// it is not on and is the accumulated vocabulary you draw from, so it stays. The armed class is kept
-// too, so a class created with "New class" survives until its first box is drawn.
+// Keep the palette's pending rows in step with what the picker shows, so a class never lingers
+// invisibly (or as dead weight in the draft cache): a pending row stays only while it is on the open
+// image or still staged, which is exactly the rule `classes` displays by. Only pending (never-saved,
+// negative-id) rows are touched; a SAVED class is the accumulated vocabulary and is left alone. This
+// is what makes "name a box, delete the box" drop the count-0 class, while a staged "New class"
+// survives until its first box.
 const prunePendingClasses = () => {
-    const used = new Set(
-        shapes.value.map((shape) => shape.labelId).filter((id): id is number => id !== null),
-    )
+    const onImage = labelIdsOnImage.value
+    // One-shot shield: once a staged row carries a box it becomes an ordinary pending row, so drop it
+    // from the shield here — a later delete of that box then prunes it like any other.
+    for (const id of stagedClassIds) if (onImage.has(id)) stagedClassIds.delete(id)
     const kept = palette.value.filter(
-        (entry) => !isPending(entry.id) || used.has(entry.id) || entry.id === activeLabelId.value,
+        (entry) => !isPending(entry.id) || onImage.has(entry.id) || stagedClassIds.has(entry.id),
     )
     if (kept.length !== palette.value.length) palette.value = kept
+    // Disarm the pick once its class is no longer SHOWN — its boxes are gone (deleting an image's
+    // last box of a class, or all of them) and it is not a staged new class. This keeps the invariant
+    // that the armed class is always in the picker or nothing is armed, so the next box drawn on an
+    // emptied image starts unlabelled instead of silently taking a class not on the image.
+    if (
+        activeLabelId.value !== null &&
+        !onImage.has(activeLabelId.value) &&
+        !stagedClassIds.has(activeLabelId.value)
+    )
+        activeLabelId.value = null
 }
 watch([shapes, activeLabelId], prunePendingClasses, { deep: true })
 
@@ -790,31 +856,6 @@ const confirmDiscard = () => {
     return discard
 }
 
-/**
- * Class colours seen on each image, cached the moment the image is opened.
- *
- * The listing carries `annotation_count` but NOT the labels, so a closed row cannot know its
- * classes without a request of its own. What it CAN know is any image visited this session: opening
- * one loads its shapes, and this remembers the colours so the row keeps them after moving on. A
- * per-row label summary on `GET /images` would colour the rest, but that is a server change and
- * this is not; until then a never-opened annotated row shows one neutral dot, which says "has work"
- * without inventing a class it does not know.
- *
- * *** DECLARED HERE, ABOVE `openImage`, AND THAT PLACEMENT IS LOAD-BEARING. *** `openImage` runs
- * during SETUP when the library links in with `?image=`, so everything it touches has to exist by
- * then. Both of these sat with the queue's other dot logic 180 lines below, which was fine for a
- * click on a queue row and threw a temporal-dead-zone error on every arrival from the library - and
- * the throw surfaced as "Could not load the annotations", about a request that had succeeded.
- */
-const imageClassColors = ref<Record<number, string[]>>({})
-
-const rememberDots = (imageId: number, forShapes: Shape[]) => {
-    const colors = [
-        ...new Set(forShapes.map((shape) => colorForShape(palette.value, shape)).filter(Boolean)),
-    ] as string[]
-    imageClassColors.value = { ...imageClassColors.value, [imageId]: colors.slice(0, 4) }
-}
-
 const openImage = async (image: LibraryImage) => {
     selectedImageId.value = image.id
     selectedImage.value = image
@@ -828,6 +869,10 @@ const openImage = async (image: LibraryImage) => {
     // carry across to the next image.
     hiddenIds.value = new Set()
     seeded.value = {}
+    // A class typed into "New class" but never drawn on the image you made it on does NOT follow you
+    // to the next image: dropping its shield here lets prunePendingClasses discard it, so each
+    // image's list is its own (an undrawn, never-saved class is only a name, nothing to carry over).
+    stagedClassIds.clear()
     // Drop any restore prompt still open for the image being left, so it cannot apply to this one.
     restoreOpen.value = false
     pendingRestore.value = null
@@ -841,10 +886,11 @@ const openImage = async (image: LibraryImage) => {
         accumulateClasses(views.map((view) => view.label))
         const loaded = toShapes(views, labelIdFor)
         resetHistory(loaded)
-        // The pick follows the image. Only when the image opened with labels of its own: a blank
-        // one keeps whatever was picked, which is what makes labelling a run of empty images work.
-        activeLabelId.value = dominantLabelId(loaded) ?? activeLabelId.value
-        rememberDots(image.id, loaded)
+        // The pick follows the image, and ONLY this image. It becomes the image's own dominant class,
+        // or nothing when the image has no boxes — the pick is not carried over from the last image.
+        // Otherwise the first box drawn on a blank image would silently take the previous image's
+        // class, which is exactly the "old class shows up on a fresh image" bug.
+        activeLabelId.value = dominantLabelId(loaded)
         seedKnownShapes() // the loaded set is "known"; pick-then-draw only touches new boxes
         // Unsaved work cached from a previous session? Offer to restore it, but only when it really
         // differs from the saved set - otherwise the cache is stale and is dropped silently.
@@ -1045,35 +1091,6 @@ const queueViews = computed(() =>
     ),
 )
 
-/**
- * Class-colour squares per row.
- *
- * Only the OPEN image can have real ones: the listing carries `annotation_count` but not the
- * labels, so there is nothing to colour a closed row from without a request per row. Every other
- * row with shapes gets a single neutral square, which still says "this one has work on it" and does
- * not invent a class it cannot know.
- *
- * A per-row label summary on the image listing is the backend ask that would fix this properly.
- */
-
-const queueDots = computed(() => {
-    const dots: Record<number, string[]> = {}
-    for (const image of images.value) {
-        if (image.id === selectedImageId.value) {
-            dots[image.id] = [
-                ...new Set(
-                    classes.value.filter((klass) => klass.count > 0).map((klass) => klass.color),
-                ),
-            ].slice(0, 4)
-        } else if (imageClassColors.value[image.id]?.length) {
-            dots[image.id] = imageClassColors.value[image.id]!
-        } else if (image.annotation_count > 0) {
-            dots[image.id] = ['#C7CBD1']
-        }
-    }
-    return dots
-})
-
 /*
  * ANY library image may be annotated. There is deliberately no curated check here.
  *
@@ -1133,7 +1150,6 @@ const save = async ({ auto = false }: { auto?: boolean } = {}) => {
         const reloaded = toShapes(saved, labelIdFor)
         adoptSaved(reloaded)
         imgDraft.clear(image.id) // the work is on the server now; drop the local cache
-        rememberDots(image.id, reloaded)
         // Saving ends the review: the ids the confidences were keyed to are gone, and a persisted
         // set is no longer "model output nobody has read".
         seeded.value = {}
@@ -1723,7 +1739,6 @@ const step = (delta: number) => {
                     <ImageQueue
                         :images="orderedImages"
                         :views="queueViews"
-                        :dots="queueDots"
                         :selected-id="selectedImageId"
                         :loading="imagesLoading"
                         :total="total"
@@ -1895,7 +1910,6 @@ const step = (delta: number) => {
                 ref="queue"
                 :images="orderedImages"
                 :views="queueViews"
-                :dots="queueDots"
                 :selected-id="selectedImageId"
                 :loading="imagesLoading"
                 :total="total"

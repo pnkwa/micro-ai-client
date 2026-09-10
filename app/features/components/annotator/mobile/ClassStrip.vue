@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { Check, Plus, X } from '@lucide/vue'
-import { classColorAt, toColorHex, type AnnotationClass } from '~/core/helpers/annotationClasses'
+import {
+    DEFAULT_CLASS_COLOR,
+    toColorHex,
+    type AnnotationClass,
+} from '~/core/helpers/annotationClasses'
 
 /**
  * The class picker as a horizontally scrolling bottom strip.
@@ -53,12 +57,12 @@ watch(() => props.active, revealActive)
 // serves both because a phone has no room for the list and a field at once.
 const editing = ref<'new' | number | null>(null)
 const draft = ref('')
-// A `#rrggbb` string for the native colour input. On create it is the next colour along the cycle
-// so two classes made back to back are not the same shade; on edit it is the class's own colour.
-const draftColor = ref(classColorAt(props.classes.length))
+// A `#rrggbb` string for the native colour input. On create it is a neutral grey default (the same
+// for every class, recoloured deliberately from the swatch); on edit it is the class's own colour.
+const draftColor = ref(DEFAULT_CLASS_COLOR)
 
 const startAdding = () => {
-    draftColor.value = classColorAt(props.classes.length)
+    draftColor.value = DEFAULT_CLASS_COLOR
     draft.value = ''
     editing.value = 'new'
 }
