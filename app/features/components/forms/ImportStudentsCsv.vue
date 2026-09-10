@@ -4,7 +4,7 @@
 // importer follows the same shape with a real spreadsheet parser: see
 // features/components/slide/ImportAnswerKeyXlsx.vue, which handles .xlsx via SheetJS and adds a
 // preview diff. Worth reusing from there if this ever grows beyond CSV.
-import { Upload, FileText, X } from '@lucide/vue'
+import { Upload, FileText, X, Download } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { enrollStudentFormSchema } from '~/features/types/forms/student'
 import type { EnrollStudentInput } from '~/services/classService'
@@ -134,6 +134,19 @@ const onDrop = async (e: DragEvent) => {
 const submit = () => {
     if (validRows.value.length > 0) emit('save', validRows.value)
 }
+
+// A ready-to-fill CSV so an instructor never has to guess the column order or spelling. It is the
+// exact shape the parser above accepts - the header row plus one example - built client-side and
+// handed to the browser as a download (the file itself never leaves the machine, same as an import).
+const downloadTemplate = () => {
+    const csv = `${COLUMNS.join(',')}\n650610001,student@university.edu,Somchai,Prasert\n`
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'student-import-template.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+}
 </script>
 
 <template>
@@ -186,6 +199,17 @@ const submit = () => {
                 <X class="tw:w-4 tw:h-4" />
             </button>
         </div>
+
+        <!-- Below the drop zone: a ready-to-fill CSV so nobody has to guess the columns. -->
+        <button
+            v-if="!fileName"
+            type="button"
+            class="tw:inline-flex tw:items-center tw:gap-1.5 tw:self-end tw:text-sm tw:font-medium tw:text-primary tw:underline tw:underline-offset-2 tw:hover:text-primary-hover"
+            @click="downloadTemplate"
+        >
+            <Download class="tw:h-4 tw:w-4" />
+            Download template
+        </button>
 
         <template v-if="parsed">
             <p v-if="validRows.length > 0" class="tw:text-sm tw:font-medium tw:text-primary">
