@@ -36,20 +36,32 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
 
 ### Added
 
+- **The image library, rebuilt and usable with a finger.** Filter, search and album membership; drag
+  to file; bulk select with add-to-album, run-model, annotate and download; and an inspector panel,
+  all responsive down to a phone.
+- **Annotation assignments, end to end.** A new assignment type where students box and label an
+  album's images against the instructor's own boxes as the key. Students annotate on a canvas;
+  instructors review each image (approve, flag, incorrect) with a per-image remark and overall
+  feedback, and can return work for changes. No auto-grading.
+- **A mobile and iPad layout pass for the annotator and review screens.** Bottom-sheet panels, a
+  filmstrip pager, touch select-and-drag on the canvas, and thumbnails plus verdict dots in the
+  review image list.
 - **A Manage tab on a class**, gathering what was previously scattered or missing: editing the class,
-  the student roster, and the staff table. Staff are assigned **by email** — the address you actually
-  have — with the API resolving it and the form surfacing what comes back: an unknown address, an
+  the student roster, and the staff table. Staff are assigned **by email** (the address you actually
+  have), with the API resolving it and the form surfacing what comes back: an unknown address, an
   address belonging to a student rather than staff, and someone already on the class are three
   different messages, not one failure.
 - **An Archive action, for the class that will not delete.** `DELETE` refuses a class that has
   enrolled students or coursework, which is exactly the class an instructor wants off their list at
-  the end of a term. Archiving hides it instead — it leaves the class lists but stays reachable by
+  the end of a term. Archiving hides it instead: it leaves the class lists but stays reachable by
   direct link, and a normal status edit brings it back. `status` now has three values, and
   `classSchema` parses all three.
-- **A staff table that names the owner.** `GET /classes/:id/staff` returns the roster flattened —
-  name, email, a display role, and when they were added — with the creator marked `owner`. The
+- **A staff table that names the owner.** `GET /classes/:id/staff` returns the roster flattened to
+  name, email, a display role, and when they were added, with the creator marked `owner`. The
   server derives that role for display, so `admin` reads as `instructor` inside a class: being a
   system administrator is not a teaching role.
+- **An Admin item in the sidebar**, for a staff account whose role is `admin`. `/admin` was
+  reachable only by typing it. Gated on the same rule as the route guard, read the same way.
 
 ### Changed
 
@@ -59,6 +71,22 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
 - **The class list is now whatever the server says it is.** A staff member sees the classes they are
   on rather than every class in the system, and archived classes are absent. The client stopped
   filtering client-side and reads the list directly.
+- **The admin console uses `McSelect`**, the app's select everywhere else, for all five of its
+  selects. Choices are data with labels now, so `local` and `azure` read as "Local (password)" and
+  "Azure (SSO)" rather than as the enum values underneath them.
+- **A student can now see the answers they submitted before their work is graded.** The feedback
+  page showed the answer cards only once `graded`, so a student told to redo returned work could
+  not see what they were fixing, and one waiting on a mark saw nothing at all. Both states now
+  render the answers, photo included. Marks, comments and AI output stay hidden: the server nulls
+  every one of them for a non-graded read.
+- **Detection images are addressed by `image_id`, not by detection id** (BE-ADR-027). A detection
+  id does not name a stable file: `DATABASE_INIT_STRATEGY=recreate` restarts ids at 1 while the
+  image volume persists, so the old URL could mean a different picture, and the server now sends
+  it `no-cache` for that reason. `detectionService.imageBlobUrl` takes an image name and calls
+  `GET /detections/images/:imageId`, which is `immutable` and means it. This is also what makes a
+  photo visible before grading: `image_id` survives the server's grade strip and `detection` does
+  not. `img_path` is no longer read, and is now optional in the schema so the server can stop
+  sending it without breaking every parse.
 
 ### Fixed
 - **The exam lock told the student to do something that no longer works.** Three places promised the
@@ -121,40 +149,18 @@ Architecture decisions referenced below (`FE-ADR-*`, `BE-ADR-*`) live in
   pillars either side of it, tall enough to push the answer and the next question off screen. It
   now renders at its own shape, bounded by width, with the rounding the other mode always had.
 
-### Added
-- **An Admin item in the sidebar**, for a staff account whose role is `admin`. `/admin` was
-  reachable only by typing it. Gated on the same rule as the route guard, read the same way.
-
-### Changed
-- **The admin console uses `McSelect`**, the app's select everywhere else, for all five of its
-  selects. Choices are data with labels now, so `local` and `azure` read as "Local (password)" and
-  "Azure (SSO)" rather than as the enum values underneath them.
-- **A student can now see the answers they submitted before their work is graded.** The feedback
-  page showed the answer cards only once `graded`, so a student told to redo returned work could
-  not see what they were fixing, and one waiting on a mark saw nothing at all. Both states now
-  render the answers, photo included. Marks, comments and AI output stay hidden: the server nulls
-  every one of them for a non-graded read.
-- **Detection images are addressed by `image_id`, not by detection id** (BE-ADR-027). A detection
-  id does not name a stable file: `DATABASE_INIT_STRATEGY=recreate` restarts ids at 1 while the
-  image volume persists, so the old URL could mean a different picture, and the server now sends
-  it `no-cache` for that reason. `detectionService.imageBlobUrl` takes an image name and calls
-  `GET /detections/images/:imageId`, which is `immutable` and means it. This is also what makes a
-  photo visible before grading: `image_id` survives the server's grade strip and `detection` does
-  not. `img_path` is no longer read, and is now optional in the schema so the server can stop
-  sending it without breaking every parse.
-
 ### Compatibility
 
 - **Requires `micro-ai-server` v0.14.0-rc.1 or later.** Two of that release's changes are breaking,
   and this client is the first that satisfies both:
   - `POST /classes/:id/staff` takes `{ email }` where it took `{ staff_id }`. There is no
-    compatibility shim on either side — the server's `whitelist: true` strips the old field and the
+    compatibility shim on either side: the server's `whitelist: true` strips the old field and the
     request then fails validation, so an older client gets a **400**, not a silent no-op.
   - `GET /classes` returns only the classes a non-admin staff member is on, archived excluded.
     Admins still receive all of them. The response *shape* is unchanged; the row count is not.
 - **Against a server before v0.14.0-rc.1**, the Manage tab's staff assignment fails with a 400 and
   the Archive action 404s. The rest of the class surface is unaffected. This is a hard requirement,
-  not a graceful degradation — pair the versions.
+  not a graceful degradation. Pair the versions.
 - **`PATCH /classes/:id/archive`, `GET /classes/:id/staff` and `classes.created_by` all arrive in
   v0.14.0-rc.1** (BE-ADR-040), along with `archived` on the class status enum.
 - **Also in v0.14.0-rc.1, and relevant if you run against a migrated database:** that release fixes a
@@ -318,7 +324,7 @@ both cases the API had been right all along and the client was throwing the answ
 - **Wording**: the run button reads **Start detection** / **Detecting…** rather than repeating the page name;
   the results sheet's scroll control reads **Show more** / **Back to top**.
 - **Model labels put the descriptor in brackets** - `RT-DETR-L (5-class detector)`, from the manifest's
-  `RT-DETR-L — 5-class detector`. A middle dot was tried first and read as two equal halves of one long
+  `RT-DETR-L (5-class detector)`. A middle dot was tried first and read as two equal halves of one long
   label, when the name is what you are choosing between and the rest says what it does. A chained
   segmentation pass goes inside the brackets with it (`RT-DETR-L (5-class detector + segmentation)`), and the
   compact rows now ellipsize: the grouped list is ~40px short of the longest label at 393px, and clipping it
