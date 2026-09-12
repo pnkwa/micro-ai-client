@@ -142,7 +142,33 @@ const pagerStrip = computed(() =>
     })),
 )
 
-const tool = ref<Tool>('rectangle')
+/**
+ * SELECT, not rectangle, is what a student arrives on.
+ *
+ * Under the rectangle tool a one-finger drag DRAWS rather than pans (two fingers navigate), and the
+ * sheet opens on Instructions — so the first thing a student does is read the brief and then swipe
+ * around the specimen to see it, with a drawing tool already armed. Every one of those exploratory
+ * drags left a box, and `labelNewShapes` then named and counted it. Select pans on one finger, so
+ * the picture is safe to look at before any decision to draw has been made.
+ *
+ * The cost is one tap before the first box, and `startAnnotating` below pays it: the button that
+ * ends the brief is exactly the moment that decision happens.
+ */
+const tool = ref<Tool>('select')
+
+/**
+ * "Start annotating": hand off to the Label tab and arm the rectangle.
+ *
+ * Only when the tool is still `select`, so this cannot yank a student who deliberately picked the
+ * polygon or the pencil back to rectangle on a later press. The tool then PERSISTS across images —
+ * stepping through a batch should not keep re-arming, and by the second image the student knows
+ * what is armed because they armed it.
+ */
+function startAnnotating() {
+    workTab.value = 'label'
+    if (tool.value === 'select') tool.value = 'rectangle'
+}
+
 const selectedId = ref<string | null>(null)
 
 /**
@@ -1013,7 +1039,7 @@ const percentSkipped = computed(() =>
                 @update-response="setResponse"
                 @mark-done="markDone"
                 @skip="skip"
-                @start="workTab = 'label'"
+                @start="startAnnotating"
             />
         </template>
 
