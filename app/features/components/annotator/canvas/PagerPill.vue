@@ -66,9 +66,7 @@ const nameTail = computed(() => (props.name.length > NAME_TAIL ? props.name.slic
 // frame), which is why these are paired computeds rather than loose classes.
 const isShort = useMediaQuery('(max-height: 640px)')
 const cellSize = computed(() => (isShort.value ? 'tw:size-5' : 'tw:size-12'))
-const stripPad = computed(() =>
-    isShort.value ? 'tw:px-[calc(50%-0.625rem)]' : 'tw:px-[calc(50%-1.5rem)]',
-)
+const cellPx = computed(() => (isShort.value ? 20 : 48))
 const navBtn = computed(() => (isShort.value ? 'tw:h-5 tw:w-5' : 'tw:h-8 tw:w-8'))
 const chevron = computed(() => (isShort.value ? 'tw:h-3.5 tw:w-3.5' : 'tw:h-4 tw:w-4'))
 
@@ -87,6 +85,28 @@ const rootClass = computed(() => {
 })
 
 const scroller = useTemplateRef<HTMLElement>('scroller')
+
+/**
+ * Half a strip minus half a cell: the room at each end that lets ANY cell - including the first and
+ * last - be scrolled to sit exactly under the fixed centre frame. On a SHORT batch this room is the
+ * entire scroll range, because three thumbnails already fit in the bar with nothing left to scroll.
+ *
+ * It is rendered as real SPACER ELEMENTS (see the template), not as padding on the scroller, and
+ * that distinction is the bug this cost a long hunt: a scroll container's END padding is not part of
+ * its scrollable overflow region in every engine. With `padding: calc(50% - 1.5rem)` a three-image
+ * strip measured scrollWidth === clientWidth === 716 - literally no scroll range - because only the
+ * leading 334px counted and 334 + 156 of cells is less than the 716px viewport. Flex items always
+ * count, so spacers give the honest 824px and the ~108px of travel the centre frame needs.
+ *
+ * A long batch never exposed this: 30 cells overflow on their own and never needed the end room,
+ * which is why the instructor's annotator scrolled while a three-image assignment did not.
+ *
+ * Measured in pixels (`border-box`, so the reading is the laid-out width and does not chase the
+ * value derived from it) rather than a percentage, so the two spacers and the centring arithmetic
+ * agree on one number.
+ */
+const { width: scrollerWidth } = useElementSize(scroller, undefined, { box: 'border-box' })
+const padPx = computed(() => Math.max(0, Math.round(scrollerWidth.value / 2 - cellPx.value / 2)))
 
 // Lazy-load each thumbnail as its cell nears the strip. A generous horizontal rootMargin fetches a
 // little ahead of the scroll so a thumbnail is usually there by the time it is on screen.
@@ -142,8 +162,14 @@ watch(
     () => nextTick(syncObserver),
 )
 // The active image changed (a step, or a jump) → re-centre it.
+//
+// `padPx` is watched alongside it because the FIRST render has no room to centre into: the end
+// spacers are sized from a measured width, and until the ResizeObserver reports one `padPx` is 0, so
+// the mount-time centre is a no-op and the page opened with image 1 sitting left of the green frame.
+// When the real width lands the spacers grow and the strip has to be put back under the frame. This
+// covers rotation and resize for free, since those move `padPx` too.
 watch(
-    () => props.strip?.find((cell) => cell.active)?.id,
+    [() => props.strip?.find((cell) => cell.active)?.id, padPx],
     () => void centerActive(),
 )
 // The strip only exists on a touch layout; when a resize brings it in, observe its cells and centre.
@@ -202,15 +228,25 @@ onBeforeUnmount(() => {
         <!-- The green frame is FIXED at the centre of the bar, not drawn on a thumbnail: the strip
              scrolls under it and whatever settles beneath it is the active image, so the marker
              holds still while the pictures move (the picker-wheel read). -->
-        <!-- `px-[calc(50%-1.5rem)]`: half-strip padding at each end so ANY cell - including the first
-             and last - can be scrolled to sit exactly under the centre frame. -->
+        <!-- The end padding (see `padPx`) is half a strip minus half a cell, so ANY cell - including
+             the first and last - can be scrolled to sit exactly under the centre frame. It is applied
+             as measured pixels, not a percentage: see the note on `padPx`. -->
         <div v-if="isTouchLayout" class="tw:relative tw:flex tw:min-w-0 tw:flex-1">
+            <!-- `snap-proximity` rather than `snap-mandatory`, and an explicit `touch-action: pan-x`:
+                 a short batch has only a cell or two of travel, and mandatory snap re-pinning that
+                 little range leaves nothing for a finger to move. Proximity still settles a cell
+                 under the centre frame while leaving the drag room to register. -->
             <div
                 ref="scroller"
-                class="tw:flex tw:min-w-0 tw:flex-1 tw:snap-x tw:snap-mandatory tw:items-center tw:gap-1.5 tw:overflow-x-auto"
-                :class="stripPad"
+                class="mc-no-scrollbar tw:flex tw:min-w-0 tw:flex-1 tw:snap-x tw:snap-proximity tw:items-center tw:gap-1.5 tw:overflow-x-scroll tw:[touch-action:pan-x]"
                 @scroll="onScroll"
             >
+                <!-- Half-a-strip of room at each end, as real SPACER ELEMENTS rather than padding on
+                     the scroller. A scroll container's END padding is not counted in the scrollable
+                     overflow region by every engine (iOS Safari drops it), so on a short batch the
+                     strip ended up with scrollWidth === clientWidth - no scroll range at all, and the
+                     last cell could never reach the centre frame. Flex items always count. -->
+                <div class="tw:shrink-0" :style="{ width: `${padPx}px` }" aria-hidden="true"></div>
                 <button
                     v-for="(cell, i) in strip ?? []"
                     :key="cell.id"
@@ -241,6 +277,7 @@ onBeforeUnmount(() => {
                         class="tw:block tw:h-full tw:w-full tw:animate-pulse tw:bg-white/10"
                     ></span>
                 </button>
+                <div class="tw:shrink-0" :style="{ width: `${padPx}px` }" aria-hidden="true"></div>
             </div>
 
             <!-- The fixed centre frame the strip scrolls under. `pointer-events-none` so taps pass

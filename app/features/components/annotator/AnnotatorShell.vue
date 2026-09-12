@@ -23,6 +23,16 @@ const rightOpen = defineModel<boolean>('rightOpen', { required: true })
 
 const { layout, stacked } = useAnnotatorLayout()
 
+/**
+ * The student annotator fills a `#worksheet` slot: ONE bottom sheet (Task / Label / Answer) instead
+ * of the image annotator's separate zoom strip and tool / class / action bars. Detected by slot
+ * presence rather than a prop, so the two callers stay decoupled — when this is filled, the compact
+ * layout swaps to header / filmstrip / canvas / sheet and drops the bars, which stay for the
+ * instructor annotator that fills them.
+ */
+const slots = useSlots()
+const hasWorksheet = computed(() => Boolean(slots.worksheet))
+
 const RAIL = '52px'
 const QUEUE = '280px'
 const LABELS = '320px'
@@ -43,7 +53,13 @@ const rows = computed(() => {
     // moved out from under. Row order: header, pager, canvas, zoom, tools, classes, actions. The
     // trailing `auto` rows collapse to nothing when their slot is empty (the image annotator fills no
     // `bottom-actions`; the assignment routes put their action / verdict bar there).
-    if (stacked.value) return '48px auto minmax(0, 1fr) auto auto auto auto'
+    // The student sheet is one `auto` row (its own 212px peek, lifted over the canvas by its own
+    // negative margin); the image annotator keeps the four trailing `auto` rows for its zoom strip
+    // and tool / class / action bars.
+    if (stacked.value)
+        return hasWorksheet.value
+            ? '48px auto minmax(0, 1fr) auto'
+            : '48px auto minmax(0, 1fr) auto auto auto auto'
     return '48px minmax(0, 1fr)'
 })
 
@@ -130,11 +146,18 @@ const columns = computed(() => {
             <slot name="canvas" />
         </main>
 
-        <!-- The zoom strip, only on a stacked phone: its own row below the canvas so the controls
-             are beside the picture rather than floating over its bottom edge. Wider layouts keep the
-             floating pill. -->
-        <div v-if="stacked && !focus" style="grid-column: 1 / -1">
+        <!-- The zoom strip, only on a stacked phone with the image annotator's docked controls: its
+             own row below the canvas. The student sheet layout drops it (pinch, double-tap and the
+             tappable readout on the canvas cover zoom), so it is gated off when a worksheet is used. -->
+        <div v-if="stacked && !focus && !hasWorksheet" style="grid-column: 1 / -1">
             <slot name="zoom" />
+        </div>
+
+        <!-- The student's one bottom sheet: Task / Label / Answer. Its own row, but the sheet lifts
+             16px over the canvas via its own negative margin, so the picture fades into it rather
+             than stopping at a hard line. Replaces the zoom strip and the three bottom bars below. -->
+        <div v-if="stacked && !focus && hasWorksheet" style="grid-column: 1 / -1">
+            <slot name="worksheet" />
         </div>
 
         <!-- Focus mode's right rail. Dark like the canvas, not a collapsed light panel: in focus
@@ -156,9 +179,10 @@ const columns = computed(() => {
             <slot v-else name="labels-rail" />
         </aside>
 
-        <!-- Bottom bars, only in the stacked layouts. Grid rows, so the canvas is sized around
-             them rather than hidden beneath them. -->
-        <template v-if="stacked && !focus">
+        <!-- Bottom bars, only in the stacked layouts that use them (the image annotator). Grid rows,
+             so the canvas is sized around them rather than hidden beneath them. The student sheet
+             carries the tool / class / action rows inside itself, so these are off when it is used. -->
+        <template v-if="stacked && !focus && !hasWorksheet">
             <div style="grid-column: 1 / -1"><slot name="bottom-tools" /></div>
             <div style="grid-column: 1 / -1"><slot name="bottom-classes" /></div>
             <!-- The action / verdict bar: the student's Mark done + Skip (with a labels summary) and

@@ -440,6 +440,22 @@
 }
 
 /*
+ * Opt out of the scrollbar entirely, for a surface that scrolls but should not show it: the
+ * annotator's thumbnail filmstrip, where a bar under the pictures reads as chrome on a 48px strip
+ * and the fixed centre frame already says the strip moves. Scrolling itself is untouched.
+ *
+ * Needs both halves: `scrollbar-width` for Firefox, the pseudo-element for WebKit/Blink. There is no
+ * Tailwind utility for the latter, which is why this is a class rather than an arbitrary variant.
+ */
+.mc-no-scrollbar {
+    scrollbar-width: none;
+}
+
+.mc-no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+/*
  * Scroll lock, applied by a page that is meant to fill the screen exactly and never scroll
  * (currently the image-detection scanner on a phone).
  *

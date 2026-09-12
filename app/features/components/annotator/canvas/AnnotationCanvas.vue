@@ -103,8 +103,15 @@ const props = withDefaults(
          * of them can disagree about where the middle is.
          */
         insetRight?: number
+        /**
+         * CSS pixels covered at the BOTTOM, i.e. the touch WorkSheet that lifts over the canvas.
+         *
+         * Same viewport inset as `insetRight`, on the other axis: the picture centres in what is left
+         * above the sheet rather than running under it. Zero everywhere but the student touch layout.
+         */
+        insetBottom?: number
     }>(),
-    { insetRight: 0 },
+    { insetRight: 0, insetBottom: 0 },
 )
 
 const shapes = defineModel<Shape[]>('shapes', { required: true })
@@ -137,6 +144,7 @@ const container = useTemplateRef<HTMLElement>('container')
 const view = useCanvasViewport(container, {
     src: computed(() => props.src),
     insetRight: computed(() => props.insetRight),
+    insetBottom: computed(() => props.insetBottom),
 })
 
 const transform = view.transform
