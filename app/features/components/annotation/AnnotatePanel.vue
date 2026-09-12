@@ -7,7 +7,7 @@
  * A view component (props in, events out) so it renders identically whether it is the docked right
  * column or the contents of a drawer on a tablet.
  */
-import { Check, Pentagon, Shapes, SkipForward, Square, Trash2 } from '@lucide/vue'
+import { Check, Pentagon, RotateCcw, Shapes, SkipForward, Square, Trash2 } from '@lucide/vue'
 import { colorForShape } from '~/core/helpers/annotationClasses'
 import type { Shape } from '~/core/helpers/annotationShapes'
 import type { AnnotationLabel } from '~/services/annotationLabelService'
@@ -249,22 +249,24 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
             class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:p-3"
         >
             <!-- The single Skip control on the screen (the header has none). Mark done takes the row
-                 at full width with its `M` keycap; Skip sits beside it at natural width. Done reads as
-                 outline once the image is already marked complete. -->
+                 at full width; Skip sits beside it at natural width.
+                 Once the image is complete this button is the UNDO, and it is labelled as one. It
+                 read "Done" before, which is a state rather than an action: it looked like a badge
+                 while actually reverting the image to pending on the next click. The "finished"
+                 signal is the queue row, the filmstrip tick and the greyed-out Skip.
+                 No `M` keycap either — it advertised a shortcut this page never bound (unlike the
+                 instructor annotator, the student workspace registers no hotkeys at all). -->
             <div class="tw:flex tw:gap-2">
                 <McButton
                     class="tw:flex-1"
                     :variant="status === 'completed' ? 'outline' : 'default'"
                     @click="emit('mark-done')"
                 >
-                    <Check class="tw:mr-1 tw:size-4" />
-                    {{ status === 'completed' ? 'Done' : 'Mark done' }}
-                    <kbd
-                        class="tw:ml-1.5 tw:rounded tw:border tw:border-white/25 tw:px-1 tw:py-px tw:font-mono tw:text-[9.5px] tw:leading-none"
-                        :class="status === 'completed' ? 'tw:border-an-n-200 tw:text-an-muted' : ''"
-                    >
-                        M
-                    </kbd>
+                    <component
+                        :is="status === 'completed' ? RotateCcw : Check"
+                        class="tw:mr-1 tw:size-4"
+                    />
+                    {{ status === 'completed' ? 'Undo done' : 'Mark done' }}
                 </McButton>
                 <McButton
                     v-if="allowSkip && status !== 'completed'"

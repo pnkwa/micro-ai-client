@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import { watchDebounced } from '@vueuse/core'
-import { ChevronLeft, Images, Menu, Send, Shapes, Undo2 } from '@lucide/vue'
+import { ChevronLeft, Images, Menu, Send, Undo2 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -48,7 +48,6 @@ const { layout, stacked, isTouchLayout } = useAnnotatorLayout()
 const leftOpen = ref(true)
 const rightOpen = ref(true)
 const queueSheetOpen = ref(false)
-const panelSheetOpen = ref(false)
 
 // Whether Mark done / Skip advance to the next image after changing its status, or mark and stay.
 // The pager only changes position, so it never fires here — one press is one move either way.
@@ -129,18 +128,36 @@ const currentName = computed(() => `Image ${String(currentIndex.value + 1).padSt
 
 // The touch filmstrip: the whole batch as square thumbnails, built from the thumbs loadThumbs
 // already fetched into each field. `failed` only once loading has settled, so an in-flight thumb
-// shows a skeleton rather than a broken tile.
+// shows a skeleton rather than a broken tile. `done` and `skipped` badge each cell with its status
+// (teal tick / amber skip, the queue's own colours), so what is left to do is readable from the
+// strip without opening the queue. They are the two ends of `status`; a pending image gets neither.
 const pagerStrip = computed(() =>
     fields.value.map((f, i) => ({
         id: f.imageId,
         thumb: f.thumb,
         active: i === currentIndex.value,
         failed: thumbsLoaded.value && !f.thumb,
+        done: f.status === 'completed',
+        skipped: f.status === 'skipped',
     })),
 )
 
 const tool = ref<Tool>('rectangle')
 const selectedId = ref<string | null>(null)
+
+/**
+ * The current image is finished, so its annotations are locked until the student undoes that.
+ *
+ * "Done" ought to mean the work under it has stopped moving. Without this it did not: the rectangle
+ * tool is armed by default and a one-finger drag under it DRAWS rather than pans, so a student who
+ * marked an image done, scrolled the filmstrip back to look at it, and dragged to inspect would
+ * quietly add boxes to work they believed was settled — and nothing on screen would say so.
+ *
+ * Locked, not hidden: the picture still pans, pinches, zooms and double-taps to fit, so a finished
+ * image stays fully inspectable. The way out is the one button the action row already shows on a
+ * completed image, "Undo done", which is why no separate unlock control is needed.
+ */
+const locked = computed(() => current.value?.status === 'completed')
 const activeLabelId = ref<number | null>(null)
 const hiddenIds = ref<Set<string>>(new Set())
 
@@ -163,6 +180,34 @@ const classes = computed(() => buildClasses(palette.value, currentShapes.value))
 // Which WorkSheet tab is showing (compact / portrait). Opens on Instructions so the student reads
 // the brief and answers before drawing; "Start annotating" hands off to Label.
 const workTab = ref<WorkTab>('task')
+
+/**
+ * A short slide when the image changes, so stepping through the batch reads as motion rather than a
+ * hard swap: without it the picture is simply different from one frame to the next, and on a phone
+ * (where the filmstrip scrolls under a fixed frame rather than the pages turning) there was nothing
+ * at all to say a navigation had happened.
+ *
+ * Played on the canvas WRAPPER through the Web Animations API, not by re-keying the canvas: the
+ * canvas has to stay mounted or the navigation would reset its viewport, zoom and shapes.
+ *
+ * SLIDE ONLY, no opacity fade. Fading over the dark canvas ground dims the whole panel toward black
+ * and reads as a blink; a pure push keeps the picture fully opaque the whole way in. Same animation,
+ * direction and curve as /image-annotator, so a step feels the same on both annotators.
+ */
+const canvasSlide = useTemplateRef<HTMLElement>('canvasSlide')
+const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
+watch(currentIndex, (to, from) => {
+    if (to === from || reducedMotion.value) return
+    const el = canvasSlide.value
+    if (!el || typeof el.animate !== 'function') return
+    // The next image comes in from the right, the previous one from the left, so the motion agrees
+    // with the direction the filmstrip just travelled.
+    const offset = to > from ? 6 : -6
+    el.animate([{ transform: `translateX(${offset}%)` }, { transform: 'translateX(0)' }], {
+        duration: 300,
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)', // decelerates into place
+    })
+})
 
 // ---- canvas view state (zoom / fit / visibility), read off the shared canvas' exposed API ----
 const canvas = useTemplateRef<InstanceType<typeof AnnotationCanvas>>('canvas')
@@ -404,6 +449,7 @@ async function goTo(index: number) {
 
 // ---- labelling ----
 function pickClass(labelId: number) {
+    if (locked.value) return
     const klass = palette.value.find((l) => l.id === labelId)
     if (!klass) return
     if (selectedId.value) {
@@ -423,6 +469,7 @@ function pickClass(labelId: number) {
 // otherwise create the class on the spot so it gets a colour and joins the list (rather than
 // lingering as a colourless free-text label the student can't recolour or pick again).
 function labelShape(shapeId: string, name: string) {
+    if (locked.value) return
     const shape = currentShapes.value.find((s) => s.id === shapeId)
     if (!shape) return
     const trimmed = name.trim()
@@ -441,12 +488,13 @@ function labelShape(shapeId: string, name: string) {
 }
 
 function deleteSelected() {
-    if (!selectedId.value) return
+    if (locked.value || !selectedId.value) return
     deleteShape(selectedId.value)
 }
 
 // Remove one shape from the current image the per-row delete button in the labels list.
 function deleteShape(sid: string) {
+    if (locked.value) return
     currentShapes.value = currentShapes.value.filter((s) => s.id !== sid)
     if (selectedId.value === sid) selectedId.value = null
     if (hiddenIds.value.has(sid)) {
@@ -543,6 +591,7 @@ function editClass(labelId: number, name: string, colorHex: string) {
 
 // The per-image form (AnnotatePanel) writes back through here so it never mutates a prop directly.
 function setResponse(key: string, value: string) {
+    if (locked.value) return
     if (current.value) current.value.responses[key] = value
 }
 
@@ -561,14 +610,21 @@ function missingRequired(field: FieldState): string | null {
 
 function markDone() {
     if (!current.value) return
-    // Toggle: clicking a completed image again reverts it to pending (the button reads "Mark done"
-    // and turns solid), and stays put rather than advancing.
+    // Toggle: on a completed image the button reads "Undo done" and this reverts it to pending,
+    // staying put rather than advancing. Reverting is the ONLY thing a second press does, which is
+    // why the button names it instead of reading "Done" and looking like a state badge.
     if (current.value.status === 'completed') {
         current.value.status = 'pending'
         return
     }
+    // A required answer is missing, so send the student to the tab that holds it rather than only
+    // raising a toast: the toast names the field but leaves them to find it, and on a phone the
+    // field may be one tab away behind a sheet showing the tool row.
     const missing = missingRequired(current.value)
-    if (missing) return toast.error(`"${missing}" is required`)
+    if (missing) {
+        workTab.value = 'task'
+        return toast.error(`"${missing}" is required`)
+    }
     current.value.status = 'completed'
     if (autoAdvance.value && currentIndex.value < fields.value.length - 1)
         void goTo(currentIndex.value + 1)
@@ -710,7 +766,8 @@ const percentSkipped = computed(() =>
         </template>
 
         <!-- compact header (portrait tablet / phone): the filmstrip navigates, so no hamburger and no
-             queue icon — just instructions, labels and Submit. -->
+             queue icon, and the WorkSheet's Label tab holds the classes and the shape list, so no
+             labels icon either — just where you are, how far along, and Submit. -->
         <template #header-compact>
             <McButton variant="ghost" size="icon-sm" aria-label="Back" @click="router.back()">
                 <ChevronLeft class="tw:size-4" />
@@ -726,14 +783,6 @@ const percentSkipped = computed(() =>
                 </span>
             </div>
             <div class="tw:flex-1" />
-            <McButton
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Labels and form"
-                @click="panelSheetOpen = true"
-            >
-                <Shapes class="tw:size-4" />
-            </McButton>
             <McButton
                 size="sm"
                 :disabled="!canSubmit || submitting"
@@ -799,8 +848,11 @@ const percentSkipped = computed(() =>
                  like /image-annotator: an extra flex-column wrapper here (added for a docked pager
                  that is gone) changed the filmstrip's containing block and left it unable to
                  touch-scroll on iPad. The stacked brief band is gone too — instructions and the
-                 fill-in form live in the WorkSheet's tabs, so the picture is never pushed down. -->
-            <div class="tw:absolute tw:inset-0">
+                 fill-in form live in the WorkSheet's tabs, so the picture is never pushed down.
+                 This wrapper is also what the image-change slide plays on (see `canvasSlide`):
+                 animating it rather than the canvas keeps the canvas mounted, so a navigation does
+                 not reset the viewport, the zoom or the shapes. -->
+            <div ref="canvasSlide" class="tw:absolute tw:inset-0">
                 <AnnotationCanvas
                     v-if="current"
                     ref="canvas"
@@ -814,6 +866,7 @@ const percentSkipped = computed(() =>
                     :hidden-ids="hiddenIds"
                     :touch-layout="isTouchLayout"
                     :lock-labels="fixedLabelSet"
+                    :readonly="locked"
                     :inset-bottom="stacked ? 16 : 0"
                     @label-shape="labelShape"
                     @commit="commit"
@@ -847,6 +900,7 @@ const percentSkipped = computed(() =>
             <ToolDock
                 v-if="!stacked"
                 :centered="isTouchLayout"
+                :disabled="locked"
                 :tool="tool"
                 :can-undo="canUndoAny"
                 :can-redo="canRedo"
@@ -870,8 +924,10 @@ const percentSkipped = computed(() =>
                 @next="goTo(currentIndex + 1)"
                 @select="(id) => goTo(fields.findIndex((f) => f.imageId === id))"
             />
+            <!-- No hint while the image is locked: every line it can show names a gesture the
+                 canvas is currently refusing. -->
             <HintBar
-                v-if="!stacked"
+                v-if="!stacked && !locked"
                 :tool="tool"
                 :selected-count="selectedId ? 1 : 0"
                 :drafting="Boolean(canvas?.hasDraft)"
@@ -943,11 +999,15 @@ const percentSkipped = computed(() =>
                 :can-undo="canUndoAny"
                 :can-redo="canRedo"
                 :allow-skip="Boolean(config?.allow_skip)"
+                :fixed="fixedLabelSet"
+                :locked="locked"
                 @update:tool="tool = $event"
                 @undo="undoStep"
                 @redo="redo"
                 @delete-selected="deleteSelected"
                 @pick="pickClass"
+                @create-class="createClass"
+                @edit-class="editClass"
                 @select-shape="selectedId = $event"
                 @delete-shape="deleteShape"
                 @update-response="setResponse"
@@ -977,49 +1037,6 @@ const percentSkipped = computed(() =>
                             }
                         "
                     />
-                </McSheetContent>
-            </McSheet>
-
-            <!-- Labels sheet: a bottom drawer on the phone (classes + shapes), opened from the header
-                 shapes icon or the action bar. Mark done / Skip are not here — they live on the
-                 action bar, the one place they appear on a phone. -->
-            <McSheet v-model:open="panelSheetOpen">
-                <McSheetContent
-                    side="bottom"
-                    class="mc-slide-up tw:flex tw:max-h-[80dvh] tw:flex-col tw:rounded-t-2xl tw:p-0 tw:[touch-action:pan-x_pan-y]"
-                    hide-close
-                >
-                    <AnnotatePanel
-                        :show-brief="false"
-                        :instructions="assignment?.instructions"
-                        :field-prompts="config?.field_prompts ?? []"
-                        :responses="current?.responses ?? null"
-                        :status="current?.status ?? null"
-                        :shapes="currentShapes"
-                        :selected-id="selectedId"
-                        :hidden-ids="hiddenIds"
-                        :palette="palette"
-                        :allow-skip="Boolean(config?.allow_skip)"
-                        :lock-labels="fixedLabelSet"
-                        @update-response="setResponse"
-                        @select-shape="selectedId = $event"
-                        @delete-shape="deleteShape"
-                        @relabel="labelShape"
-                        @mark-done="markDone"
-                        @skip="skip"
-                    >
-                        <template #classes>
-                            <ClassPicker
-                                :classes="classes"
-                                :active="activeLabelId"
-                                :fixed="fixedLabelSet"
-                                @pick="pickClass"
-                                @create="createClass"
-                                @recolor="recolorClass"
-                                @rename="editClass"
-                            />
-                        </template>
-                    </AnnotatePanel>
                 </McSheetContent>
             </McSheet>
         </template>

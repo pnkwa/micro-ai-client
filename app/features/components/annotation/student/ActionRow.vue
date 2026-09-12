@@ -7,9 +7,14 @@
  * "Done · saved". When something is missing that line is a button that opens the tab which fixes it.
  * Right: Skip (ghost, status) then Mark done (primary).
  *
- * Mark done is NEVER disabled. A missing required answer does not grey it out — tapping it raises
- * the sheet to the Answer tab (the page decides), because a disabled primary with no explanation is
- * the dead end this rebuild removes.
+ * Mark done is NEVER disabled. A missing required answer does not grey it out — tapping it switches
+ * to the Instructions tab, where the unanswered field is (the page decides), because a disabled
+ * primary with no explanation is the dead end this rebuild removes.
+ *
+ * Once the image IS done that button UNDOES it, and it says so. It used to read "Done", which is a
+ * state, not an action: a student could not tell whether it was a badge, a confirmation or a button,
+ * and tapping it silently reverted the image to pending. The affirmation belongs to the status line
+ * ("Done · saved") and the filmstrip's tick; the button is left to name the only thing it does.
  */
 const props = defineProps<{
     labelCount: number
@@ -66,10 +71,11 @@ const done = computed(() => props.status === 'completed')
         >
             Skip
         </McButton>
-        <!-- Never disabled: with a required answer missing, tapping raises the sheet to Answer rather
-             than silently refusing (the page owns that). Reads as outline once already done. -->
+        <!-- Never disabled: with a required answer missing, tapping opens the Instructions tab
+             rather than silently refusing (the page owns that). Once done it is the undo, outline
+             and labelled for what it does — the "you finished this" is the status line's job. -->
         <McButton :variant="done ? 'outline' : 'default'" size="sm" @click="emit('mark-done')">
-            {{ done ? 'Done' : 'Mark done' }}
+            {{ done ? 'Undo done' : 'Mark done' }}
         </McButton>
     </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight } from '@lucide/vue'
+import { Check, ChevronLeft, ChevronRight, SkipForward } from '@lucide/vue'
 import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 
 /** One cell of the touch filmstrip. */
@@ -9,6 +9,23 @@ export interface PagerStripItem {
     active: boolean
     /** The thumbnail fetch failed. Distinguishes a permanent broken tile from one still loading. */
     failed?: boolean
+    /**
+     * This image is finished, so the cell carries a teal check badge.
+     *
+     * OPTIONAL, and only the student's assignment annotator sets it: that flow is the one with a
+     * per-image done state to report. Leave it undefined and the strip renders exactly as it always
+     * has, which is what the instructor annotator and the review screen want.
+     */
+    done?: boolean
+    /**
+     * This image was deliberately passed over, so the cell carries an amber skip badge.
+     *
+     * Amber and a different glyph rather than a second tick, because done and skipped are different
+     * answers to "is this image finished" and the strip is the only place a student sees both at
+     * once. The colour is the queue's: its progress bar and row badges already read teal for done
+     * and amber for skipped, so the two surfaces agree. Mutually exclusive with `done`.
+     */
+    skipped?: boolean
 }
 
 /**
@@ -69,6 +86,10 @@ const cellSize = computed(() => (isShort.value ? 'tw:size-5' : 'tw:size-12'))
 const cellPx = computed(() => (isShort.value ? 20 : 48))
 const navBtn = computed(() => (isShort.value ? 'tw:h-5 tw:w-5' : 'tw:h-8 tw:w-8'))
 const chevron = computed(() => (isShort.value ? 'tw:h-3.5 tw:w-3.5' : 'tw:h-4 tw:w-4'))
+// The status badge tracks the cell: a third of it, so it reads as a mark ON the thumbnail rather
+// than a second tile beside it, and still clears the 20px cell a short viewport uses.
+const statusBadge = computed(() => (isShort.value ? 'tw:size-2.5' : 'tw:size-[15px]'))
+const statusIcon = computed(() => (isShort.value ? 'tw:size-[7px]' : 'tw:size-2.5'))
 
 // The whole root: docked is a full-width strip in the layout (a divider under it, no float, no
 // rounding); otherwise it FLOATS - the top-right text pill on desktop, the centred filmstrip over
@@ -168,10 +189,7 @@ watch(
 // the mount-time centre is a no-op and the page opened with image 1 sitting left of the green frame.
 // When the real width lands the spacers grow and the strip has to be put back under the frame. This
 // covers rotation and resize for free, since those move `padPx` too.
-watch(
-    [() => props.strip?.find((cell) => cell.active)?.id, padPx],
-    () => void centerActive(),
-)
+watch([() => props.strip?.find((cell) => cell.active)?.id, padPx], () => void centerActive())
 // The strip only exists on a touch layout; when a resize brings it in, observe its cells and centre.
 watch(isTouchLayout, (on) => {
     if (on) nextTick(() => (syncObserver(), void centerActive()))
@@ -253,29 +271,57 @@ onBeforeUnmount(() => {
                     :data-pager-id="cell.id"
                     :data-active="cell.active ? '' : undefined"
                     type="button"
-                    class="tw:shrink-0 tw:snap-center tw:overflow-hidden tw:rounded-md tw:transition-opacity"
-                    :class="[cellSize, cell.active ? '' : 'tw:opacity-50 tw:hover:opacity-90']"
-                    :aria-label="cell.active ? name : 'Go to this image'"
+                    class="tw:relative tw:shrink-0 tw:snap-center tw:rounded-md"
+                    :class="cellSize"
+                    :aria-label="
+                        (cell.active ? name : 'Go to this image') +
+                        (cell.done ? ' (done)' : cell.skipped ? ' (skipped)' : '')
+                    "
                     @click="emit('select', cell.id)"
                 >
-                    <img
-                        v-if="cell.thumb"
-                        :src="cell.thumb"
-                        :alt="cell.active ? name : ''"
-                        class="tw:h-full tw:w-full tw:object-cover"
-                    />
-                    <!-- Failed fetch: a neutral tile showing its position, never a blank box that
-                         reads as a bug. Otherwise a pulsing skeleton until the thumb lands. -->
+                    <!-- The dimming lives on this inner wrapper, not on the button, so the done
+                         badge below it stays at full strength on an inactive cell: opacity on the
+                         button would take the badge down with the thumbnail, and a half-faded tick
+                         on a bright microscopy field is exactly the thing you cannot read at a
+                         glance. Callers that never set `done` see no change: the wrapper fills the
+                         button, so it dims and hovers identically. -->
                     <span
-                        v-else-if="cell.failed"
-                        class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center tw:bg-white/5 tw:font-mono tw:text-[10px] tw:text-an-d-disabled"
+                        class="tw:block tw:size-full tw:overflow-hidden tw:rounded-md tw:transition-opacity"
+                        :class="cell.active ? '' : 'tw:opacity-50 tw:hover:opacity-90'"
                     >
-                        {{ String(i + 1).padStart(2, '0') }}
+                        <img
+                            v-if="cell.thumb"
+                            :src="cell.thumb"
+                            :alt="cell.active ? name : ''"
+                            class="tw:h-full tw:w-full tw:object-cover"
+                        />
+                        <!-- Failed fetch: a neutral tile showing its position, never a blank box
+                             that reads as a bug. Otherwise a pulsing skeleton until the thumb
+                             lands. -->
+                        <span
+                            v-else-if="cell.failed"
+                            class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center tw:bg-white/5 tw:font-mono tw:text-[10px] tw:text-an-d-disabled"
+                        >
+                            {{ String(i + 1).padStart(2, '0') }}
+                        </span>
+                        <span
+                            v-else
+                            class="tw:block tw:h-full tw:w-full tw:animate-pulse tw:bg-white/10"
+                        ></span>
                     </span>
+
+                    <!-- Marked done, or skipped. Corner-pinned rather than laid over the middle so
+                         the thumbnail is still identifiable, and ringed in the bar's own dark ground
+                         so it reads against a pale field as well as a dark one. One slot, since an
+                         image is one or the other. -->
                     <span
-                        v-else
-                        class="tw:block tw:h-full tw:w-full tw:animate-pulse tw:bg-white/10"
-                    ></span>
+                        v-if="cell.done || cell.skipped"
+                        class="tw:absolute tw:right-0 tw:bottom-0 tw:flex tw:translate-x-px tw:translate-y-px tw:items-center tw:justify-center tw:rounded-full tw:text-white tw:ring-1 tw:ring-an-overlay"
+                        :class="[statusBadge, cell.done ? 'tw:bg-an-accent' : 'tw:bg-an-warn']"
+                    >
+                        <Check v-if="cell.done" :class="statusIcon" :stroke-width="3.5" />
+                        <SkipForward v-else :class="statusIcon" :stroke-width="3" />
+                    </span>
                 </button>
                 <div class="tw:shrink-0" :style="{ width: `${padPx}px` }" aria-hidden="true"></div>
             </div>

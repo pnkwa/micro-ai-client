@@ -596,6 +596,64 @@ html.mc-scroll-lock body {
     }
 }
 
+/*
+ * The student work sheet's tab swap: the outgoing body slides out the way the underline travels and
+ * the incoming one arrives from the opposite edge, so the two tabs read as two places rather than
+ * one panel whose contents were replaced.
+ *
+ * Vue `<Transition>` classes rather than the `data-state` keyframes above, because this is a v-if
+ * swap in our own template, not a reka presence. Used with `mode="out-in"`, so only one body exists
+ * at a time: the pair never overlap, and nothing has to be taken out of flow to stop them colliding.
+ *
+ * TRANSFORM AND OPACITY ONLY, deliberately. The sheet's peek height is load-bearing - a tab switch
+ * must never resize the canvas or re-run fit - so the swap is not allowed to touch layout.
+ *
+ * The exit is the quicker half: the tab you left should be gone before the one you asked for arrives.
+ */
+.mc-tab-fwd-leave-active,
+.mc-tab-back-leave-active {
+    transition:
+        opacity 110ms ease-in,
+        transform 110ms ease-in;
+}
+
+.mc-tab-fwd-enter-active,
+.mc-tab-back-enter-active {
+    transition:
+        opacity 170ms ease-out,
+        transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mc-tab-fwd-enter-from {
+    opacity: 0;
+    transform: translateX(14px);
+}
+
+.mc-tab-fwd-leave-to {
+    opacity: 0;
+    transform: translateX(-14px);
+}
+
+.mc-tab-back-enter-from {
+    opacity: 0;
+    transform: translateX(-14px);
+}
+
+.mc-tab-back-leave-to {
+    opacity: 0;
+    transform: translateX(14px);
+}
+
+/* Motion is a preference. The swap still happens, it just happens at once. */
+@media (prefers-reduced-motion: reduce) {
+    .mc-tab-fwd-leave-active,
+    .mc-tab-back-leave-active,
+    .mc-tab-fwd-enter-active,
+    .mc-tab-back-enter-active {
+        transition: none;
+    }
+}
+
 /**
  * The pop that every select, menu and popover shares when its options open.
  *

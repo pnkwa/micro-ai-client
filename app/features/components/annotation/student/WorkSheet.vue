@@ -5,13 +5,20 @@
  * Replaces the four separate compact chromes the student annotator used to stack: the instructions
  * band, the tool row, the class strip and the action bar. Everything a student does to an image
  * lives here, on ONE surface. The tool row and class chips are the Label tab body, not bands of
- * their own.
+ * their own, and the classes-and-shapes drawer the compact header used to open is gone with them:
+ * it showed what the Label tab already shows, so it was a second route to one place.
  *
- * PEEK IS 212px ON EVERY TAB (grabber 12 + tab row 44 + body 100 + action row 56). This is
- * load-bearing, not cosmetic: switching tabs must never resize the canvas or re-run fit, so a
- * student who zoomed into a cell and tapped Task to re-read the brief comes back to the exact same
- * view. The body is a fixed 100px at peek whatever tab shows; only the tab's INTERNAL content
- * differs. (Snap points and drag land in the next step; for now the sheet sits at peek.)
+ * PEEK IS 228px ON EVERY TAB, and that number is the SUM OF ITS PARTS, not a round figure the parts
+ * are trusted to fit inside: grabber 20 + tab row 44 + body 108 + action row 56. It was 212 against
+ * a 220px stack once the grabber grew, and since the sheet is `overflow-hidden` the missing 8px came
+ * off the bottom of the action row, clipping the status line under "Mark done". Change any band's
+ * height and this constant and `PEEK_PX` have to move with it.
+ *
+ * The height is load-bearing, not cosmetic: switching tabs must never resize the canvas or re-run
+ * fit, so a student who zoomed into a cell and tapped Instructions to re-read the brief comes back
+ * to the exact same view. The body is a fixed 108px at peek whatever tab shows — 6px of padding, a
+ * 44px row, an 8px gap, a second 44px row, 6px of padding — and only the tab's INTERNAL content
+ * differs.
  *
  * The sheet lifts 16px OVER the canvas (`-mt-4`, z above it) with a top-corner radius and an upward
  * shadow, so the dark canvas shows through behind the rounded corners and the edge reads without a
@@ -45,13 +52,17 @@ const props = defineProps<{
     canUndo: boolean
     canRedo: boolean
     allowSkip: boolean
+    /** A fixed vocabulary (`label_set` is non-empty): the Label tab's chips pick only. */
+    fixed?: boolean
+    /** The image is marked done: the Label tab swaps its tools for a locked notice. */
+    locked?: boolean
 }>()
 
 const tab = defineModel<WorkTab>('tab', { required: true })
 
 // Expand raises the sheet from peek to a tall state so the whole Task reads at once — the full
 // brief, the requirement checklist and a primary "Start annotating" — without a student having to
-// scroll a 100px slot one-handed. Tap the grabber to raise it, "Start annotating" (or the grabber
+// scroll a 108px slot one-handed. Tap the grabber to raise it, "Start annotating" (or the grabber
 // again) to drop back to peek. Expanding is an explicit gesture, so it MAY resize the canvas; only
 // a tab SWITCH must leave the canvas untouched, and the expanded height is the same on both tabs,
 // so switching tabs while expanded still holds that invariant. (Drag-to-snap lands in step 3.)
@@ -63,6 +74,8 @@ const emit = defineEmits<{
     redo: []
     'delete-selected': []
     pick: [id: number]
+    'create-class': [label: string, colorHex: string]
+    'edit-class': [id: number, label: string, colorHex: string]
     'select-shape': [id: string]
     'delete-shape': [id: string]
     'update-response': [key: string, value: string]
@@ -83,7 +96,8 @@ const onStart = () => {
 // toggles. `dragHeight` is the live inline height while a drag is in flight (it overrides the
 // class height and the CSS transition is off), null the rest of the time so the snapped class
 // height and its transition take over.
-const PEEK_PX = 212
+// Must equal the peek height class below, and both must equal the sum of the bands. See the header.
+const PEEK_PX = 228
 const dragging = ref(false)
 const dragHeight = ref<number | null>(null)
 let startY = 0
@@ -155,7 +169,10 @@ const TABS: { id: WorkTab; label: string }[] = [
          keeps that edge legible against the dark canvas. -->
     <section
         class="tw:relative tw:z-20 tw:-mt-4 tw:flex tw:flex-col tw:overflow-hidden tw:rounded-t-2xl tw:bg-an-panel tw:transition-[height] tw:duration-300 tw:ease-[cubic-bezier(0.32,0.72,0,1)] tw:[touch-action:pan-x_pan-y] tw:shadow-[0_-14px_30px_rgba(13,17,23,0.30),0_-1px_0_rgba(255,255,255,0.05)] tw:motion-reduce:transition-none"
-        :class="[expanded ? 'tw:h-[68dvh] tw:max-h-[600px]' : 'tw:h-[212px]', dragging ? 'tw:transition-none' : '']"
+        :class="[
+            expanded ? 'tw:h-[68dvh] tw:max-h-[600px]' : 'tw:h-[228px]',
+            dragging ? 'tw:transition-none' : '',
+        ]"
         :style="dragHeight !== null ? { height: `${dragHeight}px` } : undefined"
     >
         <!-- Grabber: drag it up to raise the sheet (the slide grows live under the finger) and down
@@ -215,45 +232,59 @@ const TABS: { id: WorkTab; label: string }[] = [
             </button>
         </div>
 
-        <!-- Tab body: fixed 100px at peek (same on every tab, so a tab switch never resizes the
-             canvas); flex-fills when expanded so the full brief, checklist and Start button show. -->
+        <!-- Tab body: fixed 108px at peek (same on every tab, so a tab switch never resizes the
+             canvas); flex-fills when expanded so the full brief and the Start button show.
+             `py-1.5` rather than a top-only pad, so the two 44px rows sit between the tab hairline
+             above and the action-row hairline below with equal air instead of resting on the latter. -->
         <div
-            class="tw:px-3 tw:pt-1"
-            :class="sheetExpanded ? 'tw:min-h-0 tw:flex-1' : 'tw:h-[100px] tw:shrink-0'"
+            class="tw:px-3 tw:py-1.5"
+            :class="sheetExpanded ? 'tw:min-h-0 tw:flex-1' : 'tw:h-[108px] tw:shrink-0'"
         >
-            <TaskTab
-                v-if="tab === 'task'"
-                :instructions="instructions"
-                :field-prompts="fieldPrompts"
-                :responses="responses"
-                :shapes-count="shapes.length"
-                :has-diagnosis="!missingLabel"
-                :done="done"
-                :expanded="sheetExpanded"
-                @update-response="(k, v) => emit('update-response', k, v)"
-                @start="onStart"
-            />
-            <LabelTab
-                v-else
-                :expanded="sheetExpanded"
-                :tool="tool"
-                :can-undo="canUndo"
-                :can-redo="canRedo"
-                :can-delete="Boolean(selectedId)"
-                :classes="classes"
-                :active-label-id="activeLabelId"
-                :shapes="shapes"
-                :selected-id="selectedId"
-                :hidden-ids="hiddenIds"
-                :palette="palette"
-                @update:tool="emit('update:tool', $event)"
-                @undo="emit('undo')"
-                @redo="emit('redo')"
-                @delete-selected="emit('delete-selected')"
-                @pick="emit('pick', $event)"
-                @select-shape="emit('select-shape', $event)"
-                @delete-shape="emit('delete-shape', $event)"
-            />
+            <!-- The swap slides the way the underline travels: Label is the right-hand tab, so
+                 arriving there enters from the right and leaving it enters from the left. With only
+                 two tabs the direction is a property of the DESTINATION, not of the history, so it
+                 is read straight off `tab` and stays right whoever set it (the tab row, or the
+                 parent's "Start annotating"). `out-in`, so one body exists at a time and neither
+                 has to leave the flow. -->
+            <Transition :name="tab === 'label' ? 'mc-tab-fwd' : 'mc-tab-back'" mode="out-in">
+                <TaskTab
+                    v-if="tab === 'task'"
+                    :instructions="instructions"
+                    :field-prompts="fieldPrompts"
+                    :responses="responses"
+                    :shapes-count="shapes.length"
+                    :has-diagnosis="!missingLabel"
+                    :done="done"
+                    :expanded="sheetExpanded"
+                    @update-response="(k, v) => emit('update-response', k, v)"
+                    @start="onStart"
+                />
+                <LabelTab
+                    v-else
+                    :expanded="sheetExpanded"
+                    :tool="tool"
+                    :can-undo="canUndo"
+                    :can-redo="canRedo"
+                    :can-delete="Boolean(selectedId)"
+                    :classes="classes"
+                    :active-label-id="activeLabelId"
+                    :shapes="shapes"
+                    :selected-id="selectedId"
+                    :hidden-ids="hiddenIds"
+                    :palette="palette"
+                    :fixed="fixed"
+                    :locked="locked"
+                    @update:tool="emit('update:tool', $event)"
+                    @undo="emit('undo')"
+                    @redo="emit('redo')"
+                    @delete-selected="emit('delete-selected')"
+                    @pick="emit('pick', $event)"
+                    @create-class="(label, color) => emit('create-class', label, color)"
+                    @edit-class="(id, label, color) => emit('edit-class', id, label, color)"
+                    @select-shape="emit('select-shape', $event)"
+                    @delete-shape="emit('delete-shape', $event)"
+                />
+            </Transition>
         </div>
 
         <!-- The action row, pinned at the bottom of the sheet on every tab. -->
