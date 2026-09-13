@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import { watchDebounced } from '@vueuse/core'
-import { ArrowLeft, Images, Menu, Send, Shapes, Undo2 } from '@lucide/vue'
+import { ChevronLeft, Images, Menu, Send, Undo2 } from '@lucide/vue'
 import {
     annotationAssignmentService,
     type AnnotationAssignment,
@@ -31,12 +31,9 @@ import PagerPill from '~/features/components/annotator/canvas/PagerPill.vue'
 import HintBar from '~/features/components/annotator/canvas/HintBar.vue'
 import ZoomPill from '~/features/components/shared/ZoomPill.vue'
 import ClassPicker from '~/features/components/annotator/labels/ClassPicker.vue'
-import BottomTools from '~/features/components/annotator/mobile/BottomTools.vue'
-import ClassStrip from '~/features/components/annotator/mobile/ClassStrip.vue'
 import AnnotateQueue from '~/features/components/annotation/AnnotateQueue.vue'
 import AnnotatePanel from '~/features/components/annotation/AnnotatePanel.vue'
-import AnnotateBrief from '~/features/components/annotation/AnnotateBrief.vue'
-import AnnotateActionBar from '~/features/components/annotation/AnnotateActionBar.vue'
+import WorkSheet, { type WorkTab } from '~/features/components/annotation/student/WorkSheet.vue'
 import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 
 const route = useRoute()
@@ -51,7 +48,6 @@ const { layout, stacked, isTouchLayout } = useAnnotatorLayout()
 const leftOpen = ref(true)
 const rightOpen = ref(true)
 const queueSheetOpen = ref(false)
-const panelSheetOpen = ref(false)
 
 // Whether Mark done / Skip advance to the next image after changing its status, or mark and stay.
 // The pager only changes position, so it never fires here — one press is one move either way.
@@ -132,18 +128,62 @@ const currentName = computed(() => `Image ${String(currentIndex.value + 1).padSt
 
 // The touch filmstrip: the whole batch as square thumbnails, built from the thumbs loadThumbs
 // already fetched into each field. `failed` only once loading has settled, so an in-flight thumb
-// shows a skeleton rather than a broken tile.
+// shows a skeleton rather than a broken tile. `done` and `skipped` badge each cell with its status
+// (teal tick / amber skip, the queue's own colours), so what is left to do is readable from the
+// strip without opening the queue. They are the two ends of `status`; a pending image gets neither.
 const pagerStrip = computed(() =>
     fields.value.map((f, i) => ({
         id: f.imageId,
         thumb: f.thumb,
         active: i === currentIndex.value,
         failed: thumbsLoaded.value && !f.thumb,
+        done: f.status === 'completed',
+        skipped: f.status === 'skipped',
     })),
 )
 
-const tool = ref<Tool>('rectangle')
+/**
+ * SELECT, not rectangle, is what a student arrives on.
+ *
+ * Under the rectangle tool a one-finger drag DRAWS rather than pans (two fingers navigate), and the
+ * sheet opens on Instructions — so the first thing a student does is read the brief and then swipe
+ * around the specimen to see it, with a drawing tool already armed. Every one of those exploratory
+ * drags left a box, and `labelNewShapes` then named and counted it. Select pans on one finger, so
+ * the picture is safe to look at before any decision to draw has been made.
+ *
+ * The cost is one tap before the first box, and `startAnnotating` below pays it: the button that
+ * ends the brief is exactly the moment that decision happens.
+ */
+const tool = ref<Tool>('select')
+
+/**
+ * "Start annotating": hand off to the Label tab and arm the rectangle.
+ *
+ * Only when the tool is still `select`, so this cannot yank a student who deliberately picked the
+ * polygon or the pencil back to rectangle on a later press. The tool then PERSISTS across images —
+ * stepping through a batch should not keep re-arming, and by the second image the student knows
+ * what is armed because they armed it.
+ */
+function startAnnotating() {
+    workTab.value = 'label'
+    if (tool.value === 'select') tool.value = 'rectangle'
+}
+
 const selectedId = ref<string | null>(null)
+
+/**
+ * The current image is finished, so its annotations are locked until the student undoes that.
+ *
+ * "Done" ought to mean the work under it has stopped moving. Without this it did not: the rectangle
+ * tool is armed by default and a one-finger drag under it DRAWS rather than pans, so a student who
+ * marked an image done, scrolled the filmstrip back to look at it, and dragged to inspect would
+ * quietly add boxes to work they believed was settled — and nothing on screen would say so.
+ *
+ * Locked, not hidden: the picture still pans, pinches, zooms and double-taps to fit, so a finished
+ * image stays fully inspectable. The way out is the one button the action row already shows on a
+ * completed image, "Undo done", which is why no separate unlock control is needed.
+ */
+const locked = computed(() => current.value?.status === 'completed')
 const activeLabelId = ref<number | null>(null)
 const hiddenIds = ref<Set<string>>(new Set())
 
@@ -162,13 +202,38 @@ const currentShapes = computed<Shape[]>({
 })
 
 const classes = computed(() => buildClasses(palette.value, currentShapes.value))
-// The class colours present on the current image, for the compact action bar's labels summary.
-const currentDots = computed(() =>
-    classes.value
-        .filter((c) => c.count > 0)
-        .map((c) => c.color)
-        .slice(0, 4),
-)
+
+// Which WorkSheet tab is showing (compact / portrait). Opens on Instructions so the student reads
+// the brief and answers before drawing; "Start annotating" hands off to Label.
+const workTab = ref<WorkTab>('task')
+
+/**
+ * A short slide when the image changes, so stepping through the batch reads as motion rather than a
+ * hard swap: without it the picture is simply different from one frame to the next, and on a phone
+ * (where the filmstrip scrolls under a fixed frame rather than the pages turning) there was nothing
+ * at all to say a navigation had happened.
+ *
+ * Played on the canvas WRAPPER through the Web Animations API, not by re-keying the canvas: the
+ * canvas has to stay mounted or the navigation would reset its viewport, zoom and shapes.
+ *
+ * SLIDE ONLY, no opacity fade. Fading over the dark canvas ground dims the whole panel toward black
+ * and reads as a blink; a pure push keeps the picture fully opaque the whole way in. Same animation,
+ * direction and curve as /image-annotator, so a step feels the same on both annotators.
+ */
+const canvasSlide = useTemplateRef<HTMLElement>('canvasSlide')
+const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
+watch(currentIndex, (to, from) => {
+    if (to === from || reducedMotion.value) return
+    const el = canvasSlide.value
+    if (!el || typeof el.animate !== 'function') return
+    // The next image comes in from the right, the previous one from the left, so the motion agrees
+    // with the direction the filmstrip just travelled.
+    const offset = to > from ? 6 : -6
+    el.animate([{ transform: `translateX(${offset}%)` }, { transform: 'translateX(0)' }], {
+        duration: 300,
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)', // decelerates into place
+    })
+})
 
 // ---- canvas view state (zoom / fit / visibility), read off the shared canvas' exposed API ----
 const canvas = useTemplateRef<InstanceType<typeof AnnotationCanvas>>('canvas')
@@ -410,6 +475,7 @@ async function goTo(index: number) {
 
 // ---- labelling ----
 function pickClass(labelId: number) {
+    if (locked.value) return
     const klass = palette.value.find((l) => l.id === labelId)
     if (!klass) return
     if (selectedId.value) {
@@ -429,6 +495,7 @@ function pickClass(labelId: number) {
 // otherwise create the class on the spot so it gets a colour and joins the list (rather than
 // lingering as a colourless free-text label the student can't recolour or pick again).
 function labelShape(shapeId: string, name: string) {
+    if (locked.value) return
     const shape = currentShapes.value.find((s) => s.id === shapeId)
     if (!shape) return
     const trimmed = name.trim()
@@ -447,12 +514,13 @@ function labelShape(shapeId: string, name: string) {
 }
 
 function deleteSelected() {
-    if (!selectedId.value) return
+    if (locked.value || !selectedId.value) return
     deleteShape(selectedId.value)
 }
 
 // Remove one shape from the current image the per-row delete button in the labels list.
 function deleteShape(sid: string) {
+    if (locked.value) return
     currentShapes.value = currentShapes.value.filter((s) => s.id !== sid)
     if (selectedId.value === sid) selectedId.value = null
     if (hiddenIds.value.has(sid)) {
@@ -549,6 +617,7 @@ function editClass(labelId: number, name: string, colorHex: string) {
 
 // The per-image form (AnnotatePanel) writes back through here so it never mutates a prop directly.
 function setResponse(key: string, value: string) {
+    if (locked.value) return
     if (current.value) current.value.responses[key] = value
 }
 
@@ -567,14 +636,21 @@ function missingRequired(field: FieldState): string | null {
 
 function markDone() {
     if (!current.value) return
-    // Toggle: clicking a completed image again reverts it to pending (the button reads "Mark done"
-    // and turns solid), and stays put rather than advancing.
+    // Toggle: on a completed image the button reads "Undo done" and this reverts it to pending,
+    // staying put rather than advancing. Reverting is the ONLY thing a second press does, which is
+    // why the button names it instead of reading "Done" and looking like a state badge.
     if (current.value.status === 'completed') {
         current.value.status = 'pending'
         return
     }
+    // A required answer is missing, so send the student to the tab that holds it rather than only
+    // raising a toast: the toast names the field but leaves them to find it, and on a phone the
+    // field may be one tab away behind a sheet showing the tool row.
     const missing = missingRequired(current.value)
-    if (missing) return toast.error(`"${missing}" is required`)
+    if (missing) {
+        workTab.value = 'task'
+        return toast.error(`"${missing}" is required`)
+    }
     current.value.status = 'completed'
     if (autoAdvance.value && currentIndex.value < fields.value.length - 1)
         void goTo(currentIndex.value + 1)
@@ -640,7 +716,7 @@ const percentSkipped = computed(() =>
         <!-- desktop header (full, and medium-landscape) -->
         <template #header>
             <McButton variant="ghost" size="icon-sm" aria-label="Back" @click="router.back()">
-                <ArrowLeft class="tw:size-4" />
+                <ChevronLeft class="tw:size-4" />
             </McButton>
             <!-- In medium the app nav is a sheet with no trigger of its own, so a hamburger opens it;
                  the queue is a drawer too and takes the Images icon. Neither is needed at Full, where
@@ -716,10 +792,11 @@ const percentSkipped = computed(() =>
         </template>
 
         <!-- compact header (portrait tablet / phone): the filmstrip navigates, so no hamburger and no
-             queue icon — just instructions, labels and Submit. -->
+             queue icon, and the WorkSheet's Label tab holds the classes and the shape list, so no
+             labels icon either — just where you are, how far along, and Submit. -->
         <template #header-compact>
             <McButton variant="ghost" size="icon-sm" aria-label="Back" @click="router.back()">
-                <ArrowLeft class="tw:size-4" />
+                <ChevronLeft class="tw:size-4" />
             </McButton>
             <div class="tw:flex tw:min-w-0 tw:flex-col">
                 <span class="tw:truncate tw:font-mono tw:text-[12px] tw:text-an-text">
@@ -732,14 +809,6 @@ const percentSkipped = computed(() =>
                 </span>
             </div>
             <div class="tw:flex-1" />
-            <McButton
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Labels and form"
-                @click="panelSheetOpen = true"
-            >
-                <Shapes class="tw:size-4" />
-            </McButton>
             <McButton
                 size="sm"
                 :disabled="!canSubmit || submitting"
@@ -761,6 +830,7 @@ const percentSkipped = computed(() =>
              floating PagerPill in #canvas is suppressed there) so it sits beside the picture. -->
         <template #pager>
             <PagerPill
+                v-if="current"
                 docked
                 :name="currentName"
                 :index="currentIndex + 1"
@@ -800,120 +870,112 @@ const percentSkipped = computed(() =>
         </template>
 
         <template #canvas>
-            <!-- A column so the tablet/phone brief band can sit above the canvas; the canvas and its
-                 floating overlays keep their own positioning context in the flex-1 child. -->
-            <div class="tw:flex tw:h-full tw:min-h-0 tw:flex-col">
-                <!-- Stacked (phone / portrait) only: instructions and the fill-in form ride ABOVE the
-                     canvas in a collapsible band (keyed by image, so each opens expanded). Mark done /
-                     Skip are NOT here — they live on the action bar, the one place they appear on a
-                     phone. On a wide screen these are in the docked panel and this is absent. -->
-                <AnnotateBrief
-                    v-if="stacked && current"
-                    :key="current.imageId"
-                    class="tw:[touch-action:pan-x_pan-y]"
-                    collapsible
-                    :show-actions="false"
-                    :instructions="assignment?.instructions"
-                    :field-prompts="config?.field_prompts ?? []"
-                    :responses="current.responses"
-                    :status="current.status"
-                    :shapes-count="currentShapes.length"
-                    :allow-skip="Boolean(config?.allow_skip)"
-                    @update-response="setResponse"
-                    @mark-done="markDone"
-                    @skip="skip"
+            <!-- Canvas and its floating overlays sit DIRECTLY in the shell's relative <main>, exactly
+                 like /image-annotator: an extra flex-column wrapper here (added for a docked pager
+                 that is gone) changed the filmstrip's containing block and left it unable to
+                 touch-scroll on iPad. The stacked brief band is gone too — instructions and the
+                 fill-in form live in the WorkSheet's tabs, so the picture is never pushed down.
+                 This wrapper is also what the image-change slide plays on (see `canvasSlide`):
+                 animating it rather than the canvas keeps the canvas mounted, so a navigation does
+                 not reset the viewport, the zoom or the shapes. -->
+            <div ref="canvasSlide" class="tw:absolute tw:inset-0">
+                <AnnotationCanvas
+                    v-if="current"
+                    ref="canvas"
+                    v-model:shapes="currentShapes"
+                    v-model:selected-id="selectedId"
+                    :src="current.url"
+                    :name="currentName"
+                    :tool="tool"
+                    :default-curated="false"
+                    :palette="palette"
+                    :hidden-ids="hiddenIds"
+                    :touch-layout="isTouchLayout"
+                    :lock-labels="fixedLabelSet"
+                    :readonly="locked"
+                    :inset-bottom="stacked ? 16 : 0"
+                    @label-shape="labelShape"
+                    @commit="commit"
+                    @undo="undoStep"
                 />
-
-                <div class="tw:relative tw:min-h-0 tw:flex-1">
-                    <AnnotationCanvas
-                        v-if="current"
-                        ref="canvas"
-                        v-model:shapes="currentShapes"
-                        v-model:selected-id="selectedId"
-                        :src="current.url"
-                        :name="currentName"
-                        :tool="tool"
-                        :default-curated="false"
-                        :palette="palette"
-                        :hidden-ids="hiddenIds"
-                        :touch-layout="isTouchLayout"
-                        :lock-labels="fixedLabelSet"
-                        @label-shape="labelShape"
-                        @commit="commit"
-                        @undo="undoStep"
-                    />
-
-                    <!-- returned-for-changes banner, pinned over the top of the canvas -->
-                    <div
-                        v-if="returnedReason !== null"
-                        class="tw:absolute tw:inset-x-0 tw:top-0 tw:z-10 tw:flex tw:items-start tw:gap-2 tw:border-b tw:border-warning/30 tw:bg-warning/10 tw:px-3 tw:py-2 tw:text-[12.5px] tw:text-an-text tw:backdrop-blur"
-                    >
-                        <Undo2 class="tw:mt-0.5 tw:size-4 tw:shrink-0 tw:text-warning" />
-                        <span>
-                            <b>Returned for changes.</b>
-                            <template v-if="returnedReason">{{ returnedReason }}</template>
-                            <template v-else>Edit your work and resubmit.</template>
-                        </span>
-                    </div>
-
-                    <div
-                        v-if="loading"
-                        class="tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:text-an-d-text"
-                    >
-                        Loading…
-                    </div>
-
-                    <ToolDock
-                        v-if="!stacked"
-                        :tool="tool"
-                        :can-undo="canUndoAny"
-                        :can-redo="canRedo"
-                        :can-delete="Boolean(selectedId)"
-                        @update:tool="tool = $event"
-                        @undo="undoStep"
-                        @redo="redo"
-                        @delete-selected="deleteSelected"
-                    />
-                    <!-- Floats over the canvas except on a stacked phone, where it docks into its
-                         own shell row (see #pager) so it does not cover the top of the picture. -->
-                    <PagerPill
-                        v-if="!stacked"
-                        :name="currentName"
-                        :index="currentIndex + 1"
-                        :total="fields.length"
-                        :strip="pagerStrip"
-                        @previous="goTo(currentIndex - 1)"
-                        @next="goTo(currentIndex + 1)"
-                        @select="(id) => goTo(fields.findIndex((f) => f.imageId === id))"
-                    />
-                    <HintBar
-                        v-if="!stacked"
-                        :tool="tool"
-                        :selected-count="selectedId ? 1 : 0"
-                        :drafting="Boolean(canvas?.hasDraft)"
-                    />
-                    <!-- Floats over the canvas except on a stacked phone, where it docks into its
-                         own shell row (see #zoom) so it does not cover the bottom of the picture. -->
-                    <ZoomPill
-                        v-if="!stacked"
-                        :percent="zoomPct"
-                        :at-fit="atFit"
-                        :enabled="canZoom"
-                        :all-hidden="allHidden"
-                        @zoom-in="canvas?.zoomIn()"
-                        @zoom-out="canvas?.zoomOut()"
-                        @fit="canvas?.fit()"
-                        @toggle-visibility="toggleAllHidden"
-                    />
-                </div>
             </div>
+
+            <!-- returned-for-changes banner, pinned over the top of the canvas -->
+            <div
+                v-if="returnedReason !== null"
+                class="tw:absolute tw:inset-x-0 tw:top-0 tw:z-10 tw:flex tw:items-start tw:gap-2 tw:border-b tw:border-warning/30 tw:bg-warning/10 tw:px-3 tw:py-2 tw:text-[12.5px] tw:text-an-text tw:backdrop-blur"
+            >
+                <Undo2 class="tw:mt-0.5 tw:size-4 tw:shrink-0 tw:text-warning" />
+                <span>
+                    <b>Returned for changes.</b>
+                    <template v-if="returnedReason">{{ returnedReason }}</template>
+                    <template v-else>Edit your work and resubmit.</template>
+                </span>
+            </div>
+
+            <div
+                v-if="loading"
+                class="tw:absolute tw:inset-0 tw:flex tw:items-center tw:justify-center tw:text-an-d-text"
+            >
+                Loading…
+            </div>
+
+            <!-- Centre the dock on the left in the touch layout, where the filmstrip floats
+                 full-width across the top: top-left would put the first tool under it. On desktop the
+                 pager is a top-right pill, so the dock keeps the top-left corner. -->
+            <ToolDock
+                v-if="!stacked"
+                :centered="isTouchLayout"
+                :disabled="locked"
+                :tool="tool"
+                :can-undo="canUndoAny"
+                :can-redo="canRedo"
+                :can-delete="Boolean(selectedId)"
+                @update:tool="tool = $event"
+                @undo="undoStep"
+                @redo="redo"
+                @delete-selected="deleteSelected"
+            />
+            <!-- Floats over the canvas on desktop (a top-right text pill) and on a wide landscape
+                 touch layout (the centred filmstrip), same as /image-annotator so the strip scrolls
+                 the same way. On a stacked phone it docks into the shell's own #pager row instead, so
+                 it does not cover the top of the picture. -->
+            <PagerPill
+                v-if="!stacked"
+                :name="currentName"
+                :index="currentIndex + 1"
+                :total="fields.length"
+                :strip="pagerStrip"
+                @previous="goTo(currentIndex - 1)"
+                @next="goTo(currentIndex + 1)"
+                @select="(id) => goTo(fields.findIndex((f) => f.imageId === id))"
+            />
+            <!-- No hint while the image is locked: every line it can show names a gesture the
+                 canvas is currently refusing. -->
+            <HintBar
+                v-if="!stacked && !locked"
+                :tool="tool"
+                :selected-count="selectedId ? 1 : 0"
+                :drafting="Boolean(canvas?.hasDraft)"
+            />
+            <!-- Floats over the canvas except on a stacked phone, where it docks into its own shell
+                 row (see #zoom) so it does not cover the bottom of the picture. -->
+            <ZoomPill
+                v-if="!stacked"
+                :percent="zoomPct"
+                :at-fit="atFit"
+                :enabled="canZoom"
+                :all-hidden="allHidden"
+                @zoom-in="canvas?.zoomIn()"
+                @zoom-out="canvas?.zoomOut()"
+                @fit="canvas?.fit()"
+                @toggle-visibility="toggleAllHidden"
+            />
         </template>
 
         <template #labels>
             <AnnotatePanel
                 :instructions="assignment?.instructions"
-                :instructions-key="id"
-                :image-index="currentIndex"
                 :field-prompts="config?.field_prompts ?? []"
                 :responses="current?.responses ?? null"
                 :status="current?.status ?? null"
@@ -944,44 +1006,40 @@ const percentSkipped = computed(() =>
             </AnnotatePanel>
         </template>
 
-        <!-- tablet/phone: tools and classes as bottom bars (the shell mounts these only when stacked) -->
-        <template #bottom-tools>
-            <BottomTools
+        <!-- tablet/phone: the one bottom sheet — Task / Label / Answer. Replaces the old instructions
+             band, tool row, class strip and action bar. The shell mounts it only when stacked. -->
+        <template #worksheet>
+            <WorkSheet
+                v-model:tab="workTab"
+                :instructions="assignment?.instructions"
+                :field-prompts="config?.field_prompts ?? []"
+                :responses="current?.responses ?? null"
+                :status="current?.status ?? null"
+                :shapes="currentShapes"
+                :classes="classes"
+                :active-label-id="activeLabelId"
+                :selected-id="selectedId"
+                :hidden-ids="hiddenIds"
+                :palette="palette"
                 :tool="tool"
                 :can-undo="canUndoAny"
                 :can-redo="canRedo"
-                :can-delete="Boolean(selectedId)"
+                :allow-skip="Boolean(config?.allow_skip)"
+                :fixed="fixedLabelSet"
+                :locked="locked"
                 @update:tool="tool = $event"
                 @undo="undoStep"
                 @redo="redo"
                 @delete-selected="deleteSelected"
-            />
-        </template>
-        <template #bottom-classes>
-            <!-- Quick-pick strip. "+" opens an inline name + colour row right here (a fixed
-                 label_set hides "+" entirely), so a student never has to reach the panel drawer
-                 to add a class on a phone. -->
-            <ClassStrip
-                :classes="classes"
-                :active="activeLabelId"
-                :fixed="fixedLabelSet"
                 @pick="pickClass"
-                @create="createClass"
-                @edit="editClass"
-            />
-        </template>
-
-        <!-- phone: the action bar carries Mark done / Skip and a labels summary that opens the sheet.
-             This is the ONLY place Skip and Mark done appear on a phone. -->
-        <template #bottom-actions>
-            <AnnotateActionBar
-                :label-count="currentShapes.length"
-                :dots="currentDots"
-                :status="current?.status ?? null"
-                :allow-skip="Boolean(config?.allow_skip)"
-                @open-labels="panelSheetOpen = true"
+                @create-class="createClass"
+                @edit-class="editClass"
+                @select-shape="selectedId = $event"
+                @delete-shape="deleteShape"
+                @update-response="setResponse"
                 @mark-done="markDone"
                 @skip="skip"
+                @start="startAnnotating"
             />
         </template>
 
@@ -989,7 +1047,7 @@ const percentSkipped = computed(() =>
             <McSheet v-model:open="queueSheetOpen">
                 <McSheetContent
                     side="left"
-                    class="tw:w-[300px] tw:p-0 tw:[touch-action:pan-x_pan-y]"
+                    class="mc-slide-left tw:w-[300px] tw:p-0 tw:[touch-action:pan-x_pan-y]"
                     hide-close
                 >
                     <AnnotateQueue
@@ -1005,49 +1063,6 @@ const percentSkipped = computed(() =>
                             }
                         "
                     />
-                </McSheetContent>
-            </McSheet>
-
-            <!-- Labels sheet: a bottom drawer on the phone (classes + shapes), opened from the header
-                 shapes icon or the action bar. Mark done / Skip are not here — they live on the
-                 action bar, the one place they appear on a phone. -->
-            <McSheet v-model:open="panelSheetOpen">
-                <McSheetContent
-                    side="bottom"
-                    class="mc-slide-up tw:flex tw:max-h-[80dvh] tw:flex-col tw:rounded-t-2xl tw:p-0 tw:[touch-action:pan-x_pan-y]"
-                    hide-close
-                >
-                    <AnnotatePanel
-                        :show-brief="false"
-                        :instructions="assignment?.instructions"
-                        :field-prompts="config?.field_prompts ?? []"
-                        :responses="current?.responses ?? null"
-                        :status="current?.status ?? null"
-                        :shapes="currentShapes"
-                        :selected-id="selectedId"
-                        :hidden-ids="hiddenIds"
-                        :palette="palette"
-                        :allow-skip="Boolean(config?.allow_skip)"
-                        :lock-labels="fixedLabelSet"
-                        @update-response="setResponse"
-                        @select-shape="selectedId = $event"
-                        @delete-shape="deleteShape"
-                        @relabel="labelShape"
-                        @mark-done="markDone"
-                        @skip="skip"
-                    >
-                        <template #classes>
-                            <ClassPicker
-                                :classes="classes"
-                                :active="activeLabelId"
-                                :fixed="fixedLabelSet"
-                                @pick="pickClass"
-                                @create="createClass"
-                                @recolor="recolorClass"
-                                @rename="editClass"
-                            />
-                        </template>
-                    </AnnotatePanel>
                 </McSheetContent>
             </McSheet>
         </template>

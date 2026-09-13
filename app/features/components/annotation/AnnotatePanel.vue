@@ -7,7 +7,7 @@
  * A view component (props in, events out) so it renders identically whether it is the docked right
  * column or the contents of a drawer on a tablet.
  */
-import { Check, ChevronDown, Pentagon, Shapes, SkipForward, Square, Trash2 } from '@lucide/vue'
+import { Check, Pentagon, RotateCcw, Shapes, SkipForward, Square, Trash2 } from '@lucide/vue'
 import { colorForShape } from '~/core/helpers/annotationClasses'
 import type { Shape } from '~/core/helpers/annotationShapes'
 import type { AnnotationLabel } from '~/services/annotationLabelService'
@@ -26,10 +26,6 @@ const props = withDefaults(
         allowSkip: boolean
         /** A fixed vocabulary: a box is relabelled by picking a class, not by typing a new name. */
         lockLabels?: boolean
-        /** Which image is showing, so the instructions card collapses from the second one onward. */
-        imageIndex?: number
-        /** Scopes the remembered instructions collapse state to this assignment. */
-        instructionsKey?: string | number
         /**
          * Show instructions, the fill-in form and Mark done / Skip. On a tablet these move to the
          * AnnotateBrief band above the canvas, so the panel drawer turns them off and is left with
@@ -37,7 +33,7 @@ const props = withDefaults(
          */
         showBrief?: boolean
     }>(),
-    { showBrief: true, imageIndex: 0 },
+    { showBrief: true },
 )
 
 const emit = defineEmits<{
@@ -81,38 +77,6 @@ const commitShapeEdit = (s: Shape) => {
     if (name && name !== s.label) emit('relabel', s.id, name)
 }
 
-// Instructions collapse. The student reads them once: the card opens on the first image and stays
-// open until they collapse it, then that choice is remembered per assignment. From the second image
-// onward the default is collapsed. Persisted in localStorage (best-effort; never throws the panel).
-const storageKey = computed(() =>
-    props.instructionsKey == null ? null : `annotate:instr-open:${props.instructionsKey}`,
-)
-const readPref = (): boolean | null => {
-    if (!storageKey.value) return null
-    try {
-        const raw = localStorage.getItem(storageKey.value)
-        return raw === null ? null : raw === '1'
-    } catch {
-        return null
-    }
-}
-const instructionsOpen = ref(true)
-const applyOpenDefault = () => {
-    const pref = readPref()
-    instructionsOpen.value = pref ?? props.imageIndex === 0
-}
-const toggleInstructions = () => {
-    instructionsOpen.value = !instructionsOpen.value
-    if (!storageKey.value) return
-    try {
-        localStorage.setItem(storageKey.value, instructionsOpen.value ? '1' : '0')
-    } catch {
-        /* private mode / blocked storage: the toggle still works this session */
-    }
-}
-onMounted(applyOpenDefault)
-watch(() => props.imageIndex, applyOpenDefault)
-
 const shapeColor = (s: Shape) => colorForShape(props.palette, s) ?? 'var(--color-an-n-250)'
 // No node count: "N pts" beside a label read as a graded score to students. Shape kind is enough.
 const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
@@ -124,90 +88,88 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
          ancestor, so the docked sidebar (landscape) and the drawer (portrait) both need it here to
          stop a stray pinch or double-tap zooming the whole page. Scrolling the panel still works. -->
     <div class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:[touch-action:pan-x_pan-y]">
-        <!-- instructions: a collapsible card that never pushes the class list below the fold. Open on
-             the first image, then collapsed by default and remembered per assignment. Collapsed shows
-             one clamped line; expanded scrolls internally past 160px. -->
+        <!-- instructions: plain text, always shown. Scrolls internally past 160px so a long brief
+             never pushes the class list and shape list below the fold. -->
         <div v-if="showBrief" class="tw:shrink-0 tw:p-3 tw:pb-0">
-            <div class="tw:rounded-lg tw:bg-an-n-50 tw:p-3">
-                <button
-                    type="button"
-                    class="tw:flex tw:w-full tw:items-center tw:gap-2 tw:text-left"
-                    :aria-expanded="instructionsOpen"
-                    @click="toggleInstructions"
-                >
-                    <span
-                        class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text"
-                    >
-                        Instructions
-                    </span>
-                    <div class="tw:flex-1"></div>
-                    <ChevronDown
-                        class="tw:size-4 tw:text-an-faint tw:transition-transform"
-                        :class="instructionsOpen ? '' : 'tw:-rotate-90'"
-                    />
-                </button>
-                <p
-                    class="tw:mt-1.5 tw:text-[12.5px] tw:text-an-n-600"
-                    :class="
-                        instructionsOpen
-                            ? 'tw:max-h-40 tw:overflow-y-auto tw:whitespace-pre-line'
-                            : 'tw:truncate'
-                    "
-                >
-                    {{ instructions || 'Box every finding and label it.' }}
-                </p>
-            </div>
+            <p class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text">
+                Instructions
+            </p>
+            <p
+                class="tw:mt-1.5 tw:max-h-40 tw:overflow-y-auto tw:whitespace-pre-line tw:text-[12.5px] tw:text-an-n-600"
+            >
+                {{ instructions || 'Box every finding and label it.' }}
+            </p>
         </div>
 
-        <!-- per-image fill-in form (field_prompts) -->
+        <!-- per-image fill-in form (field_prompts): the label sits ABOVE a full-width input, the
+             standard vertical form a narrow docked panel has the room for and far more legible than a
+             short label stranded to the left of a wide box. Capped height with its own scroll so a
+             long list of questions never pushes the class list and shape list below the fold. A
+             number field is flagged in its label and typed input (numeric keypad, number placeholder)
+             so the student knows what to enter. -->
         <div
             v-if="showBrief && responses && fieldPrompts.length > 0"
-            class="tw:shrink-0 tw:border-t tw:border-an-border tw:bg-an-panel tw:px-4 tw:py-3"
+            class="tw:flex tw:max-h-80 tw:shrink-0 tw:flex-col tw:gap-3 tw:overflow-y-auto tw:bg-an-panel tw:p-3 tw:[touch-action:pan-y]"
         >
-            <div class="tw:flex tw:flex-wrap tw:items-center tw:gap-4">
-                <div
-                    v-for="prompt in fieldPrompts"
-                    :key="prompt.key"
-                    class="tw:flex tw:min-w-[240px] tw:flex-1 tw:items-center tw:gap-2"
+            <div
+                v-for="prompt in fieldPrompts"
+                :key="prompt.key"
+                class="tw:flex tw:shrink-0 tw:flex-col tw:gap-1.5"
+            >
+                <label
+                    class="tw:flex tw:items-center tw:gap-1 tw:text-[12.5px] tw:font-medium tw:text-an-text"
                 >
-                    <label class="tw:shrink-0 tw:text-[13px] tw:font-medium tw:text-an-text">
-                        {{ prompt.label }}
-                        <span v-if="prompt.required" class="tw:text-danger">*</span>
-                    </label>
-                    <textarea
-                        v-if="prompt.type === 'textarea'"
-                        rows="1"
-                        :value="responses[prompt.key]"
-                        class="tw:flex-1 tw:rounded-md tw:border tw:border-an-n-200 tw:px-3 tw:py-1.5 tw:text-sm tw:outline-none tw:focus:border-an-accent"
-                        @input="
-                            emit(
-                                'update-response',
-                                prompt.key,
-                                ($event.target as HTMLTextAreaElement).value,
-                            )
-                        "
-                    />
-                    <input
-                        v-else
-                        :type="prompt.type === 'number' ? 'number' : 'text'"
-                        :value="responses[prompt.key]"
-                        class="tw:h-9 tw:flex-1 tw:rounded-md tw:border tw:border-an-n-200 tw:px-3 tw:text-sm tw:outline-none tw:focus:border-an-accent"
-                        @input="
-                            emit(
-                                'update-response',
-                                prompt.key,
-                                ($event.target as HTMLInputElement).value,
-                            )
-                        "
-                    />
-                </div>
+                    {{ prompt.label }}
+                    <span v-if="prompt.required" class="tw:text-danger">*</span>
+                    <span v-else class="tw:text-[11px] tw:font-normal tw:text-an-faint">
+                        optional
+                    </span>
+                    <span
+                        v-if="prompt.type === 'number'"
+                        class="tw:ml-auto tw:rounded tw:bg-an-n-100 tw:px-1.5 tw:py-px tw:text-[10px] tw:font-normal tw:text-an-muted"
+                    >
+                        number
+                    </span>
+                </label>
+                <textarea
+                    v-if="prompt.type === 'textarea'"
+                    rows="2"
+                    :value="responses[prompt.key]"
+                    placeholder="Type your answer"
+                    class="tw:w-full tw:rounded-md tw:border tw:border-an-n-200 tw:bg-an-n-50 tw:px-3 tw:py-2 tw:text-sm tw:outline-none tw:placeholder:text-an-faint tw:focus:border-an-accent"
+                    @input="
+                        emit(
+                            'update-response',
+                            prompt.key,
+                            ($event.target as HTMLTextAreaElement).value,
+                        )
+                    "
+                />
+                <input
+                    v-else
+                    :type="prompt.type === 'number' ? 'number' : 'text'"
+                    :inputmode="prompt.type === 'number' ? 'decimal' : undefined"
+                    :placeholder="prompt.type === 'number' ? 'Enter a number' : 'Type your answer'"
+                    :value="responses[prompt.key]"
+                    class="tw:h-9 tw:w-full tw:rounded-md tw:border tw:border-an-n-200 tw:bg-an-n-50 tw:px-3 tw:text-sm tw:outline-none tw:placeholder:text-an-faint tw:focus:border-an-accent"
+                    @input="
+                        emit(
+                            'update-response',
+                            prompt.key,
+                            ($event.target as HTMLInputElement).value,
+                        )
+                    "
+                />
             </div>
         </div>
 
-        <!-- `pan-y` on the scroll body, the element a finger lands on, since iOS lets a descendant
-             zoom even when the panel root forbids it; it still scrolls, it just cannot zoom. -->
+        <!-- The classes + shapes scroll body, split off from the instructions / answer block above by
+             a top border so classes reads as its own section. `pan-y` on the scroll body, the element
+             a finger lands on, since iOS lets a descendant zoom even when the panel root forbids it;
+             it still scrolls, it just cannot zoom. -->
         <div
             class="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col tw:overflow-y-auto tw:[touch-action:pan-y]"
+            :class="showBrief ? 'tw:border-t tw:border-an-border' : ''"
         >
             <!-- the class picker docks here on a wide screen; on a tablet the bottom ClassStrip
                  fills this role and the slot is left empty. -->
@@ -305,22 +267,24 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
             class="tw:shrink-0 tw:border-t tw:border-an-divider tw:bg-an-chrome tw:p-3"
         >
             <!-- The single Skip control on the screen (the header has none). Mark done takes the row
-                 at full width with its `M` keycap; Skip sits beside it at natural width. Done reads as
-                 outline once the image is already marked complete. -->
+                 at full width; Skip sits beside it at natural width.
+                 Once the image is complete this button is the UNDO, and it is labelled as one. It
+                 read "Done" before, which is a state rather than an action: it looked like a badge
+                 while actually reverting the image to pending on the next click. The "finished"
+                 signal is the queue row, the filmstrip tick and the greyed-out Skip.
+                 No `M` keycap either — it advertised a shortcut this page never bound (unlike the
+                 instructor annotator, the student workspace registers no hotkeys at all). -->
             <div class="tw:flex tw:gap-2">
                 <McButton
                     class="tw:flex-1"
                     :variant="status === 'completed' ? 'outline' : 'default'"
                     @click="emit('mark-done')"
                 >
-                    <Check class="tw:mr-1 tw:size-4" />
-                    {{ status === 'completed' ? 'Done' : 'Mark done' }}
-                    <kbd
-                        class="tw:ml-1.5 tw:rounded tw:border tw:border-white/25 tw:px-1 tw:py-px tw:font-mono tw:text-[9.5px] tw:leading-none"
-                        :class="status === 'completed' ? 'tw:border-an-n-200 tw:text-an-muted' : ''"
-                    >
-                        M
-                    </kbd>
+                    <component
+                        :is="status === 'completed' ? RotateCcw : Check"
+                        class="tw:mr-1 tw:size-4"
+                    />
+                    {{ status === 'completed' ? 'Undo done' : 'Mark done' }}
                 </McButton>
                 <McButton
                     v-if="allowSkip && status !== 'completed'"

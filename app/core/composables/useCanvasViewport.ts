@@ -31,6 +31,14 @@ export function useCanvasViewport(
         src: Ref<string | null>
         /** CSS pixels covered on the right, e.g. by a floating panel. */
         insetRight?: Ref<number>
+        /**
+         * CSS pixels covered at the BOTTOM, e.g. by the touch WorkSheet that lifts 16px over the
+         * canvas. Same treatment as `insetRight`: a viewport inset, not a smaller element, so the
+         * fit, the pan bounds, the pointer mapping and the overlays all narrow together and none can
+         * disagree about where the middle is. Defaults to 0, so the docked/desktop canvas is
+         * unaffected.
+         */
+        insetBottom?: Ref<number>
     },
 ) {
     const { width: elementW, height: elementH } = useElementSize(container)
@@ -53,7 +61,7 @@ export function useCanvasViewport(
 
     const viewport = computed(() => ({
         w: Math.max(0, elementW.value - (options.insetRight?.value ?? 0)),
-        h: elementH.value,
+        h: Math.max(0, elementH.value - (options.insetBottom?.value ?? 0)),
     }))
 
     const ready = computed(() => natural.value !== null && viewport.value.w > 0)
@@ -84,7 +92,10 @@ export function useCanvasViewport(
     }
 
     watch(options.src, () => (measured.value = null))
-    watch([elementW, elementH, () => options.insetRight?.value], fit)
+    watch(
+        [elementW, elementH, () => options.insetRight?.value, () => options.insetBottom?.value],
+        fit,
+    )
 
     /** Event position relative to the element's top-left, which is where the arithmetic starts. */
     const localPoint = (event: { clientX: number; clientY: number }) => {

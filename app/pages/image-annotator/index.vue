@@ -1459,7 +1459,18 @@ const queue = useTemplateRef<InstanceType<typeof ImageQueue>>('queue')
 
 // ---- view plumbing ---------------------------------------------------------------------------------
 
-const tool = ref<Tool>('rectangle')
+/**
+ * SELECT, not rectangle, is what the annotator opens on.
+ *
+ * Under the rectangle tool a one-finger drag DRAWS rather than pans (two fingers navigate), so on a
+ * tablet every exploratory swipe across a fresh slide left a box behind before any decision to draw
+ * had been made. Select pans on one finger, which is what looking at an image wants.
+ *
+ * The cost lands on the desktop, where a drag has always drawn and the mouse pans with Space: one
+ * keystroke, `R`, before the first box of a session. The hotkeys are live here (unlike the student
+ * workspace, which has none), and the tool then persists across images, so it is paid once.
+ */
+const tool = ref<Tool>('select')
 
 const zoomPercent = computed(() =>
     canvas.value?.transform ? toPercent(canvas.value.transform) : 100,

@@ -21,6 +21,14 @@ defineProps<{
      * top-left looked like before this existed. The artboard centres it there for the same reason.
      */
     centered?: boolean
+    /**
+     * Every control is disabled: the picture is finished and cannot be edited.
+     *
+     * OPTIONAL and default off, so the instructor annotator is unaffected. Greyed rather than hidden
+     * here, unlike the student sheet's tool row: the dock is a fixed column of icons, and removing
+     * it would leave the canvas corner empty with nothing to say why.
+     */
+    disabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -56,7 +64,7 @@ const tools = [
         <div v-for="option in tools" :key="option.id" class="tw:group tw:relative">
             <button
                 type="button"
-                class="tw:flex tw:h-8 tw:w-8 tw:items-center tw:justify-center tw:rounded-lg tw:transition-colors"
+                class="tw:flex tw:h-8 tw:w-8 tw:items-center tw:justify-center tw:rounded-lg tw:transition-colors tw:disabled:opacity-35 tw:disabled:hover:bg-transparent"
                 :class="
                     tool !== option.id
                         ? 'tw:text-an-d-icon tw:hover:bg-white/10 tw:hover:text-white'
@@ -64,6 +72,7 @@ const tools = [
                           ? 'tw:bg-danger tw:text-white'
                           : 'tw:bg-an-accent tw:text-white'
                 "
+                :disabled="disabled"
                 :aria-label="option.label"
                 :aria-pressed="tool === option.id"
                 @click="emit('update:tool', option.id as Tool)"
@@ -90,7 +99,7 @@ const tools = [
             <button
                 type="button"
                 class="tw:flex tw:h-8 tw:w-8 tw:items-center tw:justify-center tw:rounded-lg tw:text-an-d-icon tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-35 tw:disabled:hover:bg-transparent"
-                :disabled="!canUndo"
+                :disabled="disabled || !canUndo"
                 aria-label="Undo"
                 @click="emit('undo')"
             >
@@ -111,7 +120,7 @@ const tools = [
             <button
                 type="button"
                 class="tw:flex tw:h-8 tw:w-8 tw:items-center tw:justify-center tw:rounded-lg tw:text-an-d-icon tw:transition-colors tw:hover:bg-white/10 tw:hover:text-white tw:disabled:opacity-35 tw:disabled:hover:bg-transparent"
-                :disabled="!canRedo"
+                :disabled="disabled || !canRedo"
                 aria-label="Redo"
                 @click="emit('redo')"
             >
@@ -135,7 +144,7 @@ const tools = [
             <button
                 type="button"
                 class="tw:flex tw:h-8 tw:w-8 tw:items-center tw:justify-center tw:rounded-lg tw:text-an-d-icon tw:transition-colors tw:hover:bg-danger/20 tw:hover:text-danger tw:disabled:opacity-35 tw:disabled:hover:bg-transparent"
-                :disabled="!canDelete"
+                :disabled="disabled || !canDelete"
                 aria-label="Delete selected"
                 @click="emit('delete-selected')"
             >

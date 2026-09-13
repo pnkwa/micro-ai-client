@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight } from '@lucide/vue'
+import { Check, ChevronLeft, ChevronRight, SkipForward } from '@lucide/vue'
 import { useAnnotatorLayout } from '~/core/composables/useAnnotatorLayout'
 
 /** One cell of the touch filmstrip. */
@@ -9,6 +9,23 @@ export interface PagerStripItem {
     active: boolean
     /** The thumbnail fetch failed. Distinguishes a permanent broken tile from one still loading. */
     failed?: boolean
+    /**
+     * This image is finished, so the cell carries a teal check badge.
+     *
+     * OPTIONAL, and only the student's assignment annotator sets it: that flow is the one with a
+     * per-image done state to report. Leave it undefined and the strip renders exactly as it always
+     * has, which is what the instructor annotator and the review screen want.
+     */
+    done?: boolean
+    /**
+     * This image was deliberately passed over, so the cell carries an amber skip badge.
+     *
+     * Amber and a different glyph rather than a second tick, because done and skipped are different
+     * answers to "is this image finished" and the strip is the only place a student sees both at
+     * once. The colour is the queue's: its progress bar and row badges already read teal for done
+     * and amber for skipped, so the two surfaces agree. Mutually exclusive with `done`.
+     */
+    skipped?: boolean
 }
 
 /**
@@ -66,11 +83,13 @@ const nameTail = computed(() => (props.name.length > NAME_TAIL ? props.name.slic
 // frame), which is why these are paired computeds rather than loose classes.
 const isShort = useMediaQuery('(max-height: 640px)')
 const cellSize = computed(() => (isShort.value ? 'tw:size-5' : 'tw:size-12'))
-const stripPad = computed(() =>
-    isShort.value ? 'tw:px-[calc(50%-0.625rem)]' : 'tw:px-[calc(50%-1.5rem)]',
-)
+const cellPx = computed(() => (isShort.value ? 20 : 48))
 const navBtn = computed(() => (isShort.value ? 'tw:h-5 tw:w-5' : 'tw:h-8 tw:w-8'))
 const chevron = computed(() => (isShort.value ? 'tw:h-3.5 tw:w-3.5' : 'tw:h-4 tw:w-4'))
+// The status badge tracks the cell: a third of it, so it reads as a mark ON the thumbnail rather
+// than a second tile beside it, and still clears the 20px cell a short viewport uses.
+const statusBadge = computed(() => (isShort.value ? 'tw:size-2.5' : 'tw:size-[15px]'))
+const statusIcon = computed(() => (isShort.value ? 'tw:size-[7px]' : 'tw:size-2.5'))
 
 // The whole root: docked is a full-width strip in the layout (a divider under it, no float, no
 // rounding); otherwise it FLOATS - the top-right text pill on desktop, the centred filmstrip over
@@ -87,6 +106,28 @@ const rootClass = computed(() => {
 })
 
 const scroller = useTemplateRef<HTMLElement>('scroller')
+
+/**
+ * Half a strip minus half a cell: the room at each end that lets ANY cell - including the first and
+ * last - be scrolled to sit exactly under the fixed centre frame. On a SHORT batch this room is the
+ * entire scroll range, because three thumbnails already fit in the bar with nothing left to scroll.
+ *
+ * It is rendered as real SPACER ELEMENTS (see the template), not as padding on the scroller, and
+ * that distinction is the bug this cost a long hunt: a scroll container's END padding is not part of
+ * its scrollable overflow region in every engine. With `padding: calc(50% - 1.5rem)` a three-image
+ * strip measured scrollWidth === clientWidth === 716 - literally no scroll range - because only the
+ * leading 334px counted and 334 + 156 of cells is less than the 716px viewport. Flex items always
+ * count, so spacers give the honest 824px and the ~108px of travel the centre frame needs.
+ *
+ * A long batch never exposed this: 30 cells overflow on their own and never needed the end room,
+ * which is why the instructor's annotator scrolled while a three-image assignment did not.
+ *
+ * Measured in pixels (`border-box`, so the reading is the laid-out width and does not chase the
+ * value derived from it) rather than a percentage, so the two spacers and the centring arithmetic
+ * agree on one number.
+ */
+const { width: scrollerWidth } = useElementSize(scroller, undefined, { box: 'border-box' })
+const padPx = computed(() => Math.max(0, Math.round(scrollerWidth.value / 2 - cellPx.value / 2)))
 
 // Lazy-load each thumbnail as its cell nears the strip. A generous horizontal rootMargin fetches a
 // little ahead of the scroll so a thumbnail is usually there by the time it is on screen.
@@ -142,10 +183,13 @@ watch(
     () => nextTick(syncObserver),
 )
 // The active image changed (a step, or a jump) → re-centre it.
-watch(
-    () => props.strip?.find((cell) => cell.active)?.id,
-    () => void centerActive(),
-)
+//
+// `padPx` is watched alongside it because the FIRST render has no room to centre into: the end
+// spacers are sized from a measured width, and until the ResizeObserver reports one `padPx` is 0, so
+// the mount-time centre is a no-op and the page opened with image 1 sitting left of the green frame.
+// When the real width lands the spacers grow and the strip has to be put back under the frame. This
+// covers rotation and resize for free, since those move `padPx` too.
+watch([() => props.strip?.find((cell) => cell.active)?.id, padPx], () => void centerActive())
 // The strip only exists on a touch layout; when a resize brings it in, observe its cells and centre.
 watch(isTouchLayout, (on) => {
     if (on) nextTick(() => (syncObserver(), void centerActive()))
@@ -202,45 +246,84 @@ onBeforeUnmount(() => {
         <!-- The green frame is FIXED at the centre of the bar, not drawn on a thumbnail: the strip
              scrolls under it and whatever settles beneath it is the active image, so the marker
              holds still while the pictures move (the picker-wheel read). -->
-        <!-- `px-[calc(50%-1.5rem)]`: half-strip padding at each end so ANY cell - including the first
-             and last - can be scrolled to sit exactly under the centre frame. -->
+        <!-- The end padding (see `padPx`) is half a strip minus half a cell, so ANY cell - including
+             the first and last - can be scrolled to sit exactly under the centre frame. It is applied
+             as measured pixels, not a percentage: see the note on `padPx`. -->
         <div v-if="isTouchLayout" class="tw:relative tw:flex tw:min-w-0 tw:flex-1">
+            <!-- `snap-proximity` rather than `snap-mandatory`, and an explicit `touch-action: pan-x`:
+                 a short batch has only a cell or two of travel, and mandatory snap re-pinning that
+                 little range leaves nothing for a finger to move. Proximity still settles a cell
+                 under the centre frame while leaving the drag room to register. -->
             <div
                 ref="scroller"
-                class="tw:flex tw:min-w-0 tw:flex-1 tw:snap-x tw:snap-mandatory tw:items-center tw:gap-1.5 tw:overflow-x-auto"
-                :class="stripPad"
+                class="mc-no-scrollbar tw:flex tw:min-w-0 tw:flex-1 tw:snap-x tw:snap-proximity tw:items-center tw:gap-1.5 tw:overflow-x-scroll tw:[touch-action:pan-x]"
                 @scroll="onScroll"
             >
+                <!-- Half-a-strip of room at each end, as real SPACER ELEMENTS rather than padding on
+                     the scroller. A scroll container's END padding is not counted in the scrollable
+                     overflow region by every engine (iOS Safari drops it), so on a short batch the
+                     strip ended up with scrollWidth === clientWidth - no scroll range at all, and the
+                     last cell could never reach the centre frame. Flex items always count. -->
+                <div class="tw:shrink-0" :style="{ width: `${padPx}px` }" aria-hidden="true"></div>
                 <button
                     v-for="(cell, i) in strip ?? []"
                     :key="cell.id"
                     :data-pager-id="cell.id"
                     :data-active="cell.active ? '' : undefined"
                     type="button"
-                    class="tw:shrink-0 tw:snap-center tw:overflow-hidden tw:rounded-md tw:transition-opacity"
-                    :class="[cellSize, cell.active ? '' : 'tw:opacity-50 tw:hover:opacity-90']"
-                    :aria-label="cell.active ? name : 'Go to this image'"
+                    class="tw:relative tw:shrink-0 tw:snap-center tw:rounded-md"
+                    :class="cellSize"
+                    :aria-label="
+                        (cell.active ? name : 'Go to this image') +
+                        (cell.done ? ' (done)' : cell.skipped ? ' (skipped)' : '')
+                    "
                     @click="emit('select', cell.id)"
                 >
-                    <img
-                        v-if="cell.thumb"
-                        :src="cell.thumb"
-                        :alt="cell.active ? name : ''"
-                        class="tw:h-full tw:w-full tw:object-cover"
-                    />
-                    <!-- Failed fetch: a neutral tile showing its position, never a blank box that
-                         reads as a bug. Otherwise a pulsing skeleton until the thumb lands. -->
+                    <!-- The dimming lives on this inner wrapper, not on the button, so the done
+                         badge below it stays at full strength on an inactive cell: opacity on the
+                         button would take the badge down with the thumbnail, and a half-faded tick
+                         on a bright microscopy field is exactly the thing you cannot read at a
+                         glance. Callers that never set `done` see no change: the wrapper fills the
+                         button, so it dims and hovers identically. -->
                     <span
-                        v-else-if="cell.failed"
-                        class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center tw:bg-white/5 tw:font-mono tw:text-[10px] tw:text-an-d-disabled"
+                        class="tw:block tw:size-full tw:overflow-hidden tw:rounded-md tw:transition-opacity"
+                        :class="cell.active ? '' : 'tw:opacity-50 tw:hover:opacity-90'"
                     >
-                        {{ String(i + 1).padStart(2, '0') }}
+                        <img
+                            v-if="cell.thumb"
+                            :src="cell.thumb"
+                            :alt="cell.active ? name : ''"
+                            class="tw:h-full tw:w-full tw:object-cover"
+                        />
+                        <!-- Failed fetch: a neutral tile showing its position, never a blank box
+                             that reads as a bug. Otherwise a pulsing skeleton until the thumb
+                             lands. -->
+                        <span
+                            v-else-if="cell.failed"
+                            class="tw:flex tw:h-full tw:w-full tw:items-center tw:justify-center tw:bg-white/5 tw:font-mono tw:text-[10px] tw:text-an-d-disabled"
+                        >
+                            {{ String(i + 1).padStart(2, '0') }}
+                        </span>
+                        <span
+                            v-else
+                            class="tw:block tw:h-full tw:w-full tw:animate-pulse tw:bg-white/10"
+                        ></span>
                     </span>
+
+                    <!-- Marked done, or skipped. Corner-pinned rather than laid over the middle so
+                         the thumbnail is still identifiable, and ringed in the bar's own dark ground
+                         so it reads against a pale field as well as a dark one. One slot, since an
+                         image is one or the other. -->
                     <span
-                        v-else
-                        class="tw:block tw:h-full tw:w-full tw:animate-pulse tw:bg-white/10"
-                    ></span>
+                        v-if="cell.done || cell.skipped"
+                        class="tw:absolute tw:right-0 tw:bottom-0 tw:flex tw:translate-x-px tw:translate-y-px tw:items-center tw:justify-center tw:rounded-full tw:text-white tw:ring-1 tw:ring-an-overlay"
+                        :class="[statusBadge, cell.done ? 'tw:bg-an-accent' : 'tw:bg-an-warn']"
+                    >
+                        <Check v-if="cell.done" :class="statusIcon" :stroke-width="3.5" />
+                        <SkipForward v-else :class="statusIcon" :stroke-width="3" />
+                    </span>
                 </button>
+                <div class="tw:shrink-0" :style="{ width: `${padPx}px` }" aria-hidden="true"></div>
             </div>
 
             <!-- The fixed centre frame the strip scrolls under. `pointer-events-none` so taps pass

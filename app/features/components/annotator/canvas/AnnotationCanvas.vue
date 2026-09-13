@@ -78,6 +78,23 @@ const props = withDefaults(
          */
         lockLabels?: boolean
         /**
+         * READ-ONLY: the picture can be navigated but not edited.
+         *
+         * Every one-finger gesture becomes a pan, the two-finger tap stops undoing, nothing is
+         * drawn, moved, resized, erased, relabelled or selected by touching the canvas, and the
+         * resize/vertex handles are not drawn at all — a handle you cannot drag is a promise the
+         * picture does not keep.
+         *
+         * Pinch, double-tap-to-fit and the zoom controls are untouched, because the point is to make
+         * a FINISHED image safe to inspect. It exists because the rectangle tool is armed by default
+         * and a one-finger drag under it DRAWS rather than pans (two fingers navigate), so swiping
+         * across an image you already marked done would quietly add boxes to settled work.
+         *
+         * OPTIONAL and default off, so the instructor annotator is unaffected — the same opt-in
+         * shape as `lockLabels` above.
+         */
+        readonly?: boolean
+        /**
          * A touch-first layout (below 1280px).
          *
          * Gates the loupe and the finger-sized hit areas. Keyed on the LAYOUT rather than only on
@@ -103,8 +120,15 @@ const props = withDefaults(
          * of them can disagree about where the middle is.
          */
         insetRight?: number
+        /**
+         * CSS pixels covered at the BOTTOM, i.e. the touch WorkSheet that lifts over the canvas.
+         *
+         * Same viewport inset as `insetRight`, on the other axis: the picture centres in what is left
+         * above the sheet rather than running under it. Zero everywhere but the student touch layout.
+         */
+        insetBottom?: number
     }>(),
-    { insetRight: 0 },
+    { insetRight: 0, insetBottom: 0 },
 )
 
 const shapes = defineModel<Shape[]>('shapes', { required: true })
@@ -137,6 +161,7 @@ const container = useTemplateRef<HTMLElement>('container')
 const view = useCanvasViewport(container, {
     src: computed(() => props.src),
     insetRight: computed(() => props.insetRight),
+    insetBottom: computed(() => props.insetBottom),
 })
 
 const transform = view.transform
@@ -160,7 +185,7 @@ const draftLabel = ref('')
 const startEditing = (shape: Shape) => {
     // A fixed vocabulary is picked, never typed: the chip's free-text field stays shut so a box can
     // only take a class from the palette (the ClassPicker enforces the same rule in the panel).
-    if (props.lockLabels) return
+    if (props.lockLabels || props.readonly) return
     if (shape.id !== selectedId.value) return
     editingId.value = shape.id
     draftLabel.value = shape.label
@@ -484,8 +509,10 @@ const onPointerDown = (event: PointerEvent) => {
     // "what is under the cursor" and gets wherever the LAST pointer event happened to be.
     cursor.value = at
 
-    // Ahead of every tool: a held Space means "move the picture", whatever is armed.
-    if (props.spacePanning) {
+    // Ahead of every tool: read-only, or a held Space, means "move the picture", whatever is armed.
+    // This one branch is what makes `readonly` safe rather than merely discouraging — no tool ever
+    // gets to claim the gesture, so there is nothing for a drag to draw.
+    if (props.readonly || props.spacePanning) {
         gesture.value = { kind: 'pan', last: { x: event.clientX, y: event.clientY } }
         return
     }
@@ -605,6 +632,7 @@ const onPointerDown = (event: PointerEvent) => {
 }
 
 const startResize = (event: PointerEvent, id: string, corner: Corner) => {
+    if (props.readonly) return
     event.stopPropagation()
     ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
     selectedId.value = id
@@ -612,6 +640,7 @@ const startResize = (event: PointerEvent, id: string, corner: Corner) => {
 }
 
 const startVertex = (event: PointerEvent, id: string, index: number) => {
+    if (props.readonly) return
     event.stopPropagation()
     ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
     selectedId.value = id
@@ -851,6 +880,7 @@ const onPointerUp = (event: PointerEvent) => {
         // It is the touch stand-in for the keyboard nobody has on a tablet.
         if (
             wasPinching &&
+            !props.readonly &&
             active.size === 0 &&
             performance.now() - twoFingerStart < 250 &&
             pinchTravel < 12
@@ -874,6 +904,15 @@ const onPointerUp = (event: PointerEvent) => {
             return
         }
         lastTapAt = now
+    }
+
+    // Read-only: the double-tap fit above is navigation and stays, but every branch below this line
+    // changes something — erase, place a point, insert a vertex, change the selection — so the tap
+    // ends here.
+    if (props.readonly) {
+        tapOrigin = null
+        endGesture()
+        return
     }
 
     if (props.tool === 'delete' && natural.value && (wasTap(event) || erasing.value)) {
@@ -1610,7 +1649,7 @@ defineExpose({
                              them: a rectangle resizes by corners, a polygon by vertices. Squares
                              rather than dots - a grab target reads as a square - white with the
                              class colour as its border so it shows on a pale field. -->
-                        <template v-if="shape.id === selectedId && !shape.polygon">
+                        <template v-if="shape.id === selectedId && !shape.polygon && !readonly">
                             <rect
                                 v-for="corner in CORNERS"
                                 :key="corner"
@@ -1647,7 +1686,8 @@ defineExpose({
                                 (shape.id === selectedId ||
                                     tool === 'delete' ||
                                     (tool === 'polygon' && !draftPolygon?.length)) &&
-                                shape.polygon
+                                shape.polygon &&
+                                !readonly
                             "
                         >
                             <!-- Squares, not dots: a vertex handle is a grab target and a square
