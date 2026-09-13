@@ -20,10 +20,14 @@ import { LIBRARY_SORTS, type LibrarySort } from '~/features/types/library'
  */
 const props = defineProps<{
     /**
-     * Full keeps the four status chips inline on one row. Below Full they collapse to a single
-     * "Show" select that sits beside Sort, so the row stays one line (search, album, My uploads,
-     * then the two selects) rather than spending a second line on chips. Compact still scrolls the
-     * row sideways if what remains overflows.
+     * Drives the SIZING of every control (height, padding, whether search is a button until tapped),
+     * which is a question about the input device and so is rightly a viewport question.
+     *
+     * It no longer decides whether the status chips are inline: that is about the space this row has
+     * rather than the space the window has, and is measured instead (see `chipsInline`). Below Full
+     * the chips always collapse to a single "Show" select beside Sort; at Full they collapse too once
+     * the row is squeezed narrow enough, by the inspector opening. Compact still scrolls the row
+     * sideways if what remains overflows.
      */
     layout: AppLayout
     /** The album the grid is showing, named on the chip that opens the drawer. */
@@ -70,6 +74,31 @@ const touch = computed(() => props.layout !== 'full')
 const compact = computed(() => props.layout === 'compact')
 
 /**
+ * Whether the four status chips fit INLINE, measured from this row rather than from the viewport.
+ *
+ * `layout` answers "how big is the screen", and that is the wrong question here. The inspector is a
+ * 400px grid track that SQUEEZES the grid column this row lives in (see LibraryShell), so opening an
+ * image detail on a 1440px desktop leaves the row about 800px while `layout` still says `full`. The
+ * row kept all four chips at desktop width and spilled into a sideways scrollbar.
+ *
+ * So the chips collapse into the same "Show" select the tablet uses, on the same rule, just decided
+ * by the space that actually exists. Everything else stays keyed on `layout`: a narrow desktop row is
+ * not a touch surface, so the controls keep their 30px height and their tighter hit areas.
+ *
+ * The threshold is the row's own arithmetic at desktop sizing: ~372px of chips, ~112 My uploads,
+ * ~126 Sort, ~28 padding and ~32 of gaps come to ~670px of fixed content, and the search field is
+ * allowed to shrink to 140px but reads badly below roughly 230px. 900px is where it stops being
+ * worth keeping all four.
+ *
+ * Measured, NOT derived from `scrollWidth > clientWidth`: overflow-driven collapsing oscillates,
+ * because collapsing removes the overflow that caused it and the row then expands back.
+ */
+const CHIPS_INLINE_MIN_PX = 900
+const row = useTemplateRef<HTMLElement>('row')
+const { width: rowWidth } = useElementSize(row, undefined, { box: 'border-box' })
+const chipsInline = computed(() => !touch.value && rowWidth.value >= CHIPS_INLINE_MIN_PX)
+
+/**
  * On a phone the search field is a BUTTON until it is used.
  *
  * A 48px row has to hold the album chip and four filter chips; a permanent input would take the
@@ -99,6 +128,15 @@ const searchExpanded = computed(() => (touch.value ? searchOpen.value || Boolean
 /** On a phone an open search owns the whole row, so the album chip and My uploads stand down too. */
 const phoneSearchTakesRow = computed(() => compact.value && searchExpanded.value)
 
+/**
+ * The "Show" select stands in for the chips whenever they are not inline, which is now the tablet
+ * AND a squeezed desktop row. It still steps aside for an open search, but only on touch, where the
+ * field takes the row; on the desktop the field is permanent and never claims it.
+ */
+const showFilterSelect = computed(
+    () => !chipsInline.value && !(touch.value && searchExpanded.value),
+)
+
 const searchInput = useTemplateRef<HTMLInputElement>('searchInput')
 /**
  * One height for every control in the row - search, album, the status chips, My uploads, the selects
@@ -115,6 +153,7 @@ const controlPad = computed(() => (compact.value ? 'tw:gap-1 tw:px-2' : 'tw:gap-
 
 <template>
     <div
+        ref="row"
         class="tw:flex tw:shrink-0 tw:items-center tw:border-b tw:border-an-border tw:bg-an-panel tw:px-3.5"
         :class="
             compact
@@ -196,7 +235,7 @@ const controlPad = computed(() => (compact.value ? 'tw:gap-1 tw:px-2' : 'tw:gap-
             allowed to give way, down to 140px; past that the row scrolls sideways rather than
             folding a control in two.
         -->
-        <div v-if="!touch" class="tw:flex tw:shrink-0 tw:gap-1.5">
+        <div v-if="chipsInline" class="tw:flex tw:shrink-0 tw:gap-1.5">
             <button
                 v-for="chip in chips"
                 :key="chip.id"
@@ -254,7 +293,7 @@ const controlPad = computed(() => (compact.value ? 'tw:gap-1 tw:px-2' : 'tw:gap-
              mirroring Sort and sitting right beside it. The current filter and its count show on the
              trigger so the answer to "what am I looking at" survives the collapse. It steps aside
              while the search is open, giving the field the row. -->
-        <McDropdownMenu v-if="touch && !searchExpanded">
+        <McDropdownMenu v-if="showFilterSelect">
             <McDropdownMenuTrigger as-child>
                 <button
                     type="button"
