@@ -94,7 +94,9 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
             <p class="tw:text-[11.5px] tw:font-semibold tw:tracking-[-0.1px] tw:text-an-text">
                 Instructions
             </p>
-            <p class="tw:mt-1.5 tw:max-h-40 tw:overflow-y-auto tw:whitespace-pre-line tw:text-[12.5px] tw:text-an-n-600">
+            <p
+                class="tw:mt-1.5 tw:max-h-40 tw:overflow-y-auto tw:whitespace-pre-line tw:text-[12.5px] tw:text-an-n-600"
+            >
                 {{ instructions || 'Box every finding and label it.' }}
             </p>
         </div>
@@ -109,11 +111,19 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
             v-if="showBrief && responses && fieldPrompts.length > 0"
             class="tw:flex tw:max-h-80 tw:shrink-0 tw:flex-col tw:gap-3 tw:overflow-y-auto tw:bg-an-panel tw:p-3 tw:[touch-action:pan-y]"
         >
-            <div v-for="prompt in fieldPrompts" :key="prompt.key" class="tw:flex tw:shrink-0 tw:flex-col tw:gap-1.5">
-                <label class="tw:flex tw:items-center tw:gap-1 tw:text-[12.5px] tw:font-medium tw:text-an-text">
+            <div
+                v-for="prompt in fieldPrompts"
+                :key="prompt.key"
+                class="tw:flex tw:shrink-0 tw:flex-col tw:gap-1.5"
+            >
+                <label
+                    class="tw:flex tw:items-center tw:gap-1 tw:text-[12.5px] tw:font-medium tw:text-an-text"
+                >
                     {{ prompt.label }}
                     <span v-if="prompt.required" class="tw:text-danger">*</span>
-                    <span v-else class="tw:text-[11px] tw:font-normal tw:text-an-faint">optional</span>
+                    <span v-else class="tw:text-[11px] tw:font-normal tw:text-an-faint">
+                        optional
+                    </span>
                     <span
                         v-if="prompt.type === 'number'"
                         class="tw:ml-auto tw:rounded tw:bg-an-n-100 tw:px-1.5 tw:py-px tw:text-[10px] tw:font-normal tw:text-an-muted"
@@ -128,7 +138,11 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
                     placeholder="Type your answer"
                     class="tw:w-full tw:rounded-md tw:border tw:border-an-n-200 tw:bg-an-n-50 tw:px-3 tw:py-2 tw:text-sm tw:outline-none tw:placeholder:text-an-faint tw:focus:border-an-accent"
                     @input="
-                        emit('update-response', prompt.key, ($event.target as HTMLTextAreaElement).value)
+                        emit(
+                            'update-response',
+                            prompt.key,
+                            ($event.target as HTMLTextAreaElement).value,
+                        )
                     "
                 />
                 <input
@@ -139,7 +153,11 @@ const shapeMeta = (s: Shape) => (s.polygon ? 'polygon' : 'rectangle')
                     :value="responses[prompt.key]"
                     class="tw:h-9 tw:w-full tw:rounded-md tw:border tw:border-an-n-200 tw:bg-an-n-50 tw:px-3 tw:text-sm tw:outline-none tw:placeholder:text-an-faint tw:focus:border-an-accent"
                     @input="
-                        emit('update-response', prompt.key, ($event.target as HTMLInputElement).value)
+                        emit(
+                            'update-response',
+                            prompt.key,
+                            ($event.target as HTMLInputElement).value,
+                        )
                     "
                 />
             </div>

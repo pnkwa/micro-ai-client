@@ -72,7 +72,9 @@ const submit = () => {
 
 <template>
     <!-- `pan-x` keeps the strip swipeable while the shell blocks page pinch/zoom. -->
-    <div class="tw:flex tw:h-11 tw:items-center tw:gap-2 tw:overflow-x-auto tw:[touch-action:pan-x]">
+    <div
+        class="tw:flex tw:h-11 tw:items-center tw:gap-2 tw:overflow-x-auto tw:[touch-action:pan-x]"
+    >
         <!-- Create / edit takes the whole strip. Same row for both, so a class is named and
              recoloured the one way. -->
         <template v-if="editing !== null">

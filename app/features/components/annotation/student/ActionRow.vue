@@ -37,7 +37,9 @@ const done = computed(() => props.status === 'completed')
     >
         <div class="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col tw:gap-0.5">
             <span class="tw:flex tw:items-center tw:gap-1.5">
-                <span class="tw:font-mono tw:text-[12.5px] tw:font-medium tw:tabular-nums tw:text-an-n-700">
+                <span
+                    class="tw:font-mono tw:text-[12.5px] tw:font-medium tw:tabular-nums tw:text-an-n-700"
+                >
                     {{ labelCount }} box{{ labelCount === 1 ? '' : 'es' }}
                 </span>
                 <span
